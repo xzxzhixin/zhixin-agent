@@ -1,0 +1,49 @@
+# IDE 和编辑器本地配置
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Node.js 依赖与包管理缓存
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# 构建产物
+build/
+dist/
+out/
+release/
+coverage/
+*.tsbuildinfo
+
+# Electron 和前端工具缓存
+.vite/
+.cache/
+.eslintcache
+
+# Java/Maven 构建产物
+IDEA_SDK/target/
+target/
+
+# 测试源码与测试产物
+IDEA_SDK/src/test/
+**/src/test/
+**/__tests__/
+**/*.test.*
+**/*.spec.*
+
+# 日志与临时文件
+*.log
+logs/
+tmp/
+temp/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本机中心目录数据
+中心/

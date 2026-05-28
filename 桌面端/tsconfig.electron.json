@@ -1,0 +1,26 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist/main",
+    "rootDir": "src",
+    "baseUrl": "..",
+    "paths": {
+      "@zhixin/shared": [
+        "共享/dist/index.d.ts"
+      ],
+      "@zhixin/shared/*": [
+        "共享/dist/*"
+      ]
+    },
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/renderer/desktop-env.d.ts"
+  ]
+}

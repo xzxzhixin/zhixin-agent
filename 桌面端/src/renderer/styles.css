@@ -1,0 +1,302 @@
+:root {
+  color: #1f2933;
+  background: #f5f7fb;
+  font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  background: #f5f7fb;
+  color: #1f2933;
+}
+
+.app-shell.dark {
+  background: #101418;
+  color: #e5eaf3;
+}
+
+.sidebar {
+  display: flex;
+  width: 280px;
+  min-width: 280px;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-right: 1px solid #d8dee8;
+  background: #ffffff;
+}
+
+.dark .sidebar,
+.dark .config-panel,
+.dark .topbar,
+.dark .composer,
+.dark .chat-surface {
+  border-color: #2c3440;
+  background: #161b22;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-row span {
+  display: block;
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.brand-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.chat-tabs {
+  min-height: 0;
+}
+
+.nav-menu {
+  border-right: 0;
+}
+
+.sidebar-section {
+  min-height: 0;
+}
+
+.sidebar-section h2,
+.page-header h1 {
+  margin: 0;
+}
+
+.sidebar-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.workspace {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #d8dee8;
+  background: #ffffff;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-grid {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  padding: 16px;
+}
+
+.page-panel {
+  flex: 1;
+  padding: 18px;
+  overflow: auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.page-header p {
+  margin: 6px 0 0;
+  color: #6b7280;
+}
+
+.chat-surface,
+.config-panel {
+  overflow: auto;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.chat-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+
+.session-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.config-panel {
+  padding: 16px;
+}
+
+.config-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 10px;
+  font-size: 16px;
+}
+
+.message-row {
+  max-width: 760px;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+.message-row.user {
+  align-self: flex-end;
+  background: #e8f3ff;
+}
+
+.dark .message-row.user {
+  background: #203448;
+}
+
+.message-row.assistant {
+  align-self: flex-start;
+  width: min(760px, 100%);
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px 16px;
+  border-top: 1px solid #d8dee8;
+  background: #ffffff;
+}
+
+.composer-main {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.composer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.floating-picker {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 10;
+  display: grid;
+  width: min(360px, 100%);
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgb(15 23 42 / 16%);
+}
+
+.dark .floating-picker {
+  border-color: #2c3440;
+  background: #161b22;
+}
+
+.floating-picker button {
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.floating-picker button:hover,
+.floating-picker button.active {
+  background: #e8f3ff;
+}
+
+.dark .floating-picker button:hover,
+.dark .floating-picker button.active {
+  background: #203448;
+}
+
+.picker-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.markdown-body {
+  color: inherit;
+}
+
+.dark .markdown-body {
+  color-scheme: dark;
+  color: #e5eaf3;
+  background: transparent;
+}
+
+.dark .markdown-body pre,
+.dark .markdown-body table tr {
+  background: #101418;
+}
+
+.workspace > .el-alert {
+  margin: 12px 16px 0;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid #d8dee8;
+  }
+
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .composer {
+    grid-template-columns: 1fr;
+  }
+}

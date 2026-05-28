@@ -1,0 +1,20 @@
+{
+  "name": "zhixin-agent-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "致心智能体多端工作区",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @zhixin/desktop dev",
+    "dev:web": "pnpm --filter @zhixin/web dev",
+    "dev:center": "pnpm --filter @zhixin/center-service dev",
+    "build:shared": "pnpm --filter @zhixin/shared build",
+    "build:center": "pnpm build:shared && pnpm --filter @zhixin/center-service build",
+    "build:desktop": "pnpm build:center && pnpm --filter @zhixin/desktop build",
+    "build:web": "pnpm build:shared && pnpm --filter @zhixin/web build"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

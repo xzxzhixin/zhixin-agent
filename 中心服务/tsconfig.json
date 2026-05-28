@@ -1,0 +1,25 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "lib": [
+      "ES2022"
+    ],
+    "baseUrl": "..",
+    "paths": {
+      "@zhixin/shared": [
+        "共享/dist/index.d.ts"
+      ],
+      "@zhixin/shared/*": [
+        "共享/dist/*"
+      ]
+    },
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts"
+  ]
+}

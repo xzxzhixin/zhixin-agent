@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-labelledby="title desc">
+  <title id="title">MCP调用</title>
+  <desc id="desc">对话框中表示MCP工具调用的线框图标。</desc>
+  <!-- 图标使用currentColor，方便桌面端、Web端和插件页面按主题统一控制颜色。 -->
+  <path d="M7 4v7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M7 17v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M17 4v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M17 14v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M7 11c0 3.5 2.5 6 6 6h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M17 8c0 2.2-1.8 4-4 4H7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="7" cy="4" r="2" stroke="currentColor" stroke-width="2" />
+  <circle cx="17" cy="4" r="2" stroke="currentColor" stroke-width="2" />
+  <circle cx="7" cy="20" r="2" stroke="currentColor" stroke-width="2" />
+  <circle cx="17" cy="20" r="2" stroke="currentColor" stroke-width="2" />
+</svg>
