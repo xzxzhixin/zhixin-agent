@@ -10,13 +10,21 @@
 
 body {
   margin: 0;
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   background: #f5f7fb;
   color: #1f2933;
+  overflow: hidden;
 }
 
 .app-shell.dark {
@@ -26,13 +34,17 @@ body {
 
 .sidebar {
   display: flex;
+  height: 100%;
   width: 280px;
   min-width: 280px;
+  min-height: 0;
   flex-direction: column;
+  flex: 0 0 280px;
   gap: 16px;
   padding: 18px;
   border-right: 1px solid #d8dee8;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .dark .sidebar,
@@ -66,21 +78,26 @@ body {
 
 .chat-tabs {
   min-height: 0;
+  overflow: hidden;
 }
 
 .nav-menu {
+  flex: 0 0 auto;
   border-right: 0;
 }
 
 .workspace {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex: 1;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -96,22 +113,27 @@ body {
 }
 
 .content-grid {
-  display: grid;
+  display: flex;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  min-width: 0;
   gap: 16px;
   padding: 16px;
+  overflow: hidden;
 }
 
 .page-panel {
+  display: flex;
+  min-height: 0;
   flex: 1;
+  flex-direction: column;
   padding: 18px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .page-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
@@ -127,16 +149,33 @@ body {
   color: #6b7280;
 }
 
+.page-inline-tip {
+  flex: 0 0 auto;
+  margin: 0 0 12px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.page-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .chat-surface,
 .config-panel {
-  overflow: auto;
   border: 1px solid #d8dee8;
   border-radius: 8px;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .chat-surface {
   display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 16px;
   padding: 18px;
@@ -144,11 +183,28 @@ body {
 
 .session-strip {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+.message-list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .config-panel {
+  display: flex;
+  width: 360px;
+  min-width: 300px;
+  min-height: 0;
+  flex: 0 0 360px;
+  flex-direction: column;
   padding: 16px;
 }
 
@@ -181,8 +237,8 @@ body {
 }
 
 .composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex: 0 0 auto;
   gap: 12px;
   align-items: end;
   padding: 14px 16px;
@@ -192,7 +248,10 @@ body {
 
 .composer-main {
   position: relative;
-  display: grid;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -207,8 +266,9 @@ body {
   left: 0;
   bottom: calc(100% + 8px);
   z-index: 10;
-  display: grid;
+  display: flex;
   width: min(360px, 100%);
+  flex-direction: column;
   gap: 4px;
   padding: 8px;
   border: 1px solid #d8dee8;
@@ -279,24 +339,28 @@ body {
   font-size: 24px;
 }
 
-.workspace > .el-alert {
-  margin: 12px 16px 0;
-}
-
 .mobile-shell {
-  min-height: 100vh;
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  flex-direction: column;
   background: #f5f7fb;
   color: #1f2933;
+  overflow: hidden;
 }
 
 .mobile-message-list {
+  min-height: 0;
+  flex: 1 1 auto;
   padding: 12px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .mobile-composer {
-  position: sticky;
-  bottom: 0;
-  display: grid;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
   gap: 8px;
   padding: 12px;
   border-top: 1px solid #d8dee8;
@@ -311,15 +375,18 @@ body {
   .sidebar {
     width: 100%;
     min-width: 0;
+    flex-basis: auto;
     border-right: 0;
     border-bottom: 1px solid #d8dee8;
   }
 
   .content-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
-  .composer {
-    grid-template-columns: 1fr;
+  .config-panel {
+    width: auto;
+    min-width: 0;
+    flex: 0 0 auto;
   }
 }

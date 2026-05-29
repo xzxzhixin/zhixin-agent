@@ -8,10 +8,11 @@
     "dev:desktop": "pnpm --filter @zhixin/desktop dev",
     "dev:web": "pnpm --filter @zhixin/web dev",
     "dev:center": "pnpm --filter @zhixin/center-service dev",
-    "build:shared": "pnpm --filter @zhixin/shared build",
-    "build:center": "pnpm build:shared && pnpm --filter @zhixin/center-service build",
+    "build:shared": "node -e \"console.log('共享模块由 Vite/tsx 直接加载源码')\"",
+    "build:center": "pnpm --filter @zhixin/center-service build",
     "build:desktop": "pnpm build:center && pnpm --filter @zhixin/desktop build",
-    "build:web": "pnpm build:shared && pnpm --filter @zhixin/web build"
+    "build:web": "pnpm --filter @zhixin/web build",
+    "check:no-type-compiler": "node scripts/check-no-type-compiler.mjs"
   },
   "engines": {
     "node": ">=20.0.0",

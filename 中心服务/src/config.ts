@@ -1,6 +1,5 @@
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { CENTER_DIRECTORY_NAMES, DEFAULT_CENTER_DIRECTORY_NAME, DEFAULT_CENTER_PORT } from "@zhixin/shared";
+import { CENTER_DIRECTORY_NAMES, DEFAULT_CENTER_DIRECTORY_NAME, DEFAULT_CENTER_PORT } from "../../共享/src/index.js";
 
 // CenterServiceConfig：中心服务启动需要的本机配置。
 export interface CenterServiceConfig {
@@ -18,10 +17,10 @@ export function readCenterServiceConfig(): CenterServiceConfig {
   const port = rawPort ? Number.parseInt(rawPort, 10) : DEFAULT_CENTER_PORT;
   // rawCenterDirectory：允许桌面端或用户配置中心目录位置。
   const rawCenterDirectory = process.env.ZHIXIN_CENTER_DIR;
-  // centerDirectory：未配置时使用用户主目录下的“中心”。
+  // centerDirectory：未配置时使用当前启动目录下的“中心”，避免把数据默认写到系统用户目录。
   const centerDirectory = rawCenterDirectory
     ? resolve(rawCenterDirectory)
-    : join(homedir(), DEFAULT_CENTER_DIRECTORY_NAME);
+    : join(process.cwd(), DEFAULT_CENTER_DIRECTORY_NAME);
 
   // 返回值：对外只暴露已经规范化的端口和目录。
   return {

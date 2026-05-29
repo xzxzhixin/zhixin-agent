@@ -1,6 +1,6 @@
 import { appendFile, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { FileRepositoryMode } from "@zhixin/shared";
+import { FileRepositoryMode } from "../../共享/src/index.js";
 
 // JsonRecord：中心服务 JSON 仓储允许读写的结构化数据。
 export type JsonRecord = Record<string, unknown> | unknown[];

@@ -17,33 +17,35 @@ const appStore = useAppStore();
       </el-button>
     </header>
 
-    <el-table
-      :data="appStore.runtimes"
-      border
-    >
-      <el-table-column
-        prop="name"
-        label="名称"
-      />
-      <el-table-column
-        prop="type"
-        label="类型"
-        width="110"
-      />
-      <el-table-column
-        prop="executablePath"
-        label="可执行文件"
-      />
-      <el-table-column
-        prop="version"
-        label="版本"
-        width="120"
-      />
-      <el-table-column
-        prop="enabled"
-        label="启用"
-        width="90"
-      />
-    </el-table>
+    <section class="page-scroll">
+      <el-table
+        :data="appStore.runtimes"
+        border
+      >
+        <el-table-column
+          prop="name"
+          label="名称"
+        />
+        <el-table-column
+          prop="type"
+          label="类型"
+          width="110"
+        />
+        <el-table-column
+          prop="executablePath"
+          label="可执行文件"
+        />
+        <el-table-column
+          prop="version"
+          label="版本"
+          width="120"
+        />
+        <el-table-column
+          prop="enabled"
+          label="启用"
+          width="90"
+        />
+      </el-table>
+    </section>
   </section>
 </template>

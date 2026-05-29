@@ -7,8 +7,15 @@
     ]
   },
   "include": [
+    "src/main/**/*.ts",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.vue",
     "vite.config.ts"
+  ],
+  "exclude": [
+    "../中心",
+    "../中心/**",
+    "node_modules",
+    "dist"
   ]
 }

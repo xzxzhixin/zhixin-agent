@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * 发送到致心对话框输入区的上下文引用。
@@ -103,3 +103,4 @@ public final class ContextReference {
         return selectedText;
     }
 }
+

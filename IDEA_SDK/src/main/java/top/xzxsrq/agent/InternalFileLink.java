@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * 内部文件定位链接。
@@ -81,3 +81,4 @@ public final class InternalFileLink {
         return label;
     }
 }
+

@@ -31,7 +31,7 @@ import {
   RuntimeExecutionSelection,
   RuntimeType,
   TaskRecord,
-} from "@zhixin/shared";
+} from "../../共享/src/index.js";
 import { buildCenterDirectoryMap, CenterServiceConfig } from "./config.js";
 import { FileRepository, JsonRecord } from "./repository.js";
 

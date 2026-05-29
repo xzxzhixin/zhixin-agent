@@ -51,6 +51,30 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // path：用量统计页面。
+    path: "/usage",
+    // name：用量统计路由名。
+    name: "usage",
+    // component：用量统计页面组件按路由懒加载。
+    component: () => import("./views/UsageView.vue"),
+    // meta：用量统计来自中心服务聚合数据。
+    meta: {
+      requiresCenter: true,
+    },
+  },
+  {
+    // path：桌面端中心服务管理页面。
+    path: "/center-service",
+    // name：中心服务路由名。
+    name: "center-service",
+    // component：中心服务页面只存在于桌面端，Web端不暴露启停能力。
+    component: () => import("./views/CenterServiceView.vue"),
+    // meta：中心服务页面依赖桌面端主进程桥接和本机中心服务状态。
+    meta: {
+      requiresDesktop: true,
+    },
+  },
+  {
     // path：桌面端本机设置页面。
     path: "/settings",
     // name：设置路由名。

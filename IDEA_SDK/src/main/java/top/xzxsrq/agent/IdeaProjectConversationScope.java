@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * IDEA 项目会话范围。
@@ -39,3 +39,4 @@ public final class IdeaProjectConversationScope {
         return "/mcp?projectId=" + projectId;
     }
 }
+

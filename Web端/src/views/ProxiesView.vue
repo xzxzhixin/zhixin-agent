@@ -26,49 +26,49 @@ const defaultProxyName = computed(() => {
       </el-button>
     </header>
 
-    <el-alert
-      type="info"
-      :title="`全局默认代理：${defaultProxyName}`"
-      show-icon
-    />
+    <p class="page-inline-tip">
+      全局默认代理：{{ defaultProxyName }}
+    </p>
 
-    <el-empty
-      v-if="appStore.proxies.length === 0"
-      description="暂无网络代理"
-    />
-    <el-table
-      v-else
-      :data="appStore.proxies"
-      border
-    >
-      <el-table-column
-        prop="name"
-        label="名称"
+    <section class="page-scroll">
+      <el-empty
+        v-if="appStore.proxies.length === 0"
+        description="暂无网络代理"
       />
-      <el-table-column
-        prop="protocol"
-        label="协议"
-        width="110"
-      />
-      <el-table-column
-        prop="host"
-        label="主机"
-      />
-      <el-table-column
-        prop="port"
-        label="端口"
-        width="100"
-      />
-      <el-table-column
-        prop="default"
-        label="默认"
-        width="90"
-      />
-      <el-table-column
-        prop="enabled"
-        label="启用"
-        width="90"
-      />
-    </el-table>
+      <el-table
+        v-else
+        :data="appStore.proxies"
+        border
+      >
+        <el-table-column
+          prop="name"
+          label="名称"
+        />
+        <el-table-column
+          prop="protocol"
+          label="协议"
+          width="110"
+        />
+        <el-table-column
+          prop="host"
+          label="主机"
+        />
+        <el-table-column
+          prop="port"
+          label="端口"
+          width="100"
+        />
+        <el-table-column
+          prop="default"
+          label="默认"
+          width="90"
+        />
+        <el-table-column
+          prop="enabled"
+          label="启用"
+          width="90"
+        />
+      </el-table>
+    </section>
   </section>
 </template>

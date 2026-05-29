@@ -20,5 +20,13 @@
         "共享/src/*"
       ]
     }
-  }
+  },
+  "exclude": [
+    "中心",
+    "**/中心/**",
+    "node_modules",
+    "dist",
+    "build",
+    "out"
+  ]
 }

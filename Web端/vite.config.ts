@@ -7,6 +7,15 @@ export default defineConfig({
   plugins: [
     vue(),
   ],
+  server: {
+    watch: {
+      // ignored：中心目录是中心服务运行期数据，不应触发 Web 端开发服务热更新扫描。
+      ignored: [
+        "**/中心/**",
+        "../中心/**",
+      ],
+    },
+  },
   resolve: {
     alias: {
       // @：Web端源码别名。

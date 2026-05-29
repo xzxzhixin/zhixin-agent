@@ -47,25 +47,27 @@ async function restartCenterService(): Promise<void> {
       </el-button>
     </header>
 
-    <el-descriptions
-      :column="1"
-      border
-    >
-      <el-descriptions-item label="中心服务端口">
-        {{ appStore.centerConfig?.port || 8866 }}
-      </el-descriptions-item>
-      <el-descriptions-item label="中心目录">
-        {{ appStore.centerConfig?.centerDirectory || "未连接" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="Web访问账号">
-        {{ appStore.centerConfig?.webAccount || "未配置" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="Web访问密码">
-        {{ appStore.centerConfig?.webPasswordHash ? "已保存摘要" : "未配置" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="系统通知权限">
-        {{ appStore.centerConfig?.systemNotificationPermission || "unknown" }}
-      </el-descriptions-item>
-    </el-descriptions>
+    <section class="page-scroll">
+      <el-descriptions
+        :column="1"
+        border
+      >
+        <el-descriptions-item label="中心服务端口">
+          {{ appStore.centerConfig?.port || 8866 }}
+        </el-descriptions-item>
+        <el-descriptions-item label="中心目录">
+          {{ appStore.centerConfig?.centerDirectory || "未连接" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="Web访问账号">
+          {{ appStore.centerConfig?.webAccount || "未配置" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="Web访问密码">
+          {{ appStore.centerConfig?.webPasswordHash ? "已保存摘要" : "未配置" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="系统通知权限">
+          {{ appStore.centerConfig?.systemNotificationPermission || "unknown" }}
+        </el-descriptions-item>
+      </el-descriptions>
+    </section>
   </section>
 </template>

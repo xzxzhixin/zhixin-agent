@@ -35,7 +35,13 @@ import {
   fetchSyncSnapshot,
   fetchTasks,
   fetchUsageSummary,
+  saveClientPreference,
 } from "../api";
+
+// centerStateLoadingPromise：合并同一时间内的状态刷新请求，避免多个页面同时触发接口风暴。
+let centerStateLoadingPromise: Promise<void> | null = null;
+// reconnectTimerId：当前自动重连定时器，存在时不再重复排队新的重连。
+let reconnectTimerId: number | null = null;
 
 // useAppStore：桌面端公共状态，保存主题、连接、会话、项目、登录态、通知、执行模式和供应商选择。
 export const useAppStore = defineStore("desktop-app", {
@@ -117,88 +123,149 @@ export const useAppStore = defineStore("desktop-app", {
     },
   },
   actions: {
-    // loadCenterState：并发读取中心服务公共状态。
-    async loadCenterState(): Promise<void> {
-      // loading：进入刷新态。
-      this.loading = true;
-      // errorMessage：清理旧错误。
-      this.errorMessage = "";
-      try {
-        // Promise.all：这些接口互不依赖，可以并发读取。
-        const [
-          health,
-          centerConfig,
-          providers,
-          proxies,
-          runtimes,
-          preferences,
-          sessions,
-          projects,
-          agents,
-          tasks,
-          notifications,
-          syncSnapshot,
-          memories,
-          usageSummary,
-        ] = await Promise.all([
-          fetchHealth(),
-          fetchCenterConfig(),
-          fetchProviders(),
-          fetchProxies(),
-          fetchRuntimes(),
-          fetchClientPreferences(),
-          fetchSessions(),
-          fetchProjects(),
-          fetchAgents(),
-          fetchTasks(),
-          fetchNotifications(),
-          fetchSyncSnapshot(),
-          fetchMemories(),
-          fetchUsageSummary(),
-        ]);
-        // health：保存中心服务状态。
-        this.health = health;
-        // centerConfig：保存本机配置。
-        this.centerConfig = centerConfig;
-        // providers：保存供应商列表。
-        this.providers = providers;
-        // proxies：保存代理配置列表。
-        this.proxies = proxies;
-        // runtimes：保存运行环境列表。
-        this.runtimes = runtimes;
-        // preferences：保存客户端偏好。
-        this.preferences = preferences;
-        // sessions：保存会话列表。
-        this.sessions = sessions;
-        // projects：保存项目列表。
-        this.projects = projects;
-        // agents：保存智能体列表。
-        this.agents = agents;
-        // tasks：保存任务列表。
-        this.tasks = tasks;
-        // notifications：保存通知事件。
-        this.notifications = notifications;
-        // extensions：同步插件、MCP 和 skill 状态。
-        this.extensions = syncSnapshot.extensions;
-        // pendingMessages：恢复连接后等待用户确认。
-        this.pendingMessages = syncSnapshot.pendingMessages;
-        // memories：保存记忆快速查看结果。
-        this.memories = memories;
-        // usageSummary：保存用量统计聚合。
-        this.usageSummary = usageSummary;
-        // reconnectAttempt：成功连接后重置重试状态。
-        this.reconnectAttempt = 0;
-        // reconnectStopped：成功连接后允许后续断线重新重试。
-        this.reconnectStopped = false;
-      } catch (error) {
-        // message：桌面端展示启动失败或连接失败原因。
-        this.errorMessage = error instanceof Error ? error.message : "中心服务连接失败";
-        // scheduleReconnect：连接失败时按明确次数自动重连。
-        this.scheduleReconnect();
-      } finally {
-        // loading：结束刷新态。
-        this.loading = false;
+    // saveExecutionMode：保存桌面端执行模式，后续任务按新模式执行。
+    async saveExecutionMode(mode: ExecutionMode): Promise<void> {
+      // existing：优先复用中心服务已保存的桌面端偏好。
+      const existing = this.preferences.find((item) => item.clientType === this.clientType);
+      // fallback：中心服务尚未返回偏好时创建同协议默认通知配置，避免只保存半截偏好。
+      const fallback: ClientPreferenceState = {
+        // clientType：当前桌面端客户端类型。
+        clientType: this.clientType,
+        // executionMode：用户在输入框下拉框中选择的模式。
+        executionMode: mode,
+        // notificationConfig：缺少中心偏好时使用需求默认通知配置。
+        notificationConfig: {
+          // clientType：通知配置归属桌面端。
+          clientType: this.clientType,
+          // enabled：默认开启通知，来源于中心服务默认偏好。
+          enabled: true,
+          // inactiveOnly：默认仅窗口不活跃时通知，来源于中心服务默认偏好。
+          inactiveOnly: true,
+          // notifyNormalChat：默认通知普通对话。
+          notifyNormalChat: true,
+          // notifyProjectChat：默认通知项目对话。
+          notifyProjectChat: true,
+          // notifyTeamAgentChat：默认通知团队智能体对话。
+          notifyTeamAgentChat: true,
+          // notifyFailures：默认通知失败或需要处理的对话。
+          notifyFailures: true,
+        },
+      };
+      // next：只替换执行模式，保留原有通知配置。
+      const next: ClientPreferenceState = {
+        ...(existing ?? fallback),
+        executionMode: mode,
+      };
+      // preferences：保存后使用中心服务返回的完整偏好列表。
+      this.preferences = await saveClientPreference(next);
+    },
+    // loadMemories：按需读取中心目录记忆全文，避免普通状态刷新反复加载大文件。
+    async loadMemories(): Promise<void> {
+      // memories：记忆查看页面或显式动作需要时再加载。
+      this.memories = await fetchMemories();
+    },
+    // loadUsageSummary：按需读取用量统计聚合，避免每次状态同步都解析完整用量记录。
+    async loadUsageSummary(): Promise<void> {
+      // usageSummary：用量统计页面进入时单独刷新。
+      this.usageSummary = await fetchUsageSummary();
+    },
+    // clearReconnectTimer：连接恢复或手动刷新成功后清理待执行重连。
+    clearReconnectTimer(): void {
+      // reconnectTimerId：只清理本 store 管理的重连定时器。
+      if (reconnectTimerId === null) {
+        return;
       }
+      // clearTimeout：成功连接后不需要再执行旧的失败重试。
+      window.clearTimeout(reconnectTimerId);
+      reconnectTimerId = null;
+    },
+    // loadCenterState：并发读取中心服务公共状态，不包含记忆全文和用量全量聚合。
+    async loadCenterState(): Promise<void> {
+      // inFlight：已有刷新时复用同一个 Promise，避免重复打中心服务接口。
+      if (centerStateLoadingPromise) {
+        return centerStateLoadingPromise;
+      }
+      centerStateLoadingPromise = (async () => {
+        // loading：进入刷新态。
+        this.loading = true;
+        // errorMessage：清理旧错误。
+        this.errorMessage = "";
+        try {
+          // Promise.all：这些接口互不依赖，可以并发读取。
+          const [
+            health,
+            centerConfig,
+            providers,
+            proxies,
+            runtimes,
+            preferences,
+            sessions,
+            projects,
+            agents,
+            tasks,
+            notifications,
+            syncSnapshot,
+          ] = await Promise.all([
+            fetchHealth(),
+            fetchCenterConfig(),
+            fetchProviders(),
+            fetchProxies(),
+            fetchRuntimes(),
+            fetchClientPreferences(),
+            fetchSessions(),
+            fetchProjects(),
+            fetchAgents(),
+            fetchTasks(),
+            fetchNotifications(),
+            fetchSyncSnapshot(),
+          ]);
+          // health：保存中心服务状态。
+          this.health = health;
+          // centerConfig：保存本机配置。
+          this.centerConfig = centerConfig;
+          // providers：保存供应商列表。
+          this.providers = providers;
+          // proxies：保存代理配置列表。
+          this.proxies = proxies;
+          // runtimes：保存运行环境列表。
+          this.runtimes = runtimes;
+          // preferences：保存客户端偏好。
+          this.preferences = preferences;
+          // sessions：保存会话列表。
+          this.sessions = sessions;
+          // projects：保存项目列表。
+          this.projects = projects;
+          // agents：保存智能体列表。
+          this.agents = agents;
+          // tasks：保存任务列表。
+          this.tasks = tasks;
+          // notifications：保存通知事件。
+          this.notifications = notifications;
+          // extensions：同步插件、MCP 和 skill 状态。
+          this.extensions = syncSnapshot.extensions;
+          // pendingMessages：恢复连接后等待用户确认。
+          this.pendingMessages = syncSnapshot.pendingMessages;
+          // reconnectAttempt：成功连接后重置重试状态。
+          this.reconnectAttempt = 0;
+          // reconnectStopped：成功连接后允许后续断线重新重试。
+          this.reconnectStopped = false;
+          // clearReconnectTimer：连接已经恢复，取消旧的重连计划。
+          this.clearReconnectTimer();
+        } catch (error) {
+          // health：请求失败说明当前 HTTP 健康状态不可用，必须清空旧连接状态。
+          this.health = null;
+          // message：桌面端展示启动失败或连接失败原因。
+          this.errorMessage = error instanceof Error ? error.message : "中心服务连接失败";
+          // scheduleReconnect：连接失败时按明确次数自动重连。
+          this.scheduleReconnect();
+        } finally {
+          // loading：结束刷新态。
+          this.loading = false;
+          // centerStateLoadingPromise：本轮请求结束后允许下一次真实刷新。
+          centerStateLoadingPromise = null;
+        }
+      })();
+      return centerStateLoadingPromise;
     },
     // scheduleReconnect：中心服务断开后按次数和间隔自动重连。
     scheduleReconnect(): void {
@@ -207,12 +274,18 @@ export const useAppStore = defineStore("desktop-app", {
         this.reconnectStopped = true;
         return;
       }
+      // pending：已有重连定时器时不重复排队，避免失败路径叠加请求风暴。
+      if (reconnectTimerId !== null) {
+        return;
+      }
       // reconnectAttempt：记录本轮重试次数，UI 可展示。
       this.reconnectAttempt += 1;
       // delayMs：固定间隔 2 秒，首版保持明确可理解。
       const delayMs = 2000;
       // setTimeout：到点后重新加载中心状态。
-      window.setTimeout(() => {
+      reconnectTimerId = window.setTimeout(() => {
+        // reconnectTimerId：定时器已触发，允许后续失败重新排队下一轮。
+        reconnectTimerId = null;
         void this.loadCenterState();
       }, delayMs);
     },

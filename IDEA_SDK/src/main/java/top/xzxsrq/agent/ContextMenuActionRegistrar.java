@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * IDEA 右键菜单动作登记器抽象。
@@ -34,3 +34,4 @@ public interface ContextMenuActionRegistrar {
      */
     void registerProjectTreeDirectoryAction(PluginPageBridge bridge);
 }
+

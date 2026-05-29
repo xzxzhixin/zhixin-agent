@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -69,3 +69,4 @@ public final class ProjectIdentityService {
         return projectId;
     }
 }
+

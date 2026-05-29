@@ -10,5 +10,11 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "vite.config.ts"
+  ],
+  "exclude": [
+    "../中心",
+    "../中心/**",
+    "node_modules",
+    "dist"
   ]
 }

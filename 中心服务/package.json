@@ -6,9 +6,9 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "test": "pnpm --workspace-root build:shared && tsc -p tsconfig.test.json && node dist-test/tests/core.test.js",
-    "start": "node dist/index.js"
+    "build": "node -e \"console.log('中心服务由 tsx 直接运行源码')\"",
+    "test": "tsx tests/core.test.ts",
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "@zhixin/shared": "workspace:*"

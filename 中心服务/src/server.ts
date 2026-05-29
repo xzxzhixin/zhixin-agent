@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { promisify } from "node:util";
 import { basename, join } from "node:path";
 import {
   AgentDefinition,
@@ -33,7 +36,7 @@ import {
   RuntimeConfig,
   RuntimeUpsertRequest,
   ZHIXIN_APP_NAME,
-} from "@zhixin/shared";
+} from "../../共享/src/index.js";
 import { CenterServiceConfig } from "./config.js";
 import { CenterLogger } from "./logger.js";
 import { createApiKeyMarker, createSecretMarker, hashSecret, WebSessionManager } from "./security.js";
@@ -44,6 +47,8 @@ type RouteHandler = (request: IncomingMessage, response: ServerResponse) => Prom
 
 // WEB_SESSION_COOKIE_NAME：Web端 Cookie 登录态名称，由中心服务统一设置和读取。
 const WEB_SESSION_COOKIE_NAME = "zhixin_web_session";
+// execFileAsync：用于读取 Windows 进程命令行，判断启动锁 PID 是否真的是中心服务进程。
+const execFileAsync = promisify(execFile);
 
 // CenterHttpServer：中心服务 HTTP API，所有客户端都通过这里访问中心事实源。
 export class CenterHttpServer {
@@ -148,7 +153,8 @@ export class CenterHttpServer {
     server.listen(this.config.port, "127.0.0.1");
     // cleanup：进程退出时释放启动锁。
     process.once("exit", () => {
-      void rm(this.lockFilePath, {
+      // rmSync：exit 阶段不会等待异步 Promise，必须同步释放锁。
+      rmSync(this.lockFilePath, {
         force: true,
       });
     });
@@ -1283,7 +1289,8 @@ export class CenterHttpServer {
     await mkdir(this.config.centerDirectory, {
       recursive: true,
     });
-    try {
+    // createLock：用独占写入创建启动锁，避免并发启动时互相覆盖。
+    const createLock = async (): Promise<void> => {
       // handle：wx 表示仅当文件不存在时创建，避免两个进程同时启动。
       const handle = await open(this.lockFilePath, "wx");
       // writeFile：写入当前进程信息，方便排查重复启动。
@@ -1294,9 +1301,85 @@ export class CenterHttpServer {
       }, null, 2));
       // close：关闭锁文件句柄，保留文件作为锁标记。
       await handle.close();
+    };
+    try {
+      await createLock();
+    } catch (error) {
+      // stale：异常退出可能留下旧锁，只有确认原 PID 不存在时才清理，避免误删有效锁。
+      const stale = await this.isStaleStartupLock();
+      if (!stale) {
+        // error：启动锁存在且原进程仍可能存活时明确失败，桌面端展示原因。
+        throw new Error(`中心目录已有中心服务启动锁：${this.lockFilePath}`);
+      }
+      // rm：清理已确认失效的旧锁，让桌面端可以重新启动中心服务。
+      await rm(this.lockFilePath, {
+        force: true,
+      });
+      // retry：清理旧锁后再做一次独占创建，仍然保留并发启动保护。
+      await createLock();
+    }
+  }
+
+  // isStaleStartupLock：判断中心服务启动锁是否来自已退出进程。
+  private async isStaleStartupLock(): Promise<boolean> {
+    try {
+      // content：读取锁文件中的进程号，格式由 acquireStartupLock 写入。
+      const content = await readFile(this.lockFilePath, "utf-8");
+      // lock：启动锁 JSON，pid 是判断旧锁是否失效的唯一依据。
+      const lock = JSON.parse(content) as {
+        // pid：创建锁的中心服务进程号。
+        pid?: number;
+      };
+      // pid：没有有效进程号时视为旧锁，允许后续重新创建。
+      if (typeof lock.pid !== "number") {
+        return true;
+      }
+      // alive：只有 PID 存在且进程命令行仍指向中心服务入口时，才认为启动锁有效。
+      const alive = await this.isCenterServiceProcessAlive(lock.pid);
+      return !alive;
     } catch {
-      // error：启动锁存在时明确失败，桌面端展示原因。
-      throw new Error(`中心目录已有中心服务启动锁：${this.lockFilePath}`);
+      // catch：锁文件不可读或格式损坏时按旧锁处理，避免永久阻断中心服务启动。
+      return true;
+    }
+  }
+
+  // isCenterServiceProcessAlive：判断指定 PID 是否仍是中心服务进程，避免 PID 复用造成旧锁误判。
+  private async isCenterServiceProcessAlive(pid: number): Promise<boolean> {
+    try {
+      // kill 0：不结束进程，只检测 PID 是否仍存在。
+      process.kill(pid, 0);
+    } catch {
+      // catch：PID 已不存在，说明锁已失效。
+      return false;
+    }
+    if (process.platform !== "win32") {
+      // nonWindows：非 Windows 暂无统一命令行查询，PID 存在时保守认为锁有效。
+      return true;
+    }
+    try {
+      // stdout：wmic 返回指定 PID 的命令行，用于确认不是被 npm、cmd 或其他进程复用了。
+      const { stdout } = await execFileAsync(
+        "wmic",
+        [
+          "process",
+          "where",
+          `ProcessId=${pid}`,
+          "get",
+          "CommandLine",
+          "/value",
+        ],
+        {
+          windowsHide: true,
+        },
+      );
+      // commandLine：中心服务进程命令行必须包含中心服务入口和当前工程名。
+      const commandLine = stdout.toString();
+      return commandLine.includes("中心服务")
+        && commandLine.includes("src")
+        && commandLine.includes("index.ts");
+    } catch {
+      // catch：命令行无法确认时按旧锁处理，避免 PID 复用永久阻断启动。
+      return false;
     }
   }
 

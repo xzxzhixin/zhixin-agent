@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * 插件页面桥接能力接口。
@@ -38,3 +38,4 @@ public interface PluginPageBridge {
         return config.baseUrl() + "/plugin.html";
     }
 }
+

@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { Paperclip, Search } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
-import { marked } from "marked";
-import { computed, ref } from "vue";
-import { ContextReference, MessageAttachment } from "@zhixin/shared";
+import { computed, ref, watch } from "vue";
+import { ContextReference, ExecutionMode, MessageAttachment } from "@zhixin/shared";
 import { appendMessage, createSession, savePendingMessage, uploadAttachment } from "../api";
 import { useAppStore } from "../stores/app";
 
@@ -19,18 +18,89 @@ const references = ref<ContextReference[]>([]);
 const activeSessionId = ref("");
 // highlightIndex：@ 检索键盘选择索引。
 const highlightIndex = ref(0);
-
-// renderedMarkdown：大模型 Markdown 内容预览，容器使用 GitHub Markdown 样式。
-const renderedMarkdown = computed(() => marked.parse("## 致心\n\n桌面端负责启动、停止、重启和监控中心服务。\n\n```md\n/ 搜索 skill\n@ 引用项目文件\n```"));
+// reconnectStoppedWarned：记录重连停止提示是否已展示，避免重复弹出。
+const reconnectStoppedWarned = ref(false);
+// selectedPermission：当前输入框权限模式，首版仅作为 UI 选择状态。
+const selectedPermission = ref("full-access");
+// selectedReasoningDepth：当前输入框推理程度，首版随 UI 保存本地选择。
+const selectedReasoningDepth = ref("medium");
+// permissionOptions：权限下拉选项，后续可接入中心服务审批策略。
+const permissionOptions = [
+  {
+    // label：完全自动权限，允许按当前执行模式直接处理。
+    label: "完全访问权限",
+    // value：本地 UI 协议值。
+    value: "full-access",
+  },
+  {
+    // label：编辑前需要确认的权限策略。
+    label: "编辑前确认",
+    // value：本地 UI 协议值。
+    value: "edit-review",
+  },
+  {
+    // label：只读权限策略。
+    label: "只读",
+    // value：本地 UI 协议值。
+    value: "read-only",
+  },
+];
+// executionModeOptions：执行模式下拉框选项，值使用共享协议枚举，标签使用中文展示。
+const executionModeOptions: Array<{
+  // label：展示给用户的中文模式名。
+  label: string;
+  // value：中心服务保存的执行模式协议值。
+  value: ExecutionMode;
+}> = [
+  {
+    label: "建议模式",
+    value: "suggest",
+  },
+  {
+    label: "自动编辑",
+    value: "auto-edit",
+  },
+  {
+    label: "全自动",
+    value: "full-auto",
+  },
+];
 
 // normalSessions：普通对话列表。
 const normalSessions = computed(() => appStore.sessions.filter((session) => session.type === "normal"));
+// projectSessions：项目对话列表。
+const projectSessions = computed(() => appStore.sessions.filter((session) => session.type === "project"));
+// projectSessionGroups：项目对话按项目分组展示，项目本身可折叠。
+const projectSessionGroups = computed(() => appStore.projects.map((project) => ({
+  // project：中心服务登记的项目信息。
+  project,
+  // sessions：当前项目下的项目会话列表。
+  sessions: projectSessions.value.filter((session) => session.projectId === project.projectId),
+})));
 // commandMode：输入以 / 开头时进入 skill 检索模式。
 const commandMode = computed(() => inputText.value.startsWith("/"));
 // projectReferenceMode：项目会话中输入 @ 时展示文件检索弹框。
 const projectReferenceMode = computed(() => Boolean(currentProjectId.value && inputText.value.includes("@")));
 // currentProjectId：当前会话所属项目 ID，普通会话为空。
 const currentProjectId = computed(() => appStore.sessions.find((session) => session.id === activeSessionId.value)?.projectId ?? "");
+// activeProvider：当前供应商选择，用于读取可用推理程度。
+const activeProvider = computed(() => appStore.providers.find((item) => item.id === appStore.selectedProviderId));
+// reasoningDepthOptions：推理程度优先来自供应商配置；无供应商时保留 medium 占位，避免猜测多套协议字段。
+const reasoningDepthOptions = computed(() => {
+  // depths：供应商协议中明确的推理深度列表。
+  const depths = activeProvider.value?.reasoningDepths ?? [];
+  // fallback：未连接供应商时仅展示固定 medium 占位。
+  const fallback = ["medium"];
+  // source：有供应商推理深度时使用供应商数据，否则使用占位值。
+  const source = depths.length > 0 ? depths : fallback;
+  // options：Element Plus 下拉框选项。
+  return source.map((depth) => ({
+    label: depth,
+    value: depth,
+  }));
+});
+// hasRunningTask：存在运行中任务时发送按钮切换为停止按钮。
+const hasRunningTask = computed(() => appStore.tasks.some((task) => task.status === "running"));
 // skillOptions：同时展示全局 skill 和当前项目 skill，项目级同名优先。
 const skillOptions = computed(() => {
   // skills：只取 skill 类型扩展。
@@ -219,10 +289,106 @@ async function sendMessage(): Promise<void> {
     await appStore.loadCenterState();
   }
 }
+
+// handleExecutionModeChange：保存输入框中选择的执行模式。
+async function handleExecutionModeChange(mode: ExecutionMode): Promise<void> {
+  // saveExecutionMode：执行模式按客户端类型保存，不跨桌面端、Web端和 IDEA 插件同步。
+  await appStore.saveExecutionMode(mode);
+}
+
+// stopCurrentTask：停止按钮首版只保留 UI 入口，后续接入中心服务任务停止接口。
+function stopCurrentTask(): void {
+  // warning：当前中心服务尚未暴露停止任务接口，避免静默假装已停止。
+  ElMessage.warning("停止任务接口尚未接入中心服务。");
+}
+
+// watch：断线重连停止时使用 ElMessage 提示，不在输入框内显示 el-alert。
+watch(
+  () => appStore.reconnectStopped,
+  (stopped) => {
+    // reset：恢复连接后允许下次停止时再次提示。
+    if (!stopped) {
+      reconnectStoppedWarned.value = false;
+      return;
+    }
+    // duplicate：同一次停止状态只提示一次。
+    if (reconnectStoppedWarned.value) {
+      return;
+    }
+    // reconnectStoppedWarned：记录已经提示。
+    reconnectStoppedWarned.value = true;
+    // warning：按用户要求使用 ElMessage，不使用 el-alert。
+    ElMessage.warning("中心服务重连已停止，未发送消息会等待你确认。");
+  },
+);
 </script>
 
 <template>
   <section class="content-grid">
+    <aside class="conversation-sidebar">
+      <section class="conversation-group">
+        <h2>项目</h2>
+        <div class="conversation-group-body">
+          <el-empty
+            v-if="projectSessionGroups.length === 0"
+            description="暂无项目"
+          />
+          <el-collapse
+            v-else
+            class="project-chat-collapse"
+          >
+            <el-collapse-item
+              v-for="group in projectSessionGroups"
+              :key="group.project.projectId"
+              :name="group.project.projectId"
+            >
+              <template #title>
+                <span class="conversation-title">
+                  {{ group.project.alias || group.project.displayName }}
+                </span>
+              </template>
+              <el-button
+                v-for="session in group.sessions"
+                :key="session.id"
+                class="conversation-item"
+                :type="activeSessionId === session.id ? 'primary' : 'default'"
+                @click="activeSessionId = session.id"
+              >
+                <span>{{ session.title }}</span>
+                <small>{{ session.status }}</small>
+              </el-button>
+              <div
+                v-if="group.sessions.length === 0"
+                class="conversation-empty"
+              >
+                暂无项目对话
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+      </section>
+
+      <section class="conversation-group">
+        <h2>对话</h2>
+        <div class="conversation-group-body">
+          <el-empty
+            v-if="normalSessions.length === 0"
+            description="暂无对话"
+          />
+          <el-button
+            v-for="session in normalSessions"
+            :key="session.id"
+            class="conversation-item"
+            :type="activeSessionId === session.id ? 'primary' : 'default'"
+            @click="activeSessionId = session.id"
+          >
+            <span>{{ session.title }}</span>
+            <small>{{ session.status }}</small>
+          </el-button>
+        </div>
+      </section>
+    </aside>
+
     <article class="chat-surface">
       <section class="session-strip">
         <el-tag
@@ -240,34 +406,146 @@ async function sendMessage(): Promise<void> {
         </el-tag>
       </section>
 
-      <div class="message-row user">
-        启动中心服务并读取当前状态
-      </div>
-      <div
-        class="message-row assistant markdown-body"
-        v-html="renderedMarkdown"
-      />
+      <section class="message-list" />
+
+      <footer class="composer">
+        <section class="composer-shell">
+          <div
+            v-if="attachments.length || references.length"
+            class="composer-tags"
+          >
+            <el-tag
+              v-for="attachment in attachments"
+              :key="attachment.id"
+              :icon="Paperclip"
+              closable
+              @close="attachments = attachments.filter((item) => item.id !== attachment.id)"
+            >
+              {{ attachment.fileName }}
+            </el-tag>
+            <el-tag
+              v-for="reference in references"
+              :key="reference.id"
+              closable
+              @close="references = references.filter((item) => item.id !== reference.id)"
+            >
+              {{ reference.displayText }}
+            </el-tag>
+          </div>
+          <section class="composer-input-row">
+            <el-input
+              v-model="inputText"
+              class="composer-textarea"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 6 }"
+              placeholder="/ 搜索 skill  @ 引用项目文件"
+              @paste="handlePaste"
+              @keydown="handleComposerKeydown"
+            />
+          </section>
+          <section class="composer-toolbar">
+            <div class="composer-tools">
+              <el-button
+                class="composer-tool-button"
+                aria-label="添加附件或上下文"
+              >
+                添加
+              </el-button>
+            </div>
+            <div class="composer-controls">
+              <el-select
+                v-model="selectedPermission"
+                class="composer-permission-select"
+                size="small"
+              >
+                <el-option
+                  v-for="option in permissionOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+              <el-select
+                class="composer-mode-select"
+                :model-value="appStore.executionMode"
+                size="small"
+                @change="handleExecutionModeChange"
+              >
+                <el-option
+                  v-for="option in executionModeOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+              <el-select
+                v-model="selectedReasoningDepth"
+                class="composer-reasoning-select"
+                size="small"
+              >
+                <el-option
+                  v-for="option in reasoningDepthOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+              <el-button
+                v-if="!hasRunningTask"
+                class="composer-send"
+                type="primary"
+                aria-label="发送"
+                @click="sendMessage"
+              >
+                发送
+              </el-button>
+              <el-button
+                v-else
+                class="composer-send"
+                type="danger"
+                aria-label="停止"
+                @click="stopCurrentTask"
+              >
+                停止
+              </el-button>
+            </div>
+          </section>
+          <div
+            v-if="commandMode"
+            class="floating-picker"
+          >
+            <div class="picker-title">
+              <el-icon><Search /></el-icon>
+              Skill
+            </div>
+            <el-button
+              v-for="skill in skillOptions"
+              :key="skill.id"
+              @click="inputText = `/${skill.name} `"
+            >
+              {{ skill.name }}
+            </el-button>
+            <span v-if="skillOptions.length === 0">暂无可用 skill</span>
+          </div>
+          <div
+            v-if="projectReferenceMode"
+            class="floating-picker"
+          >
+            <div class="picker-title">@ 项目引用</div>
+            <el-button
+              v-for="(reference, index) in projectReferenceOptions"
+              :key="reference.id"
+              :type="index === highlightIndex ? 'primary' : 'default'"
+              @click="insertReference(reference)"
+            >
+              {{ reference.displayText }}
+            </el-button>
+          </div>
+        </section>
+      </footer>
     </article>
 
     <aside class="config-panel">
-      <el-descriptions
-        title="中心服务"
-        :column="1"
-        border
-      >
-        <el-descriptions-item label="中心目录">
-          {{ appStore.health?.centerDirectory || "未连接" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="启用供应商">
-          {{ appStore.enabledProviderCount }} 个
-        </el-descriptions-item>
-        <el-descriptions-item label="项目数量">
-          {{ appStore.projects.length }} 个
-        </el-descriptions-item>
-      </el-descriptions>
-
-      <el-divider />
-
       <h2>任务状态</h2>
       <el-empty
         v-if="appStore.tasks.length === 0"
@@ -307,103 +585,6 @@ async function sendMessage(): Promise<void> {
         />
       </el-table>
 
-      <el-divider />
-
-      <h2>用量统计</h2>
-      <el-table
-        :data="appStore.usageSummary"
-        size="small"
-      >
-        <el-table-column
-          prop="providerName"
-          label="供应商"
-        />
-        <el-table-column
-          prop="totalTokens"
-          label="Token"
-          width="100"
-        />
-      </el-table>
     </aside>
   </section>
-
-  <footer class="composer">
-    <section class="composer-main">
-      <div
-        v-if="attachments.length || references.length"
-        class="composer-tags"
-      >
-        <el-tag
-          v-for="attachment in attachments"
-          :key="attachment.id"
-          :icon="Paperclip"
-          closable
-          @close="attachments = attachments.filter((item) => item.id !== attachment.id)"
-        >
-          {{ attachment.fileName }}
-        </el-tag>
-        <el-tag
-          v-for="reference in references"
-          :key="reference.id"
-          closable
-          @close="references = references.filter((item) => item.id !== reference.id)"
-        >
-          {{ reference.displayText }}
-        </el-tag>
-      </div>
-      <el-input
-        v-model="inputText"
-        type="textarea"
-        :autosize="{ minRows: 2, maxRows: 6 }"
-        placeholder="输入消息，使用 / 检索 skill，项目会话中使用 @ 引用文件"
-        @paste="handlePaste"
-        @keydown="handleComposerKeydown"
-      />
-      <div
-        v-if="commandMode"
-        class="floating-picker"
-      >
-        <div class="picker-title">
-          <el-icon><Search /></el-icon>
-          Skill
-        </div>
-        <button
-          v-for="skill in skillOptions"
-          :key="skill.id"
-          type="button"
-          @click="inputText = `/${skill.name} `"
-        >
-          {{ skill.name }}
-        </button>
-        <span v-if="skillOptions.length === 0">暂无可用 skill</span>
-      </div>
-      <div
-        v-if="projectReferenceMode"
-        class="floating-picker"
-      >
-        <div class="picker-title">@ 项目引用</div>
-        <button
-          v-for="(reference, index) in projectReferenceOptions"
-          :key="reference.id"
-          type="button"
-          :class="{ active: index === highlightIndex }"
-          @click="insertReference(reference)"
-        >
-          {{ reference.displayText }}
-        </button>
-      </div>
-      <el-alert
-        v-if="appStore.reconnectStopped"
-        type="warning"
-        title="中心服务重连已停止，未发送消息会等待你确认。"
-        show-icon
-      />
-    </section>
-    <el-button
-      type="primary"
-      @click="sendMessage"
-    >
-      发送
-    </el-button>
-  </footer>
 </template>

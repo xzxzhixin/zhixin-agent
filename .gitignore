@@ -28,12 +28,24 @@ coverage/
 IDEA_SDK/target/
 target/
 
+# Gradle 本地状态与 IntelliJ Platform 插件缓存
+.gradle/
+**/.gradle/
+.intellijPlatform/
+**/.intellijPlatform/
+.gradle-cache/
+gradle-app.setting
+hs_err_pid*
+replay_pid*
+
 # 测试源码与测试产物
 IDEA_SDK/src/test/
 **/src/test/
 **/__tests__/
 **/*.test.*
 **/*.spec.*
+**/tests/
+**/dist-test/
 
 # 日志与临时文件
 *.log
@@ -47,3 +59,4 @@ Thumbs.db
 
 # 本机中心目录数据
 中心/
+/scripts/

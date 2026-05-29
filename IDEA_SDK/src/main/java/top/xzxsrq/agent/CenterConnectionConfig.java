@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * 中心服务连接配置。
@@ -51,3 +51,4 @@ public final class CenterConnectionConfig {
         return port;
     }
 }
+

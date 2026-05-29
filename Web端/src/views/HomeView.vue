@@ -2,7 +2,7 @@
 import { Paperclip, Search } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { marked } from "marked";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ContextReference, MessageAttachment } from "@zhixin/shared";
 import { appendMessage, createSession, savePendingMessage, uploadAttachment } from "../api";
 import { useAppStore } from "../stores/app";
@@ -19,6 +19,18 @@ const references = ref<ContextReference[]>([]);
 const activeSessionId = ref("");
 // highlightIndex：@ 检索键盘选择索引。
 const highlightIndex = ref(0);
+// reconnectStoppedWarned：记录重连停止提示是否已展示，避免重复弹出。
+const reconnectStoppedWarned = ref(false);
+// pageNotificationShown：记录已展示的页面内通知内容，避免重复弹出。
+const pageNotificationShown = ref("");
+
+// onMounted：Web 首页右侧展示用量摘要时单独拉取统计，不混入全局状态刷新。
+onMounted(() => {
+  // loadUsageSummary：用量聚合属于重接口，只在需要展示的页面按需读取。
+  void appStore.loadUsageSummary().catch(() => {
+    // ignore：中心服务未连接时由全局连接状态提示，这里不额外制造未处理异常。
+  });
+});
 
 // renderedMarkdown：大模型 Markdown 内容预览，使用 GitHub Markdown 样式容器渲染。
 const renderedMarkdown = computed(() => marked.parse("## 致心\n\n欢迎使用 **致心智能体**。\n\n- 中心服务是唯一事实源\n- 桌面端、Web端和IDE插件实时同步\n- Markdown 使用 GitHub 样式渲染"));
@@ -216,6 +228,45 @@ async function sendMessage(): Promise<void> {
     await appStore.loadCenterState();
   }
 }
+
+// watch：浏览器通知不可用时使用 ElMessage 展示页面内通知。
+watch(
+  () => appStore.pageNotificationMessage,
+  (message) => {
+    // missing：无通知内容时不处理。
+    if (!message) {
+      return;
+    }
+    // duplicate：同一条通知只提示一次。
+    if (message === pageNotificationShown.value) {
+      return;
+    }
+    // pageNotificationShown：记录已经提示的通知。
+    pageNotificationShown.value = message;
+    // info：按用户要求使用 ElMessage，不使用 el-alert。
+    ElMessage.info(message);
+  },
+);
+
+// watch：断线重连停止时使用 ElMessage 提示，不在输入框内显示 el-alert。
+watch(
+  () => appStore.reconnectStopped,
+  (stopped) => {
+    // reset：恢复连接后允许下次停止时再次提示。
+    if (!stopped) {
+      reconnectStoppedWarned.value = false;
+      return;
+    }
+    // duplicate：同一次停止状态只提示一次。
+    if (reconnectStoppedWarned.value) {
+      return;
+    }
+    // reconnectStoppedWarned：记录已经提示。
+    reconnectStoppedWarned.value = true;
+    // warning：按用户要求使用 ElMessage，不使用 el-alert。
+    ElMessage.warning("中心服务重连已停止，未发送消息会等待你确认。");
+  },
+);
 </script>
 
 <template>
@@ -237,13 +288,15 @@ async function sendMessage(): Promise<void> {
         </el-tag>
       </section>
 
-      <div class="message-row user">
-        帮我检查项目状态
-      </div>
-      <div
-        class="message-row assistant markdown-body"
-        v-html="renderedMarkdown"
-      />
+      <section class="message-list">
+        <div class="message-row user">
+          帮我检查项目状态
+        </div>
+        <div
+          class="message-row assistant markdown-body"
+          v-html="renderedMarkdown"
+        />
+      </section>
     </article>
 
     <aside class="config-panel">
@@ -266,12 +319,6 @@ async function sendMessage(): Promise<void> {
       <el-divider />
 
       <h2>通知</h2>
-      <el-alert
-        v-if="appStore.pageNotificationMessage"
-        type="info"
-        :title="appStore.pageNotificationMessage"
-        show-icon
-      />
       <el-empty
         v-if="appStore.notifications.length === 0"
         description="暂无通知"
@@ -377,12 +424,6 @@ async function sendMessage(): Promise<void> {
           {{ reference.displayText }}
         </button>
       </div>
-      <el-alert
-        v-if="appStore.reconnectStopped"
-        type="warning"
-        title="中心服务重连已停止，未发送消息会等待你确认。"
-        show-icon
-      />
     </section>
     <el-button
       type="primary"

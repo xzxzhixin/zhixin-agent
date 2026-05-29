@@ -1,4 +1,4 @@
-package cn.zhixin.agent;
+package top.xzxsrq.agent;
 
 /**
  * 上下文引用类型。
@@ -13,3 +13,4 @@ public enum ContextReferenceType {
     /** CODE：编辑器选区或当前行代码引用。 */
     CODE
 }
+

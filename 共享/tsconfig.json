@@ -9,5 +9,11 @@
   },
   "include": [
     "src/**/*.ts"
+  ],
+  "exclude": [
+    "../中心",
+    "../中心/**",
+    "node_modules",
+    "dist"
   ]
 }

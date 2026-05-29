@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "node -e \"console.log('共享模块由 Vite/tsx 直接加载源码')\""
   },
   "devDependencies": {
     "typescript": "5.6.3"

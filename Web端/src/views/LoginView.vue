@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ElMessage } from "element-plus";
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useAppStore } from "../stores/app";
@@ -16,15 +17,10 @@ const form = reactive({
 });
 // loading：登录请求状态。
 const loading = ref(false);
-// errorMessage：登录失败原因。
-const errorMessage = ref("");
-
 // submitRemoteLogin：提交非本机访问登录。
 async function submitRemoteLogin(): Promise<void> {
   // loading：进入登录请求态。
   loading.value = true;
-  // errorMessage：清理旧错误。
-  errorMessage.value = "";
   try {
     // login：中心服务校验账号密码并签发登录态。
     await appStore.login({
@@ -35,7 +31,7 @@ async function submitRemoteLogin(): Promise<void> {
     await router.push("/");
   } catch (error) {
     // message：展示登录失败或中心服务不可用原因。
-    errorMessage.value = error instanceof Error ? error.message : "登录失败";
+    ElMessage.warning(error instanceof Error ? error.message : "登录失败");
   } finally {
     // loading：结束登录请求态。
     loading.value = false;
@@ -78,12 +74,6 @@ async function submitRemoteLogin(): Promise<void> {
           登录
         </el-button>
       </el-form>
-      <el-alert
-        v-if="errorMessage"
-        type="warning"
-        :title="errorMessage"
-        show-icon
-      />
     </section>
   </main>
 </template>

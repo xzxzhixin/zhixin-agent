@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChatDotRound, Connection, Cpu, Key, Moon, Sunny } from "@element-plus/icons-vue";
-import { computed, onMounted } from "vue";
+import { ElMessage } from "element-plus";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore } from "./stores/app";
 
@@ -13,6 +14,8 @@ const route = useRoute();
 
 // isLoginPage：登录页不展示主框架。
 const isLoginPage = computed(() => route.path === "/login");
+// lastShownErrorMessage：记录已弹出的错误，避免自动重连时重复刷屏。
+const lastShownErrorMessage = ref("");
 
 // navigate：统一处理侧边栏页面跳转。
 function navigate(path: string): void {
@@ -27,6 +30,25 @@ onMounted(() => {
     void appStore.loadCenterState();
   }
 });
+
+// watch：中心服务连接错误不展示页面横幅，统一使用 ElMessage。
+watch(
+  () => appStore.errorMessage,
+  (message) => {
+    // missing：没有错误时不提示。
+    if (!message) {
+      return;
+    }
+    // duplicate：自动重连会重复产生同一错误，只提示一次。
+    if (message === lastShownErrorMessage.value) {
+      return;
+    }
+    // lastShownErrorMessage：记录本次已提示的错误。
+    lastShownErrorMessage.value = message;
+    // error：按用户要求使用 ElMessage，不使用 el-alert。
+    ElMessage.error(message);
+  },
+);
 </script>
 
 <template>
@@ -100,13 +122,6 @@ onMounted(() => {
           </el-button>
         </div>
       </header>
-
-      <el-alert
-        v-if="appStore.errorMessage"
-        type="error"
-        :title="appStore.errorMessage"
-        show-icon
-      />
 
       <router-view />
     </section>

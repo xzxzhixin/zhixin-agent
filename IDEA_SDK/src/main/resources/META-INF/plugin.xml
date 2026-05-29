@@ -1,0 +1,39 @@
+<idea-plugin>
+    <id>top.xzxsrq.zhixin-agent</id>
+    <name>致心智能体</name>
+    <vendor email="support@xzxsrq.top" url="https://xzxsrq.top">xzxsrq</vendor>
+
+    <description><![CDATA[
+        致心智能体 IDEA 插件，负责连接本机中心服务、加载 plugin.html 并发送项目上下文。
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+                id="致心"
+                anchor="right"
+                factoryClass="top.xzxsrq.agent.ZhixinToolWindowFactory"/>
+        <notificationGroup
+                id="Zhixin Agent"
+                displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action
+                id="top.xzxsrq.agent.SendContextToZhixinAction"
+                class="top.xzxsrq.agent.SendContextToZhixinAction"
+                text="发送到致心对话框"
+                description="把当前文件、文件夹或代码选区作为上下文发送到致心输入区">
+            <add-to-group
+                    group-id="EditorPopupMenu"
+                    anchor="last"/>
+            <add-to-group
+                    group-id="ProjectViewPopupMenu"
+                    anchor="last"/>
+            <add-to-group
+                    group-id="EditorTabPopupMenu"
+                    anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

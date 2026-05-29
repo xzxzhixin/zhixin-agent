@@ -92,6 +92,15 @@ export function fetchClientPreferences(): Promise<ClientPreferenceState[]> {
   return requestJson<ClientPreferenceState[]>("/client-preferences");
 }
 
+// saveClientPreference：保存当前客户端类型的执行模式和通知偏好。
+export function saveClientPreference(preference: ClientPreferenceState): Promise<ClientPreferenceState[]> {
+  // /client-preferences：中心服务按 clientType 替换对应偏好。
+  return requestJson<ClientPreferenceState[]>("/client-preferences", {
+    method: "POST",
+    body: JSON.stringify(preference),
+  });
+}
+
 // fetchProjects：读取项目列表。
 export function fetchProjects(): Promise<ProjectRegistration[]> {
   // /projects：工程对话按项目分组展示。
