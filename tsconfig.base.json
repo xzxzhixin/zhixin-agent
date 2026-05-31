@@ -14,16 +14,42 @@
     "baseUrl": ".",
     "paths": {
       "@zhixin/shared": [
-        "共享/src/index.ts"
+        "packages/shared/src/index.ts"
       ],
       "@zhixin/shared/*": [
-        "共享/src/*"
+        "packages/shared/src/*"
+      ],
+      "@zhixin/api-client": [
+        "packages/api-client/src/index.ts"
+      ],
+      "@zhixin/api-client/*": [
+        "packages/api-client/src/*"
+      ],
+      "@zhixin/model-protocol": [
+        "packages/model-protocol/src/index.ts"
+      ],
+      "@zhixin/model-protocol/*": [
+        "packages/model-protocol/src/*"
+      ],
+      "@zhixin/plugin-sdk": [
+        "packages/plugin-sdk/src/index.ts"
+      ],
+      "@zhixin/plugin-sdk/*": [
+        "packages/plugin-sdk/src/*"
+      ],
+      "@zhixin/ui": [
+        "packages/ui/src/index.ts"
+      ],
+      "@zhixin/ui/*": [
+        "packages/ui/src/*"
       ]
     }
   },
   "exclude": [
     "中心",
     "**/中心/**",
+    "center-data",
+    "**/center-data/**",
     "node_modules",
     "dist",
     "build",

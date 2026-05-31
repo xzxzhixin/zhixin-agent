@@ -1,5 +1,5 @@
 packages:
-  - "桌面端"
-  - "Web端"
-  - "中心服务"
-  - "共享"
+  - "apps/*"
+  - "services/*"
+  - "packages/*"
+  - "plugins/builtin-*"

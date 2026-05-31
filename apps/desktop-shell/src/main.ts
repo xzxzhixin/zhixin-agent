@@ -1,0 +1,489 @@
+import {
+  createHash,
+} from "node:crypto";
+import {
+  app,
+  BrowserWindow,
+  Notification,
+  ipcMain,
+  Menu,
+  nativeImage,
+  Tray,
+} from "electron";
+import {
+  type ChildProcessWithoutNullStreams,
+  spawn,
+  spawnSync,
+} from "node:child_process";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+} from "node:fs";
+import {
+  dirname,
+  join,
+  resolve,
+} from "node:path";
+import {
+  fileURLToPath,
+} from "node:url";
+
+import {
+  APP_NAME,
+  CENTER_DATA_DIR_NAME,
+  DEFAULT_CENTER_PORT,
+} from "@zhixin/shared";
+
+/**
+ * CenterLaunchConfig：桌面壳启动中心服务所需配置。
+ *
+ * 来源：桌面端本机配置和架构默认值。
+ * 含义：决定中心服务端口、中心目录和前端资源路径。
+ * 格式：运行期对象。
+ * 默认值：端口 8866，中心目录为应用启动目录下 center-data。
+ * 约束：Web 和 IDEA 插件不能修改中心服务生命周期。
+ */
+interface CenterLaunchConfig {
+  /**
+   * port: 中心服务监听端口。
+   */
+  port: number;
+
+  /**
+   * centerDirectory: 中心目录绝对路径。
+   */
+  centerDirectory: string;
+}
+
+// isDev: 未打包时按源码路径启动中心服务和前端构建产物。
+const isDev = !app.isPackaged;
+// appRoot: Electron 应用根目录。
+const appRoot = app.getAppPath();
+// repoRoot: 开发期仓库根目录。
+const repoRoot = resolve(appRoot, "..", "..");
+// iconPath: 应用图标固定使用 assets/app-icon/图标.png。
+const iconPath = isDev
+  ? join(repoRoot, "assets", "app-icon", "图标.png")
+  : join(process.resourcesPath, "assets", "app-icon", "图标.png");
+// preloadPath: Electron preload 运行在独立上下文，必须指向可直接执行的 CommonJS 文件，不能依赖 tsx 转译。
+const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+// frontendDistPath: 中心服务托管的统一前端构建产物目录。
+const frontendDistPath = isDev
+  ? join(repoRoot, "apps", "frontend", "dist")
+  : join(process.resourcesPath, "frontend");
+// frontendDevUrl: 开发期前端 dev server 地址，由根开发脚本注入以获得热更新体验。
+const frontendDevUrl = process.env.ZHIXIN_FRONTEND_DEV_URL;
+// centerEntryPath: 开发期直接运行中心服务 TS 入口，绿色版运行随包中心服务入口。
+const centerEntryPath = isDev
+  ? join(repoRoot, "services", "center", "src", "index.ts")
+  : join(process.resourcesPath, "center", "index.js");
+// desktopConfigPath: 桌面壳本机配置文件，保存中心服务端口和中心目录。
+const desktopConfigPath = join(app.getPath("userData"), "desktop-config.json");
+
+// mainWindow: 主窗口引用，避免被垃圾回收。
+let mainWindow: BrowserWindow | null = null;
+// tray: 系统托盘引用。
+let tray: Tray | null = null;
+// centerProcess: 桌面壳管理的中心服务进程。
+let centerProcess: ChildProcessWithoutNullStreams | null = null;
+// lastCenterError: 最近一次中心服务启动或运行错误。
+let lastCenterError = "";
+// centerLaunchConfig: 当前中心服务启动参数。
+const centerLaunchConfig: CenterLaunchConfig = {
+  port: DEFAULT_CENTER_PORT,
+  centerDirectory: isDev
+    ? join(repoRoot, CENTER_DATA_DIR_NAME)
+    : join(process.cwd(), CENTER_DATA_DIR_NAME),
+};
+
+/**
+ * DesktopConfigFile：桌面壳本机配置文件结构。
+ *
+ * 来源：桌面端中心服务管理页面。
+ * 含义：保存端口和中心目录，供下次启动中心服务使用。
+ * 格式：JSON 对象。
+ * 默认值：端口 8866，中心目录按开发期或绿色版默认位置。
+ * 约束：该文件只保存本机启动配置，不保存会话、供应商或记忆事实。
+ */
+interface DesktopConfigFile {
+  /**
+   * port: 中心服务监听端口。
+   */
+  port: number;
+
+  /**
+   * centerDirectory: 中心目录绝对路径。
+   */
+  centerDirectory: string;
+}
+
+/**
+ * isExternalCenterDirectory：判断中心目录是否为用户外部目录。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @returns 是外部中心目录时返回 true。
+ */
+function isExternalCenterDirectory(centerDirectory: string): boolean {
+  // defaultDirectory: 当前运行形态下的默认中心目录，绿色版默认随解压目录删除。
+  const defaultDirectory = isDev
+    ? join(repoRoot, CENTER_DATA_DIR_NAME)
+    : join(process.cwd(), CENTER_DATA_DIR_NAME);
+  return resolve(centerDirectory) !== resolve(defaultDirectory);
+}
+
+/**
+ * readDesktopConfig：读取桌面壳本机配置。
+ *
+ * @returns 合并默认值后的桌面配置。
+ */
+function readDesktopConfig(): DesktopConfigFile {
+  if (!existsSync(desktopConfigPath)) {
+    return {
+      port: centerLaunchConfig.port,
+      centerDirectory: centerLaunchConfig.centerDirectory,
+    };
+  }
+
+  try {
+    // parsed: 本机配置来自用户目录，解析失败时回退默认值避免桌面壳无法启动。
+    const parsed = JSON.parse(readFileSync(desktopConfigPath, "utf-8")) as Partial<DesktopConfigFile>;
+    return {
+      port: normalizePort(parsed.port),
+      centerDirectory: parsed.centerDirectory
+        ? resolve(parsed.centerDirectory)
+        : centerLaunchConfig.centerDirectory,
+    };
+  } catch (error) {
+    lastCenterError = error instanceof Error ? error.message : "桌面配置读取失败";
+    return {
+      port: centerLaunchConfig.port,
+      centerDirectory: centerLaunchConfig.centerDirectory,
+    };
+  }
+}
+
+/**
+ * writeDesktopConfig：保存桌面壳本机配置。
+ *
+ * @param config 桌面壳本机配置。
+ * @returns 没有返回值。
+ */
+function writeDesktopConfig(config: DesktopConfigFile): void {
+  mkdirSync(dirname(desktopConfigPath), {
+    recursive: true,
+  });
+  writeFileSync(desktopConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+}
+
+/**
+ * normalizePort：把用户输入端口约束为合法 TCP 端口。
+ *
+ * @param port 用户输入端口。
+ * @returns 合法端口；非法时返回架构默认端口。
+ */
+function normalizePort(port: unknown): number {
+  const parsedPort = typeof port === "number" ? port : Number.parseInt(String(port), 10);
+  return Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
+    ? parsedPort
+    : DEFAULT_CENTER_PORT;
+}
+
+/**
+ * applyDesktopConfig：把本机配置应用到中心服务启动参数。
+ *
+ * @param config 桌面壳本机配置。
+ * @returns 没有返回值。
+ */
+function applyDesktopConfig(config: DesktopConfigFile): void {
+  centerLaunchConfig.port = normalizePort(config.port);
+  centerLaunchConfig.centerDirectory = resolve(config.centerDirectory);
+}
+
+/**
+ * saveAccessAccountConfig：保存远程 Web 账号密码摘要到中心目录。
+ *
+ * @param account 远程 Web 访问账号。
+ * @param password 远程 Web 访问密码明文，仅用于生成 SHA-256 摘要。
+ * @returns 保存结果。
+ */
+function saveAccessAccountConfig(account: string, password: string): {
+  ok: boolean;
+  errorMessage: string;
+} {
+  if (!account || !password) {
+    return {
+      ok: false,
+      errorMessage: "账号和密码不能为空。",
+    };
+  }
+
+  // accessConfigPath: 中心服务读取的访问控制配置文件，属于中心目录可迁移配置。
+  const accessConfigPath = join(centerLaunchConfig.centerDirectory, "config", "access.json");
+  mkdirSync(dirname(accessConfigPath), {
+    recursive: true,
+  });
+  writeFileSync(accessConfigPath, `${JSON.stringify({
+    webAccountConfigured: true,
+    account,
+    passwordSha256: createHash("sha256").update(password).digest("hex"),
+    updatedAt: new Date().toISOString(),
+  }, null, 2)}\n`, "utf-8");
+
+  return {
+    ok: true,
+    errorMessage: "",
+  };
+}
+
+applyDesktopConfig(readDesktopConfig());
+
+/**
+ * startCenterService：启动桌面壳管理的中心服务。
+ *
+ * @returns 没有返回值。
+ */
+function startCenterService(): void {
+  if (centerProcess) {
+    return;
+  }
+
+  mkdirSync(centerLaunchConfig.centerDirectory, {
+    recursive: true,
+  });
+
+  const tsxCommand = process.platform === "win32" ? "tsx.CMD" : "tsx";
+  const command = isDev
+    ? join(repoRoot, "node_modules", ".bin", tsxCommand)
+    : process.execPath;
+  const args = [
+    centerEntryPath,
+  ];
+
+  centerProcess = spawn(command, args, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      ZHIXIN_CENTER_PORT: String(centerLaunchConfig.port),
+      ZHIXIN_CENTER_DIR: centerLaunchConfig.centerDirectory,
+      ZHIXIN_FRONTEND_DIST: frontendDistPath,
+    },
+    shell: isDev,
+    stdio: "pipe",
+    windowsHide: true,
+  });
+
+  centerProcess.on("error", (error) => {
+    lastCenterError = error.message;
+    centerProcess = null;
+  });
+  centerProcess.stderr.on("data", (chunk) => {
+    lastCenterError = Buffer.from(chunk).toString("utf-8");
+    console.error(lastCenterError);
+  });
+  centerProcess.stdout.on("data", (chunk) => {
+    console.log(Buffer.from(chunk).toString("utf-8"));
+  });
+  centerProcess.on("exit", (code) => {
+    if (code && !lastCenterError) {
+      lastCenterError = `中心服务退出，退出码：${code}`;
+    }
+    centerProcess = null;
+  });
+}
+
+/**
+ * stopCenterService：停止桌面壳管理的中心服务。
+ *
+ * @returns 没有返回值。
+ */
+function stopCenterService(): void {
+  if (!centerProcess) {
+    return;
+  }
+
+  const pid = centerProcess.pid;
+
+  if (process.platform === "win32" && typeof pid === "number") {
+    spawnSync(
+      "taskkill",
+      [
+        "/pid",
+        String(pid),
+        "/t",
+        "/f",
+      ],
+      {
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
+  } else {
+    centerProcess.kill();
+  }
+
+  centerProcess = null;
+}
+
+/**
+ * createWindow：创建桌面端主窗口。
+ *
+ * @returns 窗口加载完成后没有返回值。
+ */
+async function createWindow(): Promise<void> {
+  const icon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
+
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 960,
+    minHeight: 640,
+    title: APP_NAME,
+    icon,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: preloadPath,
+      sandbox: false,
+    },
+  });
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.setAutoHideMenuBar(true);
+
+  if (isDev && frontendDevUrl) {
+    // 开发期优先加载 Vite dev server，避免每次开壳前构建前端。
+    await mainWindow.loadURL(`${frontendDevUrl}?port=${centerLaunchConfig.port}`);
+    return;
+  }
+
+  // 生产期和无前端 dev server 的开发兜底都走中心服务 HTTP 页面。
+  // Vite 拆包后的 ES module 不能可靠通过普通 file:// 页面加载，统一由中心服务托管静态资源。
+  await mainWindow.loadURL(`http://127.0.0.1:${centerLaunchConfig.port}?port=${centerLaunchConfig.port}`);
+}
+
+/**
+ * registerIpc：注册桌面壳白名单 IPC。
+ *
+ * @returns 没有返回值。
+ */
+function registerIpc(): void {
+  ipcMain.handle("zhixin:center-status", () => ({
+    running: Boolean(centerProcess),
+    errorMessage: lastCenterError,
+    port: centerLaunchConfig.port,
+    centerDirectory: centerLaunchConfig.centerDirectory,
+    isExternalCenterDirectory: isExternalCenterDirectory(centerLaunchConfig.centerDirectory),
+  }));
+
+  ipcMain.handle("zhixin:center-config-update", (_event, payload: {
+    port?: number;
+    centerDirectory?: string;
+  }) => {
+    lastCenterError = "";
+    const nextConfig: DesktopConfigFile = {
+      port: normalizePort(payload.port),
+      centerDirectory: payload.centerDirectory
+        ? resolve(payload.centerDirectory)
+        : centerLaunchConfig.centerDirectory,
+    };
+    applyDesktopConfig(nextConfig);
+    writeDesktopConfig(nextConfig);
+    stopCenterService();
+    startCenterService();
+    mainWindow?.webContents.send("zhixin:center-config-changed", {
+      port: centerLaunchConfig.port,
+      centerDirectory: centerLaunchConfig.centerDirectory,
+    });
+
+    return {
+      ok: !lastCenterError,
+      errorMessage: lastCenterError,
+      port: centerLaunchConfig.port,
+      centerDirectory: centerLaunchConfig.centerDirectory,
+      isExternalCenterDirectory: isExternalCenterDirectory(centerLaunchConfig.centerDirectory),
+    };
+  });
+
+  ipcMain.handle("zhixin:access-account-save", (_event, payload: {
+    account?: string;
+    password?: string;
+  }) => saveAccessAccountConfig(payload.account ?? "", payload.password ?? ""));
+
+  ipcMain.handle("zhixin:notification-permission", () => ({
+    permission: Notification.isSupported() ? "supported" : "unsupported",
+    checkedAt: new Date().toISOString(),
+  }));
+
+  ipcMain.handle("zhixin:center-start", () => {
+    lastCenterError = "";
+    startCenterService();
+    return {
+      ok: !lastCenterError,
+      errorMessage: lastCenterError,
+    };
+  });
+
+  ipcMain.handle("zhixin:center-stop", () => {
+    lastCenterError = "";
+    stopCenterService();
+    return {
+      ok: true,
+      errorMessage: "",
+    };
+  });
+
+  ipcMain.handle("zhixin:center-restart", () => {
+    lastCenterError = "";
+    stopCenterService();
+    startCenterService();
+    return {
+      ok: !lastCenterError,
+      errorMessage: lastCenterError,
+    };
+  });
+}
+
+/**
+ * createTray：创建系统托盘。
+ *
+ * @returns 没有返回值。
+ */
+function createTray(): void {
+  const icon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
+  tray = new Tray(icon);
+  tray.setToolTip(APP_NAME);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: "显示致心智能体",
+      click: () => mainWindow?.show(),
+    },
+    {
+      label: "退出",
+      click: () => app.quit(),
+    },
+  ]));
+}
+
+void app.whenReady().then(async () => {
+  registerIpc();
+  startCenterService();
+  await createWindow();
+  createTray();
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
+});
+
+app.on("activate", () => {
+  if (!mainWindow) {
+    void createWindow();
+  }
+});
+
+app.on("before-quit", () => {
+  stopCenterService();
+});

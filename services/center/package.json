@@ -1,0 +1,26 @@
+{
+  "name": "@zhixin/center",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "node -e \"console.log('services/center 由 tsx 运行源码，当前阶段不执行 TypeScript 编译器检查')\"",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@zhixin/shared": "workspace:*",
+    "@fastify/websocket": "11.2.0",
+    "better-sqlite3": "12.10.0",
+    "fastify": "5.8.5",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.10.5",
+    "@types/ws": "8.18.1",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}

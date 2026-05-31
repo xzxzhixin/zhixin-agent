@@ -1,0 +1,15 @@
+{
+  "name": "@zhixin/builtin-browser-collector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node -e \"console.log('plugins/builtin-browser-collector 由源码直接参与构建')\""
+  },
+  "dependencies": {
+    "@zhixin/plugin-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3"
+  }
+}

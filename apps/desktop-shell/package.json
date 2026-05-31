@@ -1,0 +1,21 @@
+{
+  "name": "@zhixin/desktop-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "scripts/electron-main.mjs",
+  "scripts": {
+    "dev": "electron .",
+    "build": "node scripts/build-zip.mjs",
+    "preview": "electron ."
+  },
+  "dependencies": {
+    "@zhixin/shared": "workspace:*",
+    "electron": "33.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}

@@ -1,0 +1,840 @@
+# 致心智能体新版架构设计
+
+## 设计目标
+
+本设计基于新版 `需求.md`，目标是把致心智能体设计为运行在用户中心电脑上的个人中心服务 Agent 平台。中心服务是唯一事实源，桌面壳、Web、手机浏览器和 IDE 插件都是客户端。
+
+本设计替代旧版 `架构.md` 的方向性内容。旧 `桌面端`、`Web端`、`中心服务`、`共享`、`IDEA_SDK` 目录只作为历史实现参考，不再作为新增开发目标。
+
+## 总体架构
+
+系统采用“个人中心服务内核 + Worker 执行进程 + 统一前端 + 多宿主壳”的结构。
+
+中心电脑上只运行一个中心服务实例。中心服务负责配置、会话、项目、任务、记忆、供应商、插件、MCP、skill、个人事务领域、用量统计、通知、审计事件和访问控制。
+
+桌面壳负责启动、停止、重启和监控中心服务。Web 浏览器、手机浏览器和 IDE 插件都只连接中心服务，不直接持有核心业务事实。
+
+Agent 执行不放在中心服务主进程。中心服务主进程只做调度、鉴权、状态写入、事件广播和资源管控。每轮对话、模型调用、工具调用、命令执行、MCP 调用、插件调用、skill 注入和多智能体协作由 Worker 子进程执行。
+
+中心服务和 Worker 使用 Node 子进程 IPC 传递 JSON-RPC 风格消息。实时事件由中心服务写入 SQLite 事件日志，并通过 WebSocket 广播给客户端。
+
+前端是一个统一 Vue 应用，构建多个入口。`index.html` 用于桌面壳、本机 Web、远程 Web 和手机 Web；`plugin.html` 用于 IDE WebView。IDE 插件入口使用紧凑项目对话模式，不展示完整管理工作台。
+
+模型供应商适配也走插件机制。系统内置两个不可卸载模型协议插件：`openai-compatible` 和 `anthropic-messages`。后续其他模型协议也通过插件扩展进入。Agent 执行引擎只依赖内部统一模型协议。
+
+## 工程目录
+
+新版工程使用 pnpm monorepo 和英文路径。
+
+```text
+zhixin-agent
+├─ apps
+│  ├─ frontend
+│  └─ desktop-shell
+├─ services
+│  └─ center
+├─ packages
+│  ├─ shared
+│  ├─ api-client
+│  ├─ ui
+│  ├─ model-protocol
+│  └─ plugin-sdk
+├─ plugins
+│  ├─ idea
+│  ├─ builtin-model-openai-compatible
+│  ├─ builtin-model-anthropic-messages
+│  ├─ builtin-automation
+│  ├─ builtin-browser-collector
+│  ├─ builtin-office-integration
+│  └─ builtin-file-organizer
+├─ docs
+├─ assets
+└─ scripts
+```
+
+`apps/frontend` 是唯一业务前端，使用 Vue 3、Vite、Vue Router、Pinia、Element Plus 和 Vant。它构建 `index.html` 和 `plugin.html` 两个入口。
+
+`apps/desktop-shell` 是 Electron 壳，只负责窗口、托盘、系统通知权限检测、中心服务生命周期、本机配置入口、绿色版 zip 打包和前端资源承载。
+
+`services/center` 是中心服务，使用 Node.js、TypeScript、Fastify 和 better-sqlite3。它包含领域模块、REST API、WebSocket、数据仓储、事件日志、Worker 管理、访问控制和扩展运行管理。
+
+`packages/shared` 保存跨端共享常量、枚举、协议类型和纯工具。
+
+`packages/api-client` 保存中心服务 REST API 客户端和 WebSocket 客户端。
+
+`packages/ui` 保存跨入口复用的消息渲染、输入框、状态卡片、Markdown 渲染和文件引用组件。
+
+`packages/model-protocol` 保存内部模型请求、流式事件、工具调用和用量协议。
+
+`packages/plugin-sdk` 保存插件清单类型、权限声明、中心服务插件 API 和插件 UI 桥接类型。
+
+`plugins/idea` 是 IDEA 插件工程，使用 Gradle IntelliJ Platform Plugin，产物名为 `zhixin-agent-idea-版本.zip`。
+
+`plugins/builtin-*` 是系统内置插件。模型协议适配器、自动化、浏览器采集、办公集成和资料整理放在这里。待办、日程和个人知识库不放插件里，而是中心服务一等领域模块。
+
+## 中心目录与存储
+
+中心目录是完整迁移单元。复制整个中心目录到另一台电脑后，应能恢复记忆、会话、项目、插件配置、供应商配置、审计记录和统计数据。
+
+建议中心目录结构：
+
+```text
+center-data
+├─ db
+│  ├─ zhixin.sqlite
+│  └─ migrations
+├─ config
+│  ├─ center.json
+│  ├─ access.json
+│  └─ notification.json
+├─ memory
+│  ├─ user.md
+│  └─ agents
+├─ agents
+├─ providers
+├─ plugins
+├─ mcp
+├─ skills
+├─ runtimes
+├─ sessions
+│  └─ attachments
+├─ personal
+│  ├─ todos
+│  ├─ calendar
+│  └─ knowledge
+├─ temp
+└─ logs
+```
+
+Markdown 保存用户记忆、智能体记忆、智能体定义、skill 内容和可读说明。
+
+JSON 保存中心服务本机配置、访问控制摘要、供应商配置、代理配置、运行环境配置、插件清单和 MCP 配置等低频配置。
+
+SQLite 保存会话、消息、轮次、任务、智能体运行状态、事件日志、流式片段索引、调用记录、用量统计、通知事件、项目索引、待办、日程和知识库索引。
+
+附件文件保存在正式会话附件目录，SQLite 保存附件元数据和消息关联。
+
+`temp` 只保存未发送输入框附件。中心服务启动和停止时清理未绑定正式消息的临时文件。
+
+better-sqlite3 只在中心服务主进程打开数据库连接。Worker 不能直接写 SQLite，必须通过 IPC 把状态变更和事件交回中心服务，由中心服务统一事务写入。
+
+中心服务启动时按迁移文件执行 SQLite 迁移。迁移记录写入 SQLite 内部表。
+
+## SQLite 状态表与事件日志
+
+SQLite 表按“当前状态表 + 追加事件表”组织。
+
+核心状态表：
+
+```text
+projects
+sessions
+messages
+conversation_turns
+tasks
+task_steps
+agents_index
+agent_runtime_states
+attachments
+notifications
+usage_records
+usage_daily_stats
+todos
+calendar_events
+knowledge_items
+plugin_installs
+extension_call_records
+sync_clients
+```
+
+`projects` 保存项目 ID、项目显示名、项目别名、最近路径、首次登记时间和最后访问时间。项目 ID 来自项目根目录 `致心项目ID.md`。项目路径只作为当前位置记录，不作为身份。
+
+`sessions` 保存普通会话和项目会话。项目会话关联 `project_id`，普通会话为空。
+
+`messages` 保存用户消息、Agent 回复、系统过程消息、错误消息和工具过程消息等最终可展示消息。
+
+`conversation_turns` 保存每轮用户输入到 Agent 完成、失败、取消或等待用户之间的边界。
+
+`tasks` 和 `task_steps` 保存任务调度状态。一次用户轮次可以触发多个任务。
+
+事件日志表为 `events`：
+
+```text
+events
+- id
+- event_type
+- scope_type
+- scope_id
+- session_id
+- turn_id
+- task_id
+- step_id
+- agent_id
+- project_id
+- client_id
+- sequence
+- status
+- occurred_at
+- title
+- summary
+- payload_json
+- error_code
+- trace_id
+```
+
+`event_type` 使用固定枚举，至少包括轮次开始、轮次结束、消息创建、流式片段、思考片段、模型调用开始、模型调用结束、工具调用开始、工具调用结束、命令执行开始、命令执行结束、文件读取、文件写入、文件删除、插件调用、MCP 调用、skill 使用、子智能体创建、智能体状态变更、协作消息、记忆写入、通知创建和错误。
+
+`sequence` 在同一个 `turn_id` 内递增，用于断线后继续拉取事件。WebSocket 实时推送事件，客户端断线重连后使用 REST 查询缺失事件，再恢复订阅。
+
+`usage_records` 只追加模型调用用量原始记录。聚合表 `usage_daily_stats` 可以由中心服务按需刷新或增量维护，但不能替代原始记录。
+
+## 中心服务模块
+
+中心服务使用 Fastify 模块化组织。每个领域模块包含路由、仓储、服务、事件写入和权限检查。
+
+建议模块：
+
+```text
+bootstrap
+config
+auth
+client-access
+websocket
+projects
+sessions
+turns
+tasks
+agents
+memory
+providers
+model-gateway
+plugins
+mcp
+skills
+personal-todos
+personal-calendar
+personal-knowledge
+runtimes
+usage
+notifications
+files
+worker-manager
+audit
+```
+
+`bootstrap` 负责中心目录初始化、SQLite 迁移、启动锁、内置主智能体恢复和内置插件注册。
+
+`auth` 和 `client-access` 负责本机访问识别、远程 Web 登录、Cookie 登录态和 IDE 插件本机连接限制。
+
+`worker-manager` 只在中心服务主进程管理 Worker 生命周期，不对客户端直接暴露内部执行细节。
+
+## REST API 与 WebSocket
+
+REST API 只允许 `GET` 和 `POST`，不使用路径参数。路径必须稳定，不把实体 ID 拼进路径。业务实体不存在返回统一业务错误，不通过 404 表达。
+
+示例：
+
+```text
+GET  /api/health
+GET  /api/bootstrap/state
+GET  /api/session/list
+POST /api/session/detail
+POST /api/session/create
+POST /api/session/message/send
+POST /api/session/event/list
+POST /api/project/register
+POST /api/project/detail
+POST /api/provider/create
+POST /api/provider/update
+POST /api/provider/delete
+POST /api/task/cancel
+POST /api/plugin/install
+POST /api/plugin/enable
+POST /api/plugin/disable
+```
+
+`GET` 只做简单无副作用查询，参数放 query。
+
+`POST` 用于创建、修改、删除、命令触发和复杂查询，参数尽量使用 JSON body。
+
+删除、停用、取消等操作使用 `POST /api/xxx/delete`、`POST /api/xxx/disable`、`POST /api/xxx/cancel`。
+
+统一响应包：
+
+```ts
+{
+  success: boolean;
+  data: unknown | null;
+  error: {
+    code: string;
+    message: string;
+    displayMessage: string;
+    traceId: string;
+    details?: unknown;
+  } | null;
+}
+```
+
+所有 API 错误写入审计日志和事件日志，并返回 `traceId`。HTTP 状态码只表达协议层状态，业务失败通过响应包表达。
+
+WebSocket 用于实时同步、流式消息、通知、任务状态和客户端在线状态。
+
+客户端连接后先发送 `client.hello`，携带客户端类型、项目 ID、会话订阅和最后收到的事件序号。中心服务返回 `server.ready`，随后推送 `event.appended`、`task.updated`、`agent.state.changed`、`notification.created` 和 `connection.state` 等事件。
+
+客户端断线重连后先用 REST 补齐缺失事件，再继续订阅 WebSocket。
+
+## Agent 执行引擎
+
+Agent 执行引擎由中心服务调度、Worker 子进程执行。中心服务负责事实源、权限、状态、事件和资源管控。Worker 负责一次任务的推理流程和工具编排，但不能直接写核心数据文件或 SQLite。
+
+一轮对话流程：
+
+```text
+用户发送消息
+-> 中心服务创建 message、conversation_turn、task
+-> 中心服务启动或复用 Worker
+-> Worker 请求上下文包
+-> 中心服务返回会话、项目、智能体、记忆索引、可用工具和权限
+-> Worker 组装模型请求
+-> Worker 通过模型网关调用供应商协议插件
+-> Worker 产生流式事件、工具请求、协作请求
+-> 中心服务审批、执行或转发
+-> 中心服务写状态和事件并广播
+-> Worker 输出最终结果
+-> 中心服务固化消息、轮次、任务、用量、记忆索引
+```
+
+Worker 与中心服务使用 JSON-RPC 风格 IPC。核心消息包括：
+
+```text
+worker.ready
+task.start
+task.cancel
+context.request
+model.call.request
+tool.call.request
+file.read.request
+file.write.request
+command.run.request
+plugin.call.request
+mcp.call.request
+skill.resolve.request
+memory.write.request
+event.emit
+task.complete
+task.failed
+heartbeat
+```
+
+Worker 所有有副作用操作都必须请求中心服务代理执行或批准，包括文件写入、文件删除、命令执行、插件调用、MCP 调用、记忆写入和通知触发。
+
+中心服务根据当前客户端类型的执行模式决定是否需要用户审批。审批结果进入事件日志。
+
+自研 Agent 引擎分层：
+
+```text
+turn-runner
+context-builder
+agent-router
+model-orchestrator
+tool-planner
+collaboration-engine
+memory-committer
+usage-collector
+```
+
+子智能体只存在于当前任务上下文中，不能再创建子智能体。长期智能体创建必须通过中心服务写入智能体定义 Markdown 并更新索引，不能由 Worker 自行落盘。
+
+Worker 崩溃、超时或心跳丢失时，中心服务将相关任务标记为失败，写入 `task.failed` 事件，保留 `traceId`，并通知客户端。已写入事件不回滚。
+
+## 模型网关与供应商协议插件
+
+中心服务提供 `model-gateway`。Agent Worker 不能直接访问供应商 API。Worker 只能提交内部统一模型请求，由中心服务调用对应模型协议插件并流式返回内部事件。
+
+内部模型协议放在 `packages/model-protocol`：
+
+```text
+ModelRequest
+ModelMessage
+ModelContentPart
+ModelToolSpec
+ModelToolCall
+ModelStreamEvent
+ModelUsage
+ModelError
+```
+
+Agent 引擎只认识这些内部类型。供应商原始请求、响应、SSE 事件和错误结构都在协议插件内部转换。
+
+模型协议插件是插件系统的一部分。系统内置两个不可卸载插件：
+
+```text
+plugins/builtin-model-openai-compatible
+plugins/builtin-model-anthropic-messages
+```
+
+`builtin-model-openai-compatible` 支持 OpenAI 兼容协议族，配置中区分 `responses` 和 `chat-completions` 模式。
+
+`builtin-model-anthropic-messages` 支持 Anthropic Messages 协议族。
+
+两者随中心服务交付，不能卸载；可以配置、启用或停用。
+
+供应商配置引用协议插件：
+
+```text
+providerId
+providerName
+protocolPluginId
+protocolMode
+baseUrl
+apiKeySecretRef
+modelListStrategy
+reasoningEffortStrategy
+proxyPolicy
+enabled
+```
+
+`protocolPluginId` 例如 `builtin-model-openai-compatible`。`protocolMode` 例如 `responses`、`chat-completions` 或 `messages`。
+
+API Key 使用中心服务敏感信息存储，客户端只显示是否已配置，不返回明文。
+
+模型网关职责：
+
+- 根据供应商配置选择协议插件。
+- 应用网络代理策略。
+- 拉取模型列表和推理深度列表。
+- 把内部 `ModelRequest` 转成供应商请求。
+- 把供应商流式响应转成内部 `ModelStreamEvent`。
+- 归集 `ModelUsage`，写入 `usage_records`。
+- 区分代理失败、认证失败、供应商连接失败、供应商接口失败和协议解析失败。
+- 为每次调用生成 `traceId`，写入事件日志。
+
+模型插件声明是否支持图片、工具调用、JSON 输出、推理深度、缓存用量字段、模型列表接口和流式输出。中心服务基于模型能力判断附件和工具是否可用。
+
+## 插件、MCP、skill 与内置个人事务
+
+扩展系统采用“插件作为总扩展包，MCP 和 skill 可独立安装，也可被插件携带”的模型。
+
+插件包可以声明：
+
+```text
+工具能力
+UI 页面或设置页
+命令能力
+模型协议适配器
+MCP Server 配置
+skill 内容
+运行环境要求
+权限声明
+配置项 schema
+调用审计策略
+适用范围：全局 / 项目 / 二者
+```
+
+插件来源：
+
+```text
+system-builtin：系统内置，不可卸载，部分可停用
+user-installed：用户安装，可启停、配置、删除
+project-local：项目级插件，随项目迁移，优先于同名全局能力
+```
+
+插件不能直接读写中心服务核心事实源。它只能通过中心服务插件 SDK 访问授权能力。涉及文件、网络、命令、记忆、项目访问或供应商调用时必须声明权限，并进入审计记录。
+
+MCP 分为独立 MCP 配置和插件携带 MCP。
+
+skill 分为独立 skill 和插件携带 skill。
+
+同名能力优先级：
+
+```text
+当前项目级能力
+> 用户安装全局能力
+> 系统内置能力
+```
+
+个人事务能力采用混合架构。待办、日程和个人知识库是一等领域模块，由中心服务提供稳定 API、SQLite 表和可迁移数据目录。
+
+资料整理、浏览器信息收集、办公集成和自动化流程作为系统内置插件包交付，不可卸载，可配置启停。
+
+## 前端入口与客户端能力
+
+前端只有一个业务应用：`apps/frontend`。它构建多个入口：
+
+```text
+index.html：桌面壳、本机 Web、远程 Web、手机 Web
+plugin.html：IDE 插件 WebView
+```
+
+运行时根据 `clientType` 和 `entryMode` 选择能力和路由：
+
+```text
+desktop-shell
+web-local
+web-remote
+web-mobile
+ide-plugin
+```
+
+客户端能力通过适配层暴露，不允许组件直接判断 Electron、浏览器或 IDE API。
+
+能力字段：
+
+```text
+canManageCenterService
+canUseSystemNotification
+canOpenLocalFile
+canResolveProjectContext
+canSendIdeContext
+canUseRemoteLogin
+canManageAccessAccount
+```
+
+布局模式：
+
+```text
+workspace：桌面壳和桌面浏览器主工作台
+mobile：手机浏览器
+plugin-compact：IDE 右侧工具窗口紧凑项目对话
+```
+
+`workspace` 使用 flex 固定视口高度，包含顶部主导航、左侧对话导航、中间对话区和右侧任务/智能体状态栏。页面级禁止滚动，只有消息列表作为主滚动区域。
+
+`plugin-compact` 只保留当前项目对话页签、消息列表、输入框、文件/选区引用、任务状态和连接设置。它不展示供应商、代理、运行环境、用量统计和中心服务管理页面。
+
+`mobile` 使用 Vant 和移动路由结构，优先保证对话、消息查看、输入、通知、待办、日程和常用设置可用。
+
+Pinia 只保存客户端 UI 状态和当前订阅状态，不作为核心事实源。
+
+## IDE 插件
+
+IDE 插件是宿主能力层，不重新实现完整业务 UI。每个平台单独维护插件工程，先实现 IDEA。
+
+IDEA 插件使用 Gradle IntelliJ Platform Plugin 构建，插件名和安装包名为 `zhixin-agent-idea`，包名和插件 ID 命名空间使用 `top.xzxsrq`。
+
+插件工具窗口名称为“致心”，默认放在 IDEA 右侧。工具窗口打开后加载中心服务提供的：
+
+```text
+http://127.0.0.1:端口/plugin.html
+```
+
+插件只连接本机中心服务，IP 固定为 `127.0.0.1`，端口默认 `8866`，允许用户在插件本地配置端口。
+
+插件启动或打开项目时处理项目身份：
+
+```text
+1. 检查项目根目录是否存在 致心项目ID.md
+2. 存在则读取项目 UUID
+3. 不存在则创建 UUID 并写入 致心项目ID.md
+4. 将项目 ID、项目路径、项目名称发送给 plugin.html
+5. 中心服务登记或更新项目索引
+```
+
+IDE 插件提供宿主桥接能力：
+
+```text
+getProjectContext
+insertContextReference
+openInternalFileLink
+readSelectionReference
+readCurrentFileReference
+readFolderReference
+updateCenterPort
+```
+
+右键菜单交互模仿常见 AI 插件。编辑器选区、编辑器标签页、项目文件树文件、项目文件树文件夹都提供“发送到致心对话框”。点击后只把文件、文件夹、行号或选区引用插入 `plugin.html` 的输入框，不直接发送问题。
+
+内部文件定位链接使用结构化协议。UI 可显示为 `文件名#L行号`，底层保留项目 ID、绝对路径、相对路径、开始行、结束行和选区。
+
+插件入口只展示当前项目相关数据，不展示其他项目的数据，也不展示普通非项目会话。
+
+IDE 插件支持多页签。每个页签对应一个独立项目会话。同一项目允许多个页签并行执行。页签标题显示会话名和任务状态标志。状态标志至少包括执行中、等待用户、失败和未读。
+
+## 安全、权限与敏感信息
+
+中心服务是唯一安全边界。所有客户端、Worker、插件、MCP 和 skill 都不能绕过中心服务直接访问核心数据、敏感信息或执行副作用操作。
+
+敏感信息只保存在中心电脑，包括供应商 API Key、代理用户名和密码、Web 远程访问账号密码摘要、插件私密配置、办公集成授权凭据、Cookie 签名密钥和本机访问令牌。
+
+客户端永远不返回已保存密码或 API Key 明文，只返回 `hasSecret`、更新时间、使用状态和必要的脱敏摘要。
+
+访问控制按客户端类型处理：
+
+```text
+desktop-shell：本机桌面壳，允许管理中心服务生命周期和本机配置
+web-local：本机 Web，可直接进入授权流程，但不能管理中心服务生命周期
+web-remote：远程 Web，必须登录，登录态使用中心服务 Cookie
+ide-plugin：固定连接 127.0.0.1，只能访问当前项目范围
+worker：无直接外部权限，只能通过中心服务 IPC 请求能力
+plugin：按权限声明和启用范围调用中心服务插件 API
+```
+
+远程 Web 登录态必须使用 Cookie，不使用 `sessionStorage` 保存 token。Cookie 由中心服务设置。
+
+本机访问和远程访问判断由中心服务基于请求来源、监听地址和连接信息完成，前端不能自行判断。
+
+权限模型采用“声明 + 授权 + 审计”。
+
+权限枚举：
+
+```text
+file.read
+file.write
+file.delete
+command.run
+network.request
+memory.read
+memory.write
+project.read
+project.write
+provider.call
+plugin.call
+mcp.call
+skill.use
+personal.todo
+personal.calendar
+personal.knowledge
+notification.send
+```
+
+执行模式影响审批策略。建议模式每个副作用步骤都需用户确认。自动编辑允许低风险读操作和部分编辑流程自动执行，高风险操作仍审批。全自动在沙箱和权限范围内自动执行。
+
+无论哪种模式，所有副作用操作都写入事件日志和调用记录。
+
+## 会话、轮次、任务与同步
+
+会话分为普通会话和项目会话。普通会话不绑定项目，项目会话必须绑定 `project_id`。
+
+IDE 插件中的每个页签对应一个独立项目会话。每个页签可独立发送消息、执行任务和显示状态。
+
+一轮对话以用户成功发送一条输入为起点，以 Agent 完成本轮回应、失败、取消或等待用户为终点。
+
+会话、轮次、任务关系：
+
+```text
+session
+  -> message[]
+  -> conversation_turn[]
+       -> task[]
+            -> task_step[]
+            -> event[]
+```
+
+任务状态至少包括：
+
+```text
+queued
+running
+waiting_user
+completed
+failed
+cancelled
+```
+
+智能体运行状态至少包括：
+
+```text
+idle
+working
+queued
+waiting_user
+ended
+failed
+```
+
+所有状态变更都写入 `events`，并同步到订阅客户端。UI 不能只依赖本地计时或本地推断状态。
+
+WebSocket 订阅范围按客户端类型限制：
+
+```text
+desktop-shell / web-local / web-remote：可订阅有权限访问的普通会话和项目会话
+ide-plugin：只能订阅当前项目 ID 下的会话、任务和智能体状态
+web-mobile：同 Web 权限，但前端使用移动展示模式
+```
+
+断线重连流程：
+
+```text
+1. 客户端记录每个订阅范围最后收到的 event sequence
+2. WebSocket 断开后按固定次数和间隔重连
+3. 重连成功后先 POST /api/session/event/list 补齐缺失事件
+4. 补齐完成后恢复实时订阅
+5. 尚未成功发送到中心服务的本地排队消息必须停留在待确认状态
+```
+
+## 记忆系统与智能体定义
+
+记忆系统使用 Markdown 作为可读、可迁移的长期存储，SQLite 只保存索引和来源关系。
+
+用户记忆固定为：
+
+```text
+memory/user.md
+```
+
+每个智能体有独立记忆目录：
+
+```text
+memory/agents/{agentId}/{year}/{month}/{day}.md
+```
+
+每段记忆格式：
+
+```md
+# 时间：YYYY-MM-DD HH:mm:ss
+
+## 关键词
+
+## 总结
+
+## 使用的电脑
+
+## 用户说的
+
+## 回答的
+```
+
+记忆写入边界是一轮完整对话。只有这一轮结束后，才允许写入长期记忆。记忆写入只能追加，不能覆盖或插入已有内容。
+
+每个智能体的记忆写入使用中心服务内的单写队列。不同智能体之间允许并行写入。
+
+智能体定义保存为 Markdown：
+
+```text
+agents/{agentId}.md
+```
+
+定义文件包含结构化 frontmatter 和可读正文。frontmatter 保存 ID、名称、角色、能力边界、默认供应商、默认模型、推理深度、记忆索引、创建来源和启用状态。
+
+智能体定义不保存可用插件、MCP 或 skill 范围。智能体执行时可用能力由当前会话窗口动态决定：
+
+```text
+当前会话类型
+当前项目 ID
+项目级插件/MCP/skill
+全局启用插件/MCP/skill
+系统内置能力
+用户权限和执行模式
+扩展能力声明的适用范围
+```
+
+当前会话窗口里可用的能力，智能体默认都可以请求使用。是否真正执行由中心服务权限、适用范围和审批策略决定。
+
+主智能体“致心”是系统内置智能体，不可删除。其定义缺失或损坏时，中心服务按内置模板恢复，并写入事件日志。
+
+长期智能体可以由用户手动创建，也可以由主智能体在用户授权后创建。删除长期智能体必须提示影响。
+
+子智能体不落为长期定义。它只存在于任务执行上下文和事件日志中，任务结束后关闭。
+
+## 构建、打包与运行环境
+
+项目使用 pnpm workspace 管理：
+
+```text
+apps/*
+services/*
+packages/*
+plugins/builtin-*
+```
+
+`plugins/idea` 使用 Gradle IntelliJ Platform Plugin，不纳入 pnpm workspace。
+
+根目录 `.npmrc` 固定镜像源和 `save-exact=true`。所有 `package.json` 版本使用精确版本，不使用 `^` 或 `~`。
+
+Node.js 版本要求为 Node.js 20 或更高，pnpm 版本要求为 9 或更高。
+
+遇到 Node.js 版本不符合要求时，先检查本机是否有 nvm。有 nvm 则切换或安装要求版本；没有 nvm 或无法解决时停止等待用户处理，不绕过。
+
+构建产物：
+
+```text
+apps/frontend -> dist，包含 index.html 和 plugin.html
+services/center -> 可由 Node 运行的中心服务产物
+apps/desktop-shell -> Electron 绿色版 zip，可内含中心服务产物、前端资源、内置插件和图标
+plugins/idea -> zhixin-agent-idea-版本.zip
+```
+
+桌面端主要交付物支持绿色版 zip，解压即可运行。默认把中心目录放在解压目录下的 `center-data`，便于删除整个目录时清理程序本体和默认数据。
+
+如果用户手动把中心目录改到外部路径，删除程序目录不会删除外部中心数据。UI 必须明确提示。
+
+桌面壳启动时读取本机配置，拉起随包中心服务，并传入端口、中心目录和资源路径。
+
+`assets` 保存应用资源：
+
+```text
+assets/app-icon/图标.png
+assets/ui-icons/mcp-call.svg
+assets/ui-icons/file-read.svg
+assets/ui-icons/file-write.svg
+assets/ui-icons/file-delete.svg
+```
+
+应用图标文件名仍固定为 `图标.png`。界面过程图标使用 SVG 和 `currentColor`。
+
+IDEA 插件构建继续使用 IDEA Gradle JVM，Java 编译输出固定 Java 21 字节码。无 Settings 页时禁用 `buildSearchableOptions`。Gradle 仓库优先 `mavenLocal()`，再阿里云公共镜像，再 Maven Central。
+
+## 测试、验收与迁移
+
+静态协议验收：
+
+```text
+packages/shared 类型可被前端、中心服务、插件 SDK 使用
+REST API 不出现路径参数
+REST API 只使用 GET 和 POST
+响应包格式统一
+事件类型使用固定枚举
+插件清单 schema 可校验
+模型协议插件必须实现统一适配接口
+```
+
+中心服务验收：
+
+```text
+首次启动创建 center-data 目录
+SQLite 迁移可重复执行
+中心服务启动锁防止同目录多实例
+本机访问和远程访问判定由服务端完成
+远程 Web Cookie 登录态有效
+Worker 崩溃后任务标记失败并保留 traceId
+事件日志可用于断线补齐
+Markdown 记忆只追加不覆盖
+敏感信息不返回明文
+```
+
+前端验收：
+
+```text
+index.html 支持 workspace 和 mobile 模式
+plugin.html 支持 plugin-compact 模式
+页面根容器固定视口高度
+消息列表是主滚动区域
+桌面壳才显示中心服务管理入口
+远程 Web 必须登录
+IDE 插件只显示当前项目会话
+IDE 多页签可并行执行并显示状态标志
+```
+
+扩展能力验收：
+
+```text
+内置模型协议插件不可卸载
+OpenAI 兼容和 Anthropic Messages 都通过模型插件进入
+插件权限声明缺失时禁止执行敏感操作
+项目级能力优先于全局能力
+插件、MCP、skill 调用全部进入审计记录
+待办、日程、知识库作为中心服务一等领域模块可迁移
+```
+
+迁移策略：
+
+```text
+复制 center-data 即迁移用户数据
+项目身份跟随项目根目录的 致心项目ID.md
+项目路径变化后通过项目 ID 继续识别
+SQLite 保存索引和事件，Markdown/JSON 保持可读
+附件保存在 center-data/sessions/attachments
+temp 目录不作为迁移事实源，启动和停止时清理
+```
+
+旧工程迁移不建议边改边混用旧目录。应先在新版 `架构.md` 中明确新目录和模块边界，再重写 `计划.md`，最后按计划从旧目录迁移可复用代码。

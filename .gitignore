@@ -18,6 +18,17 @@ out/
 release/
 coverage/
 *.tsbuildinfo
+*.zip
+*.tar
+*.tgz
+*.7z
+*.asar
+*.blockmap
+**/build/
+**/dist/
+**/out/
+**/release/
+**/coverage/
 
 # Electron 和前端工具缓存
 .vite/
@@ -52,6 +63,7 @@ IDEA_SDK/src/test/
 logs/
 tmp/
 temp/
+/.tmp-test-logs/
 
 # 系统文件
 .DS_Store
@@ -59,4 +71,5 @@ Thumbs.db
 
 # 本机中心目录数据
 中心/
-/scripts/
+center-data/
+**/center-data/

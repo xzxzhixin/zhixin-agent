@@ -5,14 +5,18 @@
   "description": "致心智能体多端工作区",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "dev:desktop": "pnpm --filter @zhixin/desktop dev",
-    "dev:web": "pnpm --filter @zhixin/web dev",
-    "dev:center": "pnpm --filter @zhixin/center-service dev",
-    "build:shared": "node -e \"console.log('共享模块由 Vite/tsx 直接加载源码')\"",
-    "build:center": "pnpm --filter @zhixin/center-service build",
-    "build:desktop": "pnpm build:center && pnpm --filter @zhixin/desktop build",
-    "build:web": "pnpm --filter @zhixin/web build",
-    "check:no-type-compiler": "node scripts/check-no-type-compiler.mjs"
+    "dev:frontend": "pnpm --filter @zhixin/frontend dev",
+    "dev:desktop-shell": "node scripts/dev-desktop-shell.mjs",
+    "dev:center:new": "pnpm --filter @zhixin/center dev",
+    "build:packages": "pnpm --filter \"./packages/*\" build",
+    "build:center:new": "pnpm --filter @zhixin/center build",
+    "build:frontend": "pnpm --filter @zhixin/frontend build",
+    "build:desktop-shell": "pnpm build:packages && pnpm build:center:new && pnpm build:frontend && pnpm --filter @zhixin/desktop-shell build",
+    "build:builtin-plugins": "pnpm --filter \"./plugins/builtin-*\" build",
+    "build:shared": "pnpm build:packages",
+    "build:center": "pnpm build:center:new",
+    "build:desktop": "pnpm build:desktop-shell",
+    "build:web": "pnpm build:frontend"
   },
   "engines": {
     "node": ">=20.0.0",

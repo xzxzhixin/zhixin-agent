@@ -1,0 +1,31 @@
+{
+  "name": "@zhixin/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@zhixin/api-client": "workspace:*",
+    "@zhixin/shared": "workspace:*",
+    "@zhixin/ui": "workspace:*",
+    "@element-plus/icons-vue": "2.3.2",
+    "@vueuse/core": "12.4.0",
+    "echarts": "5.6.0",
+    "element-plus": "2.9.3",
+    "github-markdown-css": "5.8.1",
+    "marked": "15.0.6",
+    "pinia": "2.3.0",
+    "vant": "4.9.15",
+    "vue": "3.5.13",
+    "vue-router": "4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.1",
+    "typescript": "5.6.3",
+    "vite": "6.0.7"
+  }
+}

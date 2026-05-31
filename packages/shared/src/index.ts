@@ -1,0 +1,851 @@
+/**
+ * 应用中文名。
+ *
+ * 来源：产品需求中的项目中文名。
+ * 含义：用于窗口标题、通知标题和 UI 品牌展示。
+ * 格式：固定中文字符串。
+ * 默认值：致心智能体。
+ * 约束：不得作为数据身份字段使用。
+ */
+export const APP_NAME = "致心智能体";
+
+/**
+ * 应用英文名。
+ *
+ * 来源：产品需求中的项目英文名。
+ * 含义：用于包名、日志命名和英文路径。
+ * 格式：小写英文加连字符。
+ * 默认值：zhixin-agent。
+ * 约束：不得用于替代用户可见中文名。
+ */
+export const APP_ENGLISH_NAME = "zhixin-agent";
+
+/**
+ * 中心服务默认端口。
+ *
+ * 来源：需求和架构约定。
+ * 含义：桌面壳、Web 和 IDE 插件默认连接的本机端口。
+ * 格式：TCP 端口号。
+ * 默认值：8866。
+ * 约束：用户修改端口后只影响后续中心服务启动。
+ */
+export const DEFAULT_CENTER_PORT = 8866;
+
+/**
+ * 默认中心目录名。
+ *
+ * 来源：新版架构的绿色版交付约定。
+ * 含义：开发期和绿色版默认数据目录名称。
+ * 格式：英文目录名。
+ * 默认值：center-data。
+ * 约束：这是目录名，不是绝对路径。
+ */
+export const CENTER_DATA_DIR_NAME = "center-data";
+
+/**
+ * 客户端类型。
+ *
+ * 来源：架构中的客户端能力适配层。
+ * 含义：标识当前连接中心服务的宿主形态。
+ * 格式：固定字符串枚举。
+ * 默认值：由客户端启动入口决定。
+ * 约束：服务端权限判断必须使用该字段和连接信息共同判断，不能只信任前端传值。
+ */
+export type ClientType =
+  | "desktop-shell"
+  | "web-local"
+  | "web-remote"
+  | "web-mobile"
+  | "ide-plugin"
+  | "worker"
+  | "plugin";
+
+/**
+ * 前端入口模式。
+ *
+ * 来源：统一前端多入口架构。
+ * 含义：控制前端加载主工作台、手机布局或 IDE 紧凑布局。
+ * 格式：固定字符串枚举。
+ * 默认值：由 HTML 入口和客户端能力适配层决定。
+ * 约束：不能作为服务端业务授权依据。
+ */
+export type EntryMode =
+  | "workspace"
+  | "mobile"
+  | "plugin-compact";
+
+/**
+ * 任务状态。
+ *
+ * 来源：会话、轮次、任务与同步架构。
+ * 含义：描述中心服务任务当前生命周期。
+ * 格式：固定字符串枚举。
+ * 默认值：queued。
+ * 约束：状态变更必须写入事件日志。
+ */
+export type TaskStatus =
+  | "queued"
+  | "running"
+  | "waiting_user"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/**
+ * 智能体运行状态。
+ *
+ * 来源：需求中的智能体状态。
+ * 含义：描述智能体或子智能体当前可展示状态。
+ * 格式：固定字符串枚举。
+ * 默认值：idle。
+ * 约束：状态来自中心服务，不由 UI 本地猜测。
+ */
+export type AgentRuntimeStatus =
+  | "idle"
+  | "working"
+  | "queued"
+  | "waiting_user"
+  | "ended"
+  | "failed";
+
+/**
+ * 执行模式。
+ *
+ * 来源：需求中的对话执行模式。
+ * 含义：影响副作用操作是否需要用户审批。
+ * 格式：固定字符串枚举。
+ * 默认值：full_auto。
+ * 约束：切换后只影响后续操作，不回改历史任务。
+ */
+export type ExecutionMode =
+  | "suggest"
+  | "auto_edit"
+  | "full_auto";
+
+/**
+ * API 错误结构。
+ *
+ * 来源：中心服务 REST API 统一响应规范。
+ * 含义：承载业务错误、可展示原因和排查编号。
+ * 格式：JSON 对象。
+ * 默认值：成功响应中为 null。
+ * 约束：业务失败通过该结构表达，不用 404 表示实体不存在。
+ */
+export interface ApiError {
+  /**
+   * code: 机器可读错误码，来源于中心服务错误枚举。
+   */
+  code: string;
+
+  /**
+   * message: 面向开发和日志排查的错误消息。
+   */
+  message: string;
+
+  /**
+   * displayMessage: 可直接展示给用户的中文原因。
+   */
+  displayMessage: string;
+
+  /**
+   * traceId: 排查 ID，来源于中心服务请求或事件链路。
+   */
+  traceId: string;
+
+  /**
+   * details: 可选调试详情，不能包含敏感明文。
+   */
+  details?: unknown;
+}
+
+/**
+ * API 统一响应包。
+ *
+ * 来源：中心服务 REST API 规范。
+ * 含义：统一包装所有 GET 和 POST 接口响应。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：success 为 true 时 error 必须为 null；success 为 false 时 data 必须为 null。
+ */
+export interface ApiResponse<TData> {
+  /**
+   * success: 表示业务处理是否成功。
+   */
+  success: boolean;
+
+  /**
+   * data: 成功时返回的业务数据。
+   */
+  data: TData | null;
+
+  /**
+   * error: 失败时返回的统一错误结构。
+   */
+  error: ApiError | null;
+}
+
+/**
+ * 项目记录。
+ *
+ * 来源：SQLite `projects` 表。
+ * 含义：中心服务识别项目身份和展示名称的结构化记录。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：projectId 来自 `致心项目ID.md`，不能用路径替代。
+ */
+export interface ProjectRecord {
+  /**
+   * projectId: 项目 UUID，来源于项目根目录 `致心项目ID.md`。
+   */
+  projectId: string;
+
+  /**
+   * displayName: 当前展示名称，来源于项目文件夹名。
+   */
+  displayName: string;
+
+  /**
+   * alias: 用户设置的项目别名或备注；只能作为备注展示，不能替代文件夹名。
+   */
+  alias: string | null;
+
+  /**
+   * latestPath: 最近一次登记的项目绝对路径。
+   */
+  latestPath: string;
+
+  /**
+   * createdAt: 首次登记时间，ISO 8601 字符串。
+   */
+  createdAt: string;
+
+  /**
+   * updatedAt: 最近更新时间，ISO 8601 字符串。
+   */
+  updatedAt: string;
+}
+
+/**
+ * 会话类型。
+ *
+ * 来源：需求中的普通会话和项目会话。
+ * 含义：区分是否绑定项目。
+ * 格式：固定字符串枚举。
+ * 默认值：普通入口创建时为 normal，项目入口创建时为 project。
+ * 约束：project 会话必须绑定 projectId。
+ */
+export type SessionType =
+  | "normal"
+  | "project";
+
+/**
+ * 会话记录。
+ *
+ * 来源：SQLite `sessions` 表。
+ * 含义：普通会话或项目会话的结构化状态。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：项目会话必须设置 projectId。
+ */
+export interface ConversationSession {
+  /**
+   * sessionId: 会话 ID，来源于中心服务生成。
+   */
+  sessionId: string;
+
+  /**
+   * sessionType: 会话类型，区分普通会话和项目会话。
+   */
+  sessionType: SessionType;
+
+  /**
+   * projectId: 项目会话绑定的项目 ID；普通会话为 null。
+   */
+  projectId: string | null;
+
+  /**
+   * title: 会话标题，来源于用户命名或中心服务摘要。
+   */
+  title: string;
+
+  /**
+   * createdAt: 创建时间，ISO 8601 字符串。
+   */
+  createdAt: string;
+
+  /**
+   * updatedAt: 更新时间，ISO 8601 字符串。
+   */
+  updatedAt: string;
+
+  /**
+   * lastUserMessagePreview: 最近一条用户消息摘要，来源于 messages 表 role=user 的最新消息；没有用户消息时为 null。
+   */
+  lastUserMessagePreview: string | null;
+}
+
+/**
+ * 消息角色。
+ *
+ * 来源：会话消息展示协议。
+ * 含义：描述消息来源或过程类型。
+ * 格式：固定字符串枚举。
+ * 默认值：用户发送为 user。
+ * 约束：工具过程、错误和系统过程不要混写为 assistant。
+ */
+export type MessageRole =
+  | "user"
+  | "assistant"
+  | "system"
+  | "tool"
+  | "error";
+
+/**
+ * 会话消息。
+ *
+ * 来源：SQLite `messages` 表。
+ * 含义：最终可展示消息和过程消息的统一结构。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：附件和引用通过结构化 ID 关联，不把二进制写入消息内容。
+ */
+export interface ConversationMessage {
+  /**
+   * messageId: 消息 ID，来源于中心服务生成。
+   */
+  messageId: string;
+
+  /**
+   * sessionId: 所属会话 ID。
+   */
+  sessionId: string;
+
+  /**
+   * turnId: 所属轮次 ID；系统初始化消息可为空。
+   */
+  turnId: string | null;
+
+  /**
+   * role: 消息角色或过程类型。
+   */
+  role: MessageRole;
+
+  /**
+   * contentMarkdown: Markdown 文本内容。
+   */
+  contentMarkdown: string;
+
+  /**
+   * createdAt: 创建时间，ISO 8601 字符串。
+   */
+  createdAt: string;
+}
+
+/**
+ * 对话轮次状态。
+ *
+ * 来源：会话轮次生命周期。
+ * 含义：描述一轮用户输入到 Agent 收尾之间的状态。
+ * 格式：固定字符串枚举。
+ * 默认值：running。
+ * 约束：结束后持续时间固定，不再随客户端本地时钟变化。
+ */
+export type ConversationTurnStatus =
+  | "running"
+  | "waiting_user"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/**
+ * 对话轮次。
+ *
+ * 来源：SQLite `conversation_turns` 表。
+ * 含义：保存一轮用户与 Agent 完整交互边界。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：turnNumber 在同一会话内递增。
+ */
+export interface ConversationTurn {
+  /**
+   * turnId: 轮次 ID，来源于中心服务生成。
+   */
+  turnId: string;
+
+  /**
+   * sessionId: 所属会话 ID。
+   */
+  sessionId: string;
+
+  /**
+   * turnNumber: 会话内用户发起轮次编号。
+   */
+  turnNumber: number;
+
+  /**
+   * userMessageId: 本轮触发的用户消息 ID。
+   */
+  userMessageId: string;
+
+  /**
+   * status: 当前轮次状态。
+   */
+  status: ConversationTurnStatus;
+
+  /**
+   * startedAt: 开始时间，ISO 8601 字符串。
+   */
+  startedAt: string;
+
+  /**
+   * endedAt: 结束时间；未结束时为 null。
+   */
+  endedAt: string | null;
+
+  /**
+   * durationMs: 总持续毫秒数；未结束时为 null。
+   */
+  durationMs: number | null;
+}
+
+/**
+ * 任务记录。
+ *
+ * 来源：SQLite `tasks` 表。
+ * 含义：保存中心服务调度的任务当前状态。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：状态变化必须追加事件日志。
+ */
+export interface TaskRecord {
+  /**
+   * taskId: 任务 ID，来源于中心服务生成。
+   */
+  taskId: string;
+
+  /**
+   * turnId: 所属轮次 ID。
+   */
+  turnId: string;
+
+  /**
+   * sessionId: 所属会话 ID。
+   */
+  sessionId: string;
+
+  /**
+   * status: 当前任务状态。
+   */
+  status: TaskStatus;
+
+  /**
+   * title: 任务标题，来源于中心服务或 Agent 计划。
+   */
+  title: string;
+
+  /**
+   * createdAt: 创建时间，ISO 8601 字符串。
+   */
+  createdAt: string;
+
+  /**
+   * updatedAt: 更新时间，ISO 8601 字符串。
+   */
+  updatedAt: string;
+}
+
+/**
+ * 事件记录。
+ *
+ * 来源：SQLite `events` 表。
+ * 含义：保存流式过程、状态变化、审计和断线补齐事件。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：eventType 使用固定枚举，sequence 在同一轮次内递增。
+ */
+export interface EventRecord {
+  /**
+   * eventId: 事件 ID，来源于中心服务生成。
+   */
+  eventId: string;
+
+  /**
+   * eventType: 固定事件类型。
+   */
+  eventType: string;
+
+  /**
+   * turnId: 所属轮次 ID。
+   */
+  turnId: string | null;
+
+  /**
+   * taskId: 所属任务 ID。
+   */
+  taskId: string | null;
+
+  /**
+   * sequence: 同一轮次内递增序号。
+   */
+  sequence: number;
+
+  /**
+   * occurredAt: 事件发生时间，ISO 8601 字符串。
+   */
+  occurredAt: string;
+
+  /**
+   * summary: 事件摘要，允许 UI 快速展示。
+   */
+  summary: string;
+
+  /**
+   * payload: 结构化事件载荷，不能包含敏感明文。
+   */
+  payload: unknown;
+
+  /**
+   * traceId: 排查 ID。
+   */
+  traceId: string;
+}
+
+/**
+ * 附件记录。
+ *
+ * 来源：SQLite `attachments` 表。
+ * 含义：保存正式消息附件元数据。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：文件内容保存在附件目录，不直接写入 SQLite。
+ */
+export interface AttachmentRecord {
+  /**
+   * attachmentId: 附件 ID，来源于中心服务生成。
+   */
+  attachmentId: string;
+
+  /**
+   * sessionId: 所属会话 ID。
+   */
+  sessionId: string;
+
+  /**
+   * messageId: 所属消息 ID。
+   */
+  messageId: string;
+
+  /**
+   * fileName: 原始文件名。
+   */
+  fileName: string;
+
+  /**
+   * mimeType: MIME 类型。
+   */
+  mimeType: string;
+
+  /**
+   * sizeBytes: 文件大小，单位字节。
+   */
+  sizeBytes: number;
+
+  /**
+   * relativePath: 相对中心目录的附件文件路径。
+   */
+  relativePath: string;
+}
+
+/**
+ * 通知事件。
+ *
+ * 来源：通知配置与通知事件需求。
+ * 含义：中心服务生成并同步给客户端的通知。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：通知判断由中心服务完成，客户端只展示。
+ */
+export interface NotificationEvent {
+  /**
+   * notificationId: 通知 ID。
+   */
+  notificationId: string;
+
+  /**
+   * targetClientType: 目标客户端类型。
+   */
+  targetClientType: ClientType;
+
+  /**
+   * title: 通知标题。
+   */
+  title: string;
+
+  /**
+   * summary: 通知摘要。
+   */
+  summary: string;
+
+  /**
+   * createdAt: 通知生成时间，ISO 8601 字符串。
+   */
+  createdAt: string;
+
+  /**
+   * requiresUserAction: 是否需要用户处理。
+   */
+  requiresUserAction: boolean;
+}
+
+/**
+ * 用量记录。
+ *
+ * 来源：SQLite `usage_records` 表。
+ * 含义：保存模型调用原始用量和归集维度。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：只追加，不因供应商或项目后续变化回改。
+ */
+export interface UsageRecord {
+  /**
+   * usageId: 用量记录 ID。
+   */
+  usageId: string;
+
+  /**
+   * providerId: 调用时使用的供应商 ID。
+   */
+  providerId: string;
+
+  /**
+   * model: 调用时使用的模型名。
+   */
+  model: string;
+
+  /**
+   * projectId: 项目 ID；普通会话为 null。
+   */
+  projectId: string | null;
+
+  /**
+   * inputTokens: 输入 token 数；供应商未提供时为 null。
+   */
+  inputTokens: number | null;
+
+  /**
+   * outputTokens: 输出 token 数；供应商未提供时为 null。
+   */
+  outputTokens: number | null;
+
+  /**
+   * cacheHitTokens: 缓存命中 token 数；供应商未提供时为 null。
+   */
+  cacheHitTokens: number | null;
+
+  /**
+   * cacheMissTokens: 缓存未命中 token 数；供应商未提供时为 null。
+   */
+  cacheMissTokens: number | null;
+
+  /**
+   * createdAt: 调用时间，ISO 8601 字符串。
+   */
+  createdAt: string;
+}
+
+/**
+ * 运行环境配置。
+ *
+ * 来源：运行环境需求。
+ * 含义：保存 Node.js、Python、Java、Maven、Git 等可执行环境。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：运行环境选择只影响后续执行。
+ */
+export interface RuntimeConfig {
+  /**
+   * runtimeId: 运行环境 ID。
+   */
+  runtimeId: string;
+
+  /**
+   * name: 用户可见环境名称。
+   */
+  name: string;
+
+  /**
+   * type: 环境类型，例如 node、python、java、maven、git。
+   */
+  type: string;
+
+  /**
+   * executablePath: 可执行文件绝对路径。
+   */
+  executablePath: string;
+
+  /**
+   * enabled: 是否启用。
+   */
+  enabled: boolean;
+}
+
+/**
+ * 待办事项。
+ *
+ * 来源：个人事务一等领域模块。
+ * 含义：保存用户待办事项。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：属于中心服务事实源，可迁移。
+ */
+export interface PersonalTodo {
+  /**
+   * todoId: 待办 ID。
+   */
+  todoId: string;
+
+  /**
+   * title: 待办标题。
+   */
+  title: string;
+
+  /**
+   * completed: 是否已完成。
+   */
+  completed: boolean;
+
+  /**
+   * dueAt: 截止时间；未设置时为 null。
+   */
+  dueAt: string | null;
+}
+
+/**
+ * 日程事件。
+ *
+ * 来源：个人事务一等领域模块。
+ * 含义：保存用户日程。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：属于中心服务事实源，可迁移。
+ */
+export interface CalendarEvent {
+  /**
+   * eventId: 日程 ID。
+   */
+  eventId: string;
+
+  /**
+   * title: 日程标题。
+   */
+  title: string;
+
+  /**
+   * startsAt: 开始时间，ISO 8601 字符串。
+   */
+  startsAt: string;
+
+  /**
+   * endsAt: 结束时间，ISO 8601 字符串。
+   */
+  endsAt: string;
+}
+
+/**
+ * 知识库条目。
+ *
+ * 来源：个人知识库一等领域模块。
+ * 含义：保存个人知识库索引条目。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：正文可在 Markdown 或附件中保存，索引由中心服务维护。
+ */
+export interface KnowledgeItem {
+  /**
+   * itemId: 知识条目 ID。
+   */
+  itemId: string;
+
+  /**
+   * title: 条目标题。
+   */
+  title: string;
+
+  /**
+   * summary: 条目摘要。
+   */
+  summary: string;
+
+  /**
+   * sourceRef: 来源引用，例如会话、附件或网页。
+   */
+  sourceRef: string;
+}
+
+/**
+ * 内部文件定位链接。
+ *
+ * 来源：IDE 插件和 Markdown 渲染协议。
+ * 含义：在 UI 中展示文件链接，并由 IDE 宿主打开定位。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：不能用普通 http 或 https 链接表达本地文件定位。
+ */
+export interface InternalFileLink {
+  /**
+   * projectId: 所属项目 ID。
+   */
+  projectId: string;
+
+  /**
+   * absolutePath: 文件绝对路径。
+   */
+  absolutePath: string;
+
+  /**
+   * relativePath: 相对项目根目录路径。
+   */
+  relativePath: string;
+
+  /**
+   * startLine: 起始行号；未知时为 null。
+   */
+  startLine: number | null;
+
+  /**
+   * endLine: 结束行号；未知时为 null。
+   */
+  endLine: number | null;
+}
+
+/**
+ * WebSocket 消息包。
+ *
+ * 来源：中心服务实时同步协议。
+ * 含义：统一包装客户端和服务端之间的实时消息。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：type 使用固定协议名，payload 由具体事件类型定义。
+ */
+export interface WebSocketEnvelope<TPayload = unknown> {
+  /**
+   * type: WebSocket 消息类型。
+   */
+  type: string;
+
+  /**
+   * payload: 消息载荷。
+   */
+  payload: TPayload;
+
+  /**
+   * traceId: 可选排查 ID。
+   */
+  traceId?: string;
+}
+
+export {
+  decodeInternalFileLink,
+  encodeInternalFileLink,
+  INTERNAL_FILE_LINK_PROTOCOL,
+} from "./markdown.js";
