@@ -5,6 +5,7 @@ import {
     CenterApiClient,
     ReconnectingWebSocketClient,
     type AccessAuthorizeResult,
+    type AgentConfigView,
     type McpConfigView,
     type PluginConfigView,
     type ProviderCapabilityDeclaration,
@@ -450,6 +451,72 @@ export interface ProjectConversationGroup {
 }
 
 /**
+ * AgentStatusTreeNode：输入区“智能体状态”入口的状态树节点。
+ *
+ * 来源：第一级来自中心服务长期智能体列表，第二级来自后续中心服务子智能体运行事件或当前前端单一临时约定。
+ * 含义：表达团队智能体、主智能体和各自创建的子智能体状态与对话入口。
+ * 格式：可递归树节点。
+ * 默认值：长期智能体列表为空时仍保留主智能体“致心”节点。
+ * 约束：不兼容候选字段；缺少独立智能体会话 API 时，对话发送仍通过当前会话消息接口。
+ */
+export interface AgentStatusTreeNode {
+    /** agentId: 智能体 ID，主智能体为 main，子智能体为运行期 ID。 */
+    agentId: string;
+    /** parentAgentId: 父智能体 ID；一级团队智能体为空字符串。 */
+    parentAgentId: string;
+    /** name: 智能体展示名称。 */
+    name: string;
+    /** status: 智能体运行状态中文文案。 */
+    status: string;
+    /** taskSummary: 当前任务摘要；空闲时说明当前没有执行任务。 */
+    taskSummary: string;
+    /** conversationHint: 智能体对话弹框中展示的上下文说明。 */
+    conversationHint: string;
+    /** nodeKind: 节点类型，用于区分主智能体、长期智能体和子智能体。 */
+    nodeKind: "主智能体" | "长期智能体" | "子智能体";
+    /** children: 第二级子智能体节点；子智能体不能继续创建下一级。 */
+    children: AgentStatusTreeNode[];
+}
+
+/**
+ * ComposerEditDiffLine：输入区“编辑”入口的临时 diff 行。
+ *
+ * 来源：后续中心服务文件写入事件或编辑摘要协议。
+ * 含义：表达真实文件编辑 diff 行。
+ * 格式：行类型和文本内容。
+ * 默认值：中心服务协议未齐备时为空数组。
+ * 约束：待中心服务协议明确后仅接入真实编辑事件，不写入演示 diff。
+ */
+export interface ComposerEditDiffLine {
+    /** kind: diff 行类型。 */
+    kind: "added" | "removed" | "context";
+    /** content: diff 行文本，包含必要前缀。 */
+    content: string;
+}
+
+/**
+ * ComposerEditFile：输入区“编辑”入口的临时文件编辑记录。
+ *
+ * 来源：后续中心服务文件写入事件或编辑摘要协议。
+ * 含义：描述真实文件路径、变更类型和与上一次编辑的 diff。
+ * 格式：文件记录对象。
+ * 默认值：中心服务协议未齐备时为空数组。
+ * 约束：待中心服务协议明确后仅接入真实编辑事件，不写入演示 diff。
+ */
+export interface ComposerEditFile {
+    /** filePath: 文件相对路径或可展示路径。 */
+    filePath: string;
+    /** changeKind: 变更类型中文文案。 */
+    changeKind: "新增" | "编辑";
+    /** previousEditLabel: 上一次编辑版本标签。 */
+    previousEditLabel: string;
+    /** currentEditLabel: 本次编辑版本标签。 */
+    currentEditLabel: string;
+    /** diffLines: 与上一次编辑对比的 diff 行。 */
+    diffLines: ComposerEditDiffLine[];
+}
+
+/**
  * PendingSessionDraft：尚未真实发送的本地新对话草稿。
  *
  * 来源：用户点击新增普通对话、项目对话或插件页签。
@@ -636,6 +703,30 @@ export const useAppStore = defineStore("app", {
         draft: createEmptyComposerDraft() as ComposerDraftModel,
 
         /**
+         * agents: 中心服务已固化的主智能体和长期智能体列表。
+         *
+         * 来源：`POST /api/agent/list`。
+         * 默认值：空数组，加载失败时不伪造长期智能体。
+         */
+        agents: [] as AgentConfigView[],
+
+        /**
+         * mainAgentStatusTree: 输入框“智能体状态”入口两级树。
+         *
+         * 来源：第一级由中心服务 agents 列表派生，第二级待中心服务子智能体运行事件协议明确后接入。
+         * 默认值：包含主智能体“致心”，避免团队树缺少系统内置入口。
+         */
+        mainAgentStatusTree: createDefaultAgentStatusTree() as AgentStatusTreeNode[],
+
+        /**
+         * composerEditFiles: 输入框“编辑”入口文件 diff 列表。
+         *
+         * 来源：待中心服务文件写入事件或编辑摘要协议明确后接入。
+         * 默认值：当前协议未齐备，必须为空数组，避免把演示文件 diff 误当成本次编辑。
+         */
+        composerEditFiles: [] as ComposerEditFile[],
+
+        /**
          * composerSettings: 输入框执行模式和推理深度选择。
          */
         composerSettings: {
@@ -734,26 +825,25 @@ export const useAppStore = defineStore("app", {
         },
 
         /**
-         * canUseProjectReferences：当前会话是否允许使用项目文件检索。
+         * canUseProjectReferences：当前输入区是否允许使用项目文件检索。
          *
-         * @returns 项目会话返回 true，普通会话返回 false。
+         * @returns 有明确项目上下文时返回 true。
          */
         canUseProjectReferences(state): boolean {
-            return state.sessionDetail?.session.sessionType === "project"
-                && typeof state.sessionDetail.session.projectId === "string";
+            return resolveComposerProjectId(state) !== null;
         },
 
         /**
-         * projectReferenceSuggestions：基于当前项目会话生成 @ 引用候选。
+         * projectReferenceSuggestions：基于当前输入区明确项目上下文生成 @ 引用候选。
          *
          * @returns 项目引用候选数组。
          */
         projectReferenceSuggestions(state): ProjectReferenceSuggestion[] {
-            if (state.sessionDetail?.session.sessionType !== "project" || !state.sessionDetail.session.projectId) {
+            const projectId = resolveComposerProjectId(state);
+            if (!projectId) {
                 return [];
             }
 
-            const projectId = state.sessionDetail.session.projectId;
             const query = state.projectReferenceQuery.trim().toLowerCase();
             const baseSuggestions = [
                 createProjectFileSuggestion(projectId),
@@ -937,6 +1027,18 @@ export const useAppStore = defineStore("app", {
                 return skill.scope === "global";
             });
         },
+
+        /**
+         * agentStatusTree：输入区“智能体状态”两级树。
+         *
+         * @returns 第一级为主智能体和长期智能体，第二级为各自子智能体。
+         */
+        agentStatusTree(state): AgentStatusTreeNode[] {
+            return mergeAgentStatusTree(
+                state.agents,
+                state.mainAgentStatusTree,
+            );
+        },
     },
     actions: {
         /**
@@ -965,6 +1067,7 @@ export const useAppStore = defineStore("app", {
             await this.registerRuntimeProject();
             await this.loadProviders();
             await this.loadNavigationData();
+            await this.loadAgents();
             await this.ensureSession();
             await this.syncDesktopStatus();
             await this.requestBrowserNotificationPermission();
@@ -2170,6 +2273,24 @@ export const useAppStore = defineStore("app", {
         },
 
         /**
+         * loadAgents：加载主智能体和长期智能体列表。
+         *
+         * @returns 加载完成后没有返回值。
+         */
+        async loadAgents(): Promise<void> {
+            try {
+                const result = await this.api().listAgents();
+                this.agents = result.agents;
+            } catch (error) {
+                // 当前页面仍保留主智能体默认节点；中心服务接口失败时不伪造长期智能体，只记录排查信息。
+                this.lastError = error instanceof Error
+                    ? error.message
+                    : String(error);
+                console.error("智能体列表加载失败", error);
+            }
+        },
+
+        /**
          * installPlugin：安装插件清单 JSON。
          *
          * @returns 安装完成后没有返回值。
@@ -2562,6 +2683,48 @@ function createProjectFileSuggestion(projectId: string): ProjectReferenceSuggest
     };
 }
 
+/**
+ * resolveComposerProjectId：解析当前输入区明确绑定的项目 ID。
+ *
+ * 来源：依次只读取三类已有明确状态：中心服务项目会话、未发送项目草稿、IDE 插件运行时项目上下文。
+ * @param state Pinia 当前状态切片。
+ * @returns 有明确项目上下文时返回项目 ID，否则返回 null。
+ */
+function resolveComposerProjectId(state: {
+    sessionDetail: SessionDetailResult | null;
+    pendingSessionDraft: PendingSessionDraft | null;
+    runtime: RuntimeEnvironment;
+}): string | null {
+    // sessionProjectId: 已存在项目会话的中心服务事实源，优先级最高。
+    const sessionProjectId = state.sessionDetail?.session.sessionType === "project"
+        ? state.sessionDetail.session.projectId
+        : null;
+    if (typeof sessionProjectId === "string" && sessionProjectId.trim().length > 0) {
+        return sessionProjectId;
+    }
+
+    // draftProjectId: 用户新建项目对话或插件页签后的本地待发送项目意图，来源于 pendingSessionDraft.projectId。
+    const draftProjectId = state.pendingSessionDraft?.sessionType === "project"
+        ? state.pendingSessionDraft.projectId
+        : null;
+    if (typeof draftProjectId === "string" && draftProjectId.trim().length > 0) {
+        return draftProjectId;
+    }
+
+    // runtimeProjectContext: IDE 插件入口明确携带的项目上下文，支持首个项目页签尚未发送时使用文件上下文。
+    const runtimeProjectContext = state.runtime.projectContext;
+    if (!runtimeProjectContext) {
+        return null;
+    }
+    // runtimeProjectId: 来自 runtime.projectContext.projectId，不从其他字段推断。
+    const runtimeProjectId = runtimeProjectContext.projectId;
+    if (typeof runtimeProjectId === "string" && runtimeProjectId.trim().length > 0) {
+        return runtimeProjectId;
+    }
+
+    return null;
+}
+
 function createProjectFolderSuggestion(projectId: string): ProjectReferenceSuggestion {
     return {
         key: "project-root-folder",
@@ -2761,6 +2924,94 @@ function createSkillDraft(): SkillDraft {
         content: "",
         projectId: "",
     };
+}
+
+/**
+ * createDefaultAgentStatusTree：创建默认智能体状态树。
+ *
+ * @returns 至少包含系统内置主智能体的两级树根节点。
+ */
+function createDefaultAgentStatusTree(): AgentStatusTreeNode[] {
+    return [
+        {
+            agentId: "main",
+            parentAgentId: "",
+            name: "致心",
+            status: "空闲",
+            taskSummary: "主智能体当前没有执行任务。",
+            conversationHint: "主智能体“致心”负责默认对话、任务派发和长期记忆归纳。",
+            nodeKind: "主智能体",
+            children: [],
+        },
+    ];
+}
+
+/**
+ * mergeAgentStatusTree：合并中心服务长期智能体和当前运行期子智能体树。
+ *
+ * @param agents 中心服务已固化的智能体列表。
+ * @param runtimeTree 当前运行期智能体状态树，第二级子智能体来源于后续运行事件。
+ * @returns 输入区弹框展示的两级智能体状态树。
+ */
+function mergeAgentStatusTree(
+    agents: AgentConfigView[],
+    runtimeTree: AgentStatusTreeNode[],
+): AgentStatusTreeNode[] {
+    // childrenByParent: 只按 parentAgentId 精确归属第二级子智能体，避免按名称或摘要猜测父节点。
+    const childrenByParent = new Map<string, AgentStatusTreeNode[]>();
+    for (const node of runtimeTree.flatMap((root) => {
+        return root.children;
+    })) {
+        const siblings = childrenByParent.get(node.parentAgentId) ?? [];
+        siblings.push(node);
+        childrenByParent.set(
+            node.parentAgentId,
+            siblings,
+        );
+    }
+
+    // mainAgent: 主智能体必须存在；中心服务返回主智能体时用中心服务名称，否则使用内置“致心”语义。
+    const mainAgent = agents.find((agent) => {
+        return agent.agentId === "main";
+    });
+    const longTermAgents = agents.filter((agent) => {
+        return agent.agentId !== "main";
+    });
+    const rootAgents: AgentConfigView[] = [
+        mainAgent ?? {
+            agentId: "main",
+            name: "致心",
+            enabled: true,
+            roleDescription: "系统内置主智能体，直接与用户对话并调度其他智能体。",
+            capabilityBoundary: "默认对话、任务派发和长期记忆归纳。",
+            defaultProviderId: null,
+            defaultModel: "",
+            reasoningEffort: "medium",
+            memoryIndexPath: "memory/agents/main",
+            createdBy: "system",
+            definitionPath: "agents/main.md",
+            updatedAt: "",
+        },
+        ...longTermAgents,
+    ];
+
+    return rootAgents.map((agent) => {
+        const fallbackNode = runtimeTree.find((node) => {
+            return node.agentId === agent.agentId;
+        });
+        return {
+            agentId: agent.agentId,
+            parentAgentId: "",
+            name: agent.name,
+            status: agent.enabled ? (fallbackNode?.status ?? "空闲") : "已停用",
+            taskSummary: fallbackNode?.taskSummary ?? "当前没有执行任务。",
+            conversationHint: fallbackNode?.conversationHint ?? `${agent.name} 的对话查看和发送暂时仍通过当前会话消息接口完成。`,
+            nodeKind: agent.agentId === "main"
+                ? "主智能体"
+                : "长期智能体",
+            children: childrenByParent.get(agent.agentId) ?? [],
+        };
+    });
 }
 
 /**

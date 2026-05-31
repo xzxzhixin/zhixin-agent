@@ -425,6 +425,42 @@ export interface SkillConfigView {
 }
 
 /**
+ * AgentConfigView：智能体管理列表展示结构。
+ *
+ * 来源：`POST /api/agent/list`。
+ * 含义：展示中心服务已固化的主智能体和长期智能体定义摘要。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：子智能体不在该接口固化，仍来自运行期事件或前端单一临时状态树。
+ */
+export interface AgentConfigView {
+  /** agentId: 智能体 ID，主智能体固定为 main。 */
+  agentId: string;
+  /** name: 智能体展示名称。 */
+  name: string;
+  /** enabled: 是否启用。 */
+  enabled: boolean;
+  /** roleDescription: 角色说明。 */
+  roleDescription: string;
+  /** capabilityBoundary: 能力边界说明。 */
+  capabilityBoundary: string;
+  /** defaultProviderId: 默认供应商 ID，没有配置时为 null。 */
+  defaultProviderId: string | null;
+  /** defaultModel: 默认模型，没有配置时为空字符串。 */
+  defaultModel: string;
+  /** reasoningEffort: 推理深度配置。 */
+  reasoningEffort: string;
+  /** memoryIndexPath: 智能体记忆索引路径。 */
+  memoryIndexPath: string;
+  /** createdBy: 创建来源。 */
+  createdBy: string;
+  /** definitionPath: Markdown 定义文件路径。 */
+  definitionPath: string;
+  /** updatedAt: 更新时间 ISO 字符串。 */
+  updatedAt: string;
+}
+
+/**
  * CenterApiClient：中心服务 REST 客户端。
  *
  * 用途：让前端、桌面壳和 IDE 插件通过统一方法访问中心服务。
@@ -1000,6 +1036,17 @@ export class CenterApiClient {
     relativePath: string;
   }> {
     return this.post("/api/skill/install", payload);
+  }
+
+  /**
+   * listAgents：查询主智能体和长期智能体列表。
+   *
+   * @returns 智能体列表。
+   */
+  listAgents(): Promise<{
+    agents: AgentConfigView[];
+  }> {
+    return this.post("/api/agent/list", {});
   }
 
   /**

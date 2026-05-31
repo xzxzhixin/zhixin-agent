@@ -2589,11 +2589,17 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
             displayName?: string;
             latestPath?: string;
         };
+        // latestPath: 项目登记仍要求客户端传入当前项目路径，中心服务用它记录最近位置并在缺少名称时派生文件夹名。
+        const latestPath = body.latestPath?.trim() ?? "";
+        // displayName: 项目主名称必须来自显式项目名或 latestPath 最后一级目录，不能使用项目 ID 兜底。
+        const displayName = body.displayName && body.displayName.trim().length > 0
+            ? body.displayName.trim()
+            : deriveProjectDisplayNameFromPath(latestPath);
 
-        if (!body.projectId || !body.displayName || !body.latestPath) {
+        if (!body.projectId || !latestPath || !displayName) {
             return createErrorResponse(
                 "PROJECT_REGISTER_INVALID",
-                "项目登记缺少 projectId、displayName 或 latestPath",
+                "项目登记缺少 projectId、latestPath，或无法从 displayName/latestPath 得出项目名称",
                 "项目登记信息不完整。",
             );
         }
@@ -2615,17 +2621,17 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
             `)
             .run(
                 body.projectId,
-                body.displayName,
-                body.latestPath,
+                displayName,
+                latestPath,
                 now,
                 now,
             );
 
         return createSuccessResponse<ProjectRecord>({
             projectId: body.projectId,
-            displayName: body.displayName,
+            displayName,
             alias: null,
-            latestPath: body.latestPath,
+            latestPath,
             createdAt: now,
             updatedAt: now,
         });
@@ -7812,6 +7818,24 @@ function writeFileSyncUtf8(filePath: string, value: string): void {
         rmSync(filePath);
     }
     writeFileSync(filePath, value, "utf-8");
+}
+
+/**
+ * deriveProjectDisplayNameFromPath：从项目最近路径派生项目显示名。
+ *
+ * @param latestPath 项目登记传入的当前项目根目录路径。
+ * @returns 路径最后一级目录名；路径为空、只有分隔符或无法派生时返回空字符串。
+ */
+function deriveProjectDisplayNameFromPath(latestPath: string): string {
+    // normalizedPath: 去掉首尾空白和末尾路径分隔符，确保 `C:\项目\对话测试\` 能派生出 `对话测试`。
+    const normalizedPath = latestPath.trim().replace(/[\\/]+$/u, "");
+    if (normalizedPath.length === 0) {
+        return "";
+    }
+
+    // pathParts: 同时支持 Windows 反斜杠和 POSIX 正斜杠；只取最后一级目录满足项目文件夹名需求。
+    const pathParts = normalizedPath.split(/[\\/]/u);
+    return pathParts[pathParts.length - 1]?.trim() ?? "";
 }
 
 /**

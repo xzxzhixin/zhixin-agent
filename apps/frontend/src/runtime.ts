@@ -241,10 +241,15 @@ function detectPreferredTheme(searchParams: URLSearchParams): ThemeMode {
  * @returns 项目上下文；参数不完整时返回 null。
  */
 function readRuntimeProjectContext(searchParams: URLSearchParams): RuntimeProjectContext | null {
-  // projectId/displayName/rootPath: 三者都来自 IDEA 插件宿主能力。
+  // projectId/rootPath: 二者来自 IDEA 插件宿主能力，是项目登记的最小身份和路径输入。
   const projectId = searchParams.get("projectId");
-  const displayName = searchParams.get("projectName");
+  // rawDisplayName: 新版插件会显式传入 projectName；旧 URL 可能缺失该参数。
+  const rawDisplayName = searchParams.get("projectName");
   const rootPath = searchParams.get("projectPath");
+  // displayName: projectName 缺失时按需求从 projectPath 最后一级目录派生，保证旧插件 URL 兼容。
+  const displayName = rawDisplayName && rawDisplayName.trim().length > 0
+    ? rawDisplayName.trim()
+    : deriveProjectDisplayNameFromPath(rootPath);
 
   if (!projectId || !displayName || !rootPath) {
     return null;
@@ -255,4 +260,26 @@ function readRuntimeProjectContext(searchParams: URLSearchParams): RuntimeProjec
     displayName,
     rootPath,
   };
+}
+
+/**
+ * deriveProjectDisplayNameFromPath：从项目路径派生项目显示名。
+ *
+ * @param projectPath 插件 URL 传入的项目根目录路径。
+ * @returns 路径最后一级目录名；路径为空或无法派生时返回空字符串。
+ */
+function deriveProjectDisplayNameFromPath(projectPath: string | null): string {
+  if (!projectPath) {
+    return "";
+  }
+
+  // normalizedPath: 同时兼容 Windows 反斜杠和浏览器 URL 中可能出现的正斜杠。
+  const normalizedPath = projectPath.trim().replace(/[\\/]+$/u, "");
+  if (normalizedPath.length === 0) {
+    return "";
+  }
+
+  // pathParts: 只取最后一级目录作为项目主名称，避免项目路径泄露到导航主标题。
+  const pathParts = normalizedPath.split(/[\\/]/u);
+  return pathParts[pathParts.length - 1]?.trim() ?? "";
 }

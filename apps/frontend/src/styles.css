@@ -19,6 +19,9 @@
     --zhixin-selected-bg: #e8f3ff;
     --zhixin-hover-bg: #eef6ff;
     --zhixin-shadow: 0 12px 28px rgb(15 23 42 / 16%);
+    --zhixin-scrollbar-track: transparent;
+    --zhixin-scrollbar-thumb: rgb(144 157 180 / 42%);
+    --zhixin-scrollbar-thumb-hover: rgb(100 116 139 / 62%);
 }
 
 [data-theme="dark"] {
@@ -36,10 +39,50 @@
     --zhixin-selected-bg: #172554;
     --zhixin-hover-bg: #1e293b;
     --zhixin-shadow: 0 12px 28px rgb(0 0 0 / 36%);
+    --zhixin-scrollbar-track: transparent;
+    --zhixin-scrollbar-thumb: rgb(148 163 184 / 34%);
+    --zhixin-scrollbar-thumb-hover: rgb(203 213 225 / 56%);
 }
 
 * {
     box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: var(--zhixin-scrollbar-thumb) var(--zhixin-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+    background: var(--zhixin-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--zhixin-scrollbar-thumb);
+    background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: var(--zhixin-scrollbar-thumb-hover);
+    background-clip: content-box;
+}
+
+.el-scrollbar__bar {
+    right: 2px;
+    bottom: 2px;
+}
+
+.el-scrollbar__thumb {
+    border-radius: 999px;
+    background-color: var(--zhixin-scrollbar-thumb);
+}
+
+.el-scrollbar__thumb:hover {
+    background-color: var(--zhixin-scrollbar-thumb-hover);
 }
 
 body {
@@ -191,10 +234,61 @@ body {
     overflow: hidden;
 }
 
-.plugin-shell .conversation-sidebar {
-    width: 190px;
-    min-width: 190px;
-    flex-basis: 190px;
+.plugin-shell .content-grid {
+    gap: 10px;
+    padding: 10px;
+}
+
+.plugin-top-tabs {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.plugin-top-tab {
+    display: inline-flex;
+    min-width: 112px;
+    max-width: 220px;
+    height: 34px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 7px 7px 0 0;
+    background: var(--zhixin-soft-bg);
+    color: var(--zhixin-text);
+    cursor: pointer;
+}
+
+.plugin-top-tab.active {
+    border-color: var(--zhixin-selected-border);
+    background: var(--zhixin-selected-bg);
+}
+
+.plugin-top-tab.add {
+    min-width: 36px;
+    width: 36px;
+    justify-content: center;
+}
+
+.plugin-top-tab span,
+.plugin-top-tab small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.plugin-top-tab small {
+    color: var(--zhixin-text-soft);
+    font-size: 11px;
 }
 
 .conversation-group {
@@ -320,7 +414,7 @@ body {
 }
 
 .conversation-status-icon.status-running {
-    color: var(--zhixin-primary);
+    color: var(--zhixin-accent);
 }
 
 .conversation-status-icon.status-queued,
@@ -437,6 +531,11 @@ body {
     font-size: 12px;
 }
 
+.chat-header .plugin-project-name {
+    color: var(--zhixin-text);
+    font-weight: 600;
+}
+
 .chat-header-actions {
     display: flex;
     flex: 0 0 auto;
@@ -525,7 +624,7 @@ body {
 }
 
 .active-turn-elapsed {
-    width: min(748px, 100%);
+    width: min(900px, 100%);
     margin-bottom: 8px;
     padding: 6px 10px;
     border: 1px solid var(--zhixin-selected-border);
@@ -538,16 +637,189 @@ body {
 .composer-shell {
     position: relative;
     display: flex;
-    width: min(748px, 100%);
+    width: min(900px, 100%);
     min-width: 0;
-    min-height: 84px;
-    flex: 0 1 748px;
+    min-height: 120px;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: 6px;
     padding: 10px 12px;
     border: 1px solid var(--zhixin-border);
     border-radius: 18px;
     background: var(--zhixin-panel-bg);
+}
+
+.composer-entry-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    padding: 2px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 12px;
+    background: var(--zhixin-soft-bg);
+}
+
+.composer-entry-tab {
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--zhixin-text);
+    cursor: pointer;
+}
+
+.composer-entry-tab.active {
+    border-color: var(--zhixin-selected-border);
+    background: var(--zhixin-panel-bg);
+    color: var(--zhixin-text-strong);
+}
+
+.composer-task-panel,
+.composer-agent-tree,
+.composer-edit-panel {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.composer-panel-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 8px;
+    background: var(--zhixin-soft-bg);
+}
+
+.composer-panel-row strong,
+.composer-panel-row span,
+.composer-panel-row small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-panel-row small {
+    grid-column: 1 / -1;
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
+}
+
+.composer-agent-node {
+    display: flex;
+    width: 100%;
+    min-height: 34px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 7px;
+    padding-right: 10px;
+    padding-bottom: 7px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 8px;
+    background: var(--zhixin-soft-bg);
+    color: var(--zhixin-text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.composer-agent-node:hover {
+    border-color: var(--zhixin-selected-border);
+    background: var(--zhixin-hover-bg);
+}
+
+.composer-agent-node.active {
+    border-color: var(--zhixin-selected-border);
+    background: var(--zhixin-selected-bg);
+}
+
+.composer-agent-node span,
+.composer-agent-node small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-agent-node small {
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
+}
+
+.composer-edit-file {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 8px;
+    background: var(--zhixin-soft-bg);
+    color: var(--zhixin-text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.composer-edit-file.active,
+.composer-edit-file:hover {
+    border-color: var(--zhixin-selected-border);
+    background: var(--zhixin-hover-bg);
+}
+
+.composer-edit-file header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.composer-edit-file strong,
+.composer-edit-file span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.composer-edit-file span {
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
+}
+
+.composer-diff-view {
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 8px;
+    background: var(--zhixin-soft-bg);
+    overflow: auto;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.composer-diff-view code {
+    display: block;
+    font-family: Consolas, "Microsoft YaHei", monospace;
+    white-space: pre;
+}
+
+.composer-diff-view .diff-added {
+    color: #15803d;
+}
+
+.composer-diff-view .diff-removed {
+    color: #dc2626;
+}
+
+.composer-diff-view .diff-context {
+    color: var(--zhixin-text-soft);
 }
 
 .composer-tags {
@@ -700,6 +972,123 @@ body {
     border-radius: 8px;
     background: var(--zhixin-panel-bg);
     overflow: hidden;
+}
+
+.composer-mini-dialog .el-dialog__body {
+    max-height: min(68vh, 620px);
+    overflow: hidden;
+}
+
+.composer-mini-dialog-body,
+.child-agent-dialog-body {
+    display: flex;
+    min-height: 0;
+    max-height: min(58vh, 520px);
+    flex-direction: column;
+    gap: 10px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.child-agent-dialog-body header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.child-agent-dialog-body header span {
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
+}
+
+.agent-status-dialog-grid {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+    gap: 12px;
+    overflow: hidden;
+}
+
+.agent-status-tree {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.agent-conversation-detail {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+}
+
+.agent-conversation-detail header {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agent-conversation-detail header span {
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
+}
+
+.agent-conversation-list {
+    display: flex;
+    min-height: 180px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 8px;
+    background: var(--zhixin-soft-bg);
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.child-agent-message {
+    max-width: 86%;
+    padding: 9px 11px;
+    border-radius: 8px;
+    line-height: 1.5;
+}
+
+.child-agent-message.assistant {
+    align-self: flex-start;
+    background: var(--zhixin-soft-bg);
+}
+
+.child-agent-message.user {
+    align-self: flex-end;
+    background: var(--zhixin-selected-bg);
+}
+
+.child-agent-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.plugin-inline-status {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
+}
+
+.plugin-inline-status span {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .config-panel h2:first-child {
