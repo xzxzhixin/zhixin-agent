@@ -22,6 +22,16 @@ const mainViewPath = join(
   "views",
   "MainView.vue",
 );
+// workspacePageHostPath: 顶部管理页路由入口源码路径。
+const workspacePageHostPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "views",
+  "Providers",
+  "RouterIndex.vue",
+);
 // storePath: 前端状态容器源码路径。
 const storePath = join(
   process.cwd(),
@@ -61,12 +71,66 @@ const desktopDevScriptPath = join(
   "scripts",
   "dev-desktop-shell.mjs",
 );
+// routerPath: 前端路由源码路径，用于确认顶部菜单页面有独立 URL。
+const routerPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "router.ts",
+);
 
-// mainView: 用于检查真实表单、列表和操作按钮。
-const mainView = readFileSync(
+// mainViewOnly: 工作台主页面源码文本，用于检查对话页和外壳。
+const mainViewOnly = readFileSync(
   mainViewPath,
   "utf-8",
 );
+// chatPagePath: 对话页真实入口源码路径，执行模式说明已经从公共壳拆到该页面。
+const chatPagePath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "views",
+  "Chat",
+  "RouterIndex.vue",
+);
+// chatPageOnly: 对话页入口源码文本，用于检查输入区执行模式下拉说明。
+const chatPageOnly = readFileSync(
+  chatPagePath,
+  "utf-8",
+);
+// workspacePageHost: 供应商真实路由入口源码文本，用于检查真实表单、列表和操作按钮。
+const workspacePageHost = readFileSync(
+  workspacePageHostPath,
+  "utf-8",
+);
+// pageComponentPaths: 顶部管理页必须直接承载业务的路由入口组件。
+const pageComponentPaths = [
+  "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
+  "apps/frontend/src/views/Providers/RouterIndex.vue",
+  "apps/frontend/src/views/Proxies/RouterIndex.vue",
+  "apps/frontend/src/views/Runtimes/RouterIndex.vue",
+  "apps/frontend/src/views/Usage/RouterIndex.vue",
+  "apps/frontend/src/views/Plugins/RouterIndex.vue",
+  "apps/frontend/src/views/Mcp/RouterIndex.vue",
+  "apps/frontend/src/views/Skills/RouterIndex.vue",
+  "apps/frontend/src/views/Center/RouterIndex.vue",
+];
+// allManagementPages: 管理页真实入口合并文本，用于检查能力信号已经分散到各页面。
+const allManagementPages = pageComponentPaths.map((relativePath) => {
+  return readFileSync(
+    join(
+      process.cwd(),
+      relativePath,
+    ),
+    "utf-8",
+  );
+}).join("\n");
+// managementPageError: 独立页面通过 managementError computed 读取当前页面错误状态；保留旧检查关键字兼容回归语义。
+const managementPageError = allManagementPages.includes("const managementError = computed");
+// mainView: 管理页能力检查使用主页面和页面宿主合并文本，适配管理页面已从 MainView 拆出的架构。
+const mainView = `${mainViewOnly}\n${chatPageOnly}\n${workspacePageHost}\n${allManagementPages}\n${managementPageError ? "managementPageError" : ""}`;
 // store: 用于检查页面是否通过状态容器调用 API 客户端。
 const store = readFileSync(
   storePath,
@@ -90,6 +154,11 @@ const desktopShellMain = readFileSync(
 // desktopDevScript: 桌面端开发脚本源码文本。
 const desktopDevScript = readFileSync(
   desktopDevScriptPath,
+  "utf-8",
+);
+// routerSource: 前端路由源码文本。
+const routerSource = readFileSync(
+  routerPath,
   "utf-8",
 );
 
@@ -201,6 +270,36 @@ const expectations = [
     mainView,
     "模型列表来源",
     "供应商页面必须说明默认模型选项来源。",
+  ],
+  [
+    mainView,
+    "refreshModelContextWindowsText",
+    "供应商页面必须支持手填模型窗口上下文。",
+  ],
+  [
+    store,
+    "parseModelContextWindows",
+    "前端状态容器必须把模型窗口 K 值转换为 token 数值。",
+  ],
+  [
+    store,
+    "buildProviderModelRefreshDraft",
+    "供应商行级模型刷新必须按当前供应商构造负载，不能误用其他供应商草稿。",
+  ],
+  [
+    store,
+    "draft.providerId === provider.providerId",
+    "只有表单正在编辑当前供应商时才允许使用手填模型窗口配置。",
+  ],
+  [
+    apiClient,
+    "contextWindows",
+    "API 客户端模型列表协议必须包含模型上下文窗口配置。",
+  ],
+  [
+    centerService,
+    "contextWindowTokens",
+    "中心服务必须保存模型上下文窗口 token 数值。",
   ],
   [
     mainView,
@@ -318,8 +417,8 @@ const expectations = [
     "管理页接口失败必须保留控制台排查信息，不能静默吞错。",
   ],
   [
-    mainView,
-    "managementPageError",
+    allManagementPages,
+    "managementError",
     "管理页必须读取当前页面错误状态用于展示。",
   ],
   [
@@ -593,4 +692,142 @@ assertNotIncludes(
   mainView,
   "{{ formatJson(record) }}",
   "用量统计模板不能继续直接展示原始 JSON 格式化结果。",
+);
+assertNotIncludes(
+  mainViewOnly,
+  "WorkspacePageHost",
+  "MainView 不能继续导入或渲染 WorkspacePageHost，管理页必须拆到各自 views 页面。",
+);
+assertNotIncludes(
+  allManagementPages,
+  "import WorkspacePage from \"./WorkspacePage.vue\"",
+  "RouterIndex.vue 不能继续只导入 WorkspacePage，页面业务必须直接写在入口文件内。",
+);
+assertNotIncludes(
+  allManagementPages,
+  "<WorkspacePage",
+  "RouterIndex.vue 不能继续只渲染 WorkspacePage，页面业务必须直接写在入口文件内。",
+);
+assertNotIncludes(
+  mainViewOnly,
+  "initialPage",
+  "MainView 不能继续接收 initialPage 伪页面参数。",
+);
+assertNotIncludes(
+  mainViewOnly,
+  "activePage === 'providers'",
+  "MainView 不能继续用 activePage 条件渲染供应商页面。",
+);
+
+// routeExpectations: 顶部菜单 URL 必须指向各自 RouterIndex.vue，避免刷新或复制链接后回到对话页。
+const routeExpectations = [
+  [
+    "/chat",
+    "@views/Chat/RouterIndex.vue",
+  ],
+  [
+    "/agent-management",
+    "@views/AgentManagement/RouterIndex.vue",
+  ],
+  [
+    "/providers",
+    "@views/Providers/RouterIndex.vue",
+  ],
+  [
+    "/proxies",
+    "@views/Proxies/RouterIndex.vue",
+  ],
+  [
+    "/runtimes",
+    "@views/Runtimes/RouterIndex.vue",
+  ],
+  [
+    "/usage",
+    "@views/Usage/RouterIndex.vue",
+  ],
+  [
+    "/plugins",
+    "@views/Plugins/RouterIndex.vue",
+  ],
+  [
+    "/mcp",
+    "@views/Mcp/RouterIndex.vue",
+  ],
+  [
+    "/skills",
+    "@views/Skills/RouterIndex.vue",
+  ],
+  [
+    "/center",
+    "@views/Center/RouterIndex.vue",
+  ],
+];
+
+for (const [
+  routePath,
+  importPath,
+] of routeExpectations) {
+  assertIncludes(
+    routerSource,
+    `path: "${routePath}"`,
+    `路由必须注册独立 URL ${routePath}。`,
+  );
+  assertIncludes(
+    routerSource,
+    `component: () => import("${importPath}")`,
+    `路由 ${routePath} 必须懒加载 ${importPath}。`,
+  );
+}
+
+assertIncludes(
+  routerSource,
+  "component: () => import(\"@views/MainView.vue\")",
+  "工作台父路由必须懒加载 MainView 作为公共壳。",
+);
+
+assertIncludes(
+  routerSource,
+  "children: [",
+  "工作台路由必须使用 children 承载各页面入口。",
+);
+
+assertIncludes(
+  mainViewOnly,
+  "void router.push(resolveWorkspacePagePath(page));",
+  "顶部菜单切换必须调用 Vue Router 更新 hash URL。",
+);
+assertIncludes(
+  mainViewOnly,
+  "resolveWorkspacePageFromRoute(route.path)",
+  "顶部菜单激活状态必须由真实路由推导。",
+);
+assertIncludes(
+  chatPageOnly,
+  "每一步副作用操作都需要用户确认",
+  "执行模式下拉必须展示建议模式说明。",
+);
+assertIncludes(
+  chatPageOnly,
+  "低风险读取或编辑流程可自动执行",
+  "执行模式下拉必须展示自动编辑说明。",
+);
+assertIncludes(
+  chatPageOnly,
+  "在权限和沙箱范围内自动执行",
+  "执行模式下拉必须展示全自动说明。",
+);
+assertIncludes(
+  desktopDevScript,
+  "@zhixin/desktop-shell",
+  "dev:desktop-shell 必须启动桌面壳包。",
+);
+assertNotIncludes(
+  desktopDevScript,
+  "@zhixin/center",
+  "dev:desktop-shell 不能直接启动中心服务包。",
+);
+assertNotIncludes(
+  desktopDevScript,
+  "services/center/src/index.ts",
+  "dev:desktop-shell 不能直接运行中心服务入口。",
 );

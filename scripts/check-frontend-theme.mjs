@@ -33,8 +33,10 @@ const runtimeSource = readProjectFile("apps/frontend/src/runtime.ts");
 const storeSource = readProjectFile("apps/frontend/src/stores/app.ts");
 // mainViewSource: 主工作台页面源码。
 const mainViewSource = readProjectFile("apps/frontend/src/views/MainView.vue");
+// chatViewSource: 对话页入口源码，承载移动模式和插件紧凑模式主题按钮。
+const chatViewSource = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
 // loginViewSource: 远程 Web 登录页面源码。
-const loginViewSource = readProjectFile("apps/frontend/src/views/LoginView.vue");
+const loginViewSource = readProjectFile("apps/frontend/src/views/Login/RouterIndex.vue");
 // appSource: Vue 根组件源码。
 const appSource = readProjectFile("apps/frontend/src/App.vue");
 // stylesSource: 全局样式源码。
@@ -69,9 +71,10 @@ if (!appSource.includes("appStore.applyTheme()")) {
 
 if (
   !mainViewSource.includes("theme-toggle")
-  || !mainViewSource.includes("mobile-theme-toggle")
-  || !mainViewSource.includes("chat-theme-toggle")
   || !mainViewSource.includes("toggleTheme")
+  || !chatViewSource.includes("mobile-theme-toggle")
+  || !chatViewSource.includes("chat-theme-toggle")
+  || !chatViewSource.includes("toggleTheme")
 ) {
   console.error("主工作台、移动入口和插件紧凑入口必须提供主题切换入口。");
   process.exitCode = 1;

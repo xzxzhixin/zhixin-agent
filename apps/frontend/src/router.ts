@@ -3,14 +3,6 @@ import {
   createWebHashHistory,
 } from "vue-router";
 
-// mainViewRoute: 主工作台页面路由组件。
-// 这里必须使用动态导入，避免 workspace 页面代码进入主入口文件。
-const mainViewRoute = () => import("./views/MainView.vue");
-
-// loginViewRoute: 远程 Web 登录页面路由组件。
-// 登录页同样懒加载，保证非登录场景不把登录页代码塞进首屏主文件。
-const loginViewRoute = () => import("./views/LoginView.vue");
-
 /**
  * router：统一前端路由。
  *
@@ -24,11 +16,57 @@ export const router = createRouter({
   routes: [
     {
       path: "/",
-      component: mainViewRoute,
+      redirect: "/chat",
     },
     {
       path: "/login",
-      component: loginViewRoute,
+      component: () => import("@views/Login/RouterIndex.vue"),
+    },
+    {
+      path: "/",
+      component: () => import("@views/MainView.vue"),
+      children: [
+        {
+          path: "/chat",
+          component: () => import("@views/Chat/RouterIndex.vue"),
+        },
+        {
+          path: "/agent-management",
+          component: () => import("@views/AgentManagement/RouterIndex.vue"),
+        },
+        {
+          path: "/providers",
+          component: () => import("@views/Providers/RouterIndex.vue"),
+        },
+        {
+          path: "/proxies",
+          component: () => import("@views/Proxies/RouterIndex.vue"),
+        },
+        {
+          path: "/runtimes",
+          component: () => import("@views/Runtimes/RouterIndex.vue"),
+        },
+        {
+          path: "/usage",
+          component: () => import("@views/Usage/RouterIndex.vue"),
+        },
+        {
+          path: "/plugins",
+          component: () => import("@views/Plugins/RouterIndex.vue"),
+        },
+        {
+          path: "/mcp",
+          component: () => import("@views/Mcp/RouterIndex.vue"),
+        },
+        {
+          path: "/skills",
+          component: () => import("@views/Skills/RouterIndex.vue"),
+        },
+        {
+          path: "/center",
+          component: () => import("@views/Center/RouterIndex.vue"),
+        },
+      ],
     },
   ],
 });

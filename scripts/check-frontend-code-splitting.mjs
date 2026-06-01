@@ -39,18 +39,25 @@ const viteConfigSource = readFileSync(
 
 // staticViewImportPattern: 页面组件静态导入会进入主入口，因此禁止出现在路由文件。
 const staticViewImportPattern = /import\s+\w+\s+from\s+["']\.\/views\/[^"']+\.vue["'];/;
-// lazyMainViewPattern: 主工作台必须通过动态 import 形成独立页面 chunk。
-const lazyMainViewPattern = /\(\)\s*=>\s*import\(\s*"[^"]*\.\/views\/MainView\.vue"\s*\)/;
-// lazyLoginViewPattern: 登录页必须通过动态 import 形成独立页面 chunk。
-const lazyLoginViewPattern = /\(\)\s*=>\s*import\(\s*"[^"]*\.\/views\/LoginView\.vue"\s*\)/;
+// rootRedirectPattern: 根路由必须重定向到对话页，避免保留只转发公共壳的空入口。
+const rootRedirectPattern = /path:\s*"\/"[\s\S]*?redirect:\s*"\/chat"/;
+// lazyChatViewPattern: 对话页入口必须通过 @views/Chat/RouterIndex.vue 动态 import 形成独立页面 chunk。
+const lazyChatViewPattern = /\(\)\s*=>\s*import\(\s*"@views\/Chat\/RouterIndex\.vue"\s*\)/;
+// lazyLoginViewPattern: 登录页入口必须通过 @views/Login/RouterIndex.vue 动态 import 形成独立页面 chunk。
+const lazyLoginViewPattern = /\(\)\s*=>\s*import\(\s*"@views\/Login\/RouterIndex\.vue"\s*\)/;
 
 if (staticViewImportPattern.test(routerSource)) {
   console.error("前端页面路由必须懒加载，router.ts 不能静态导入 views 下的页面组件。");
   process.exitCode = 1;
 }
 
-if (!lazyMainViewPattern.test(routerSource)) {
-  console.error("MainView 路由必须使用 () => import(...) 懒加载。");
+if (!rootRedirectPattern.test(routerSource)) {
+  console.error("根路由必须重定向到 /chat，不能保留只转发公共壳的 Main 入口。");
+  process.exitCode = 1;
+}
+
+if (!lazyChatViewPattern.test(routerSource)) {
+  console.error("对话页路由必须使用 () => import(...) 懒加载。");
   process.exitCode = 1;
 }
 

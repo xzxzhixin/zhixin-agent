@@ -258,6 +258,13 @@ export interface ProviderModelListView {
   providerId: string;
   /** models: 供应商提供或用户手动刷新保存的模型名称列表。 */
   models: string[];
+  /** contextWindows: 模型上下文窗口配置，单位为 token。 */
+  contextWindows: Array<{
+    /** model: 模型名称，必须来自 models。 */
+    model: string;
+    /** contextWindowTokens: 模型上下文窗口上限，单位为 token。 */
+    contextWindowTokens: number;
+  }>;
   /** reasoningEfforts: 供应商提供或用户手动刷新保存的推理深度列表。 */
   reasoningEfforts: string[];
   /** updatedAt: 模型列表保存时间，未保存时为 null。 */
@@ -744,10 +751,18 @@ export class CenterApiClient {
   refreshProviderModels(payload: {
     providerId: string;
     models: string[];
+    contextWindows?: Array<{
+      model: string;
+      contextWindowTokens: number;
+    }>;
     reasoningEfforts: string[];
   }): Promise<{
     providerId: string;
     models: string[];
+    contextWindows: Array<{
+      model: string;
+      contextWindowTokens: number;
+    }>;
     reasoningEfforts: string[];
   }> {
     return this.post("/api/provider/model-refresh", payload);

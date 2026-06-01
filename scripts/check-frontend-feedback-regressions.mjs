@@ -29,8 +29,26 @@ function readProjectFile(pathInProject) {
   );
 }
 
-// mainViewSource: 工作台页面源码，覆盖桌面端和浏览器端主 UI。
-const mainViewSource = readProjectFile("apps/frontend/src/views/MainView.vue");
+// mainViewOnlySource: 工作台页面源码，覆盖桌面端和浏览器端主 UI 外壳。
+const mainViewOnlySource = readProjectFile("apps/frontend/src/views/MainView.vue");
+// chatPageSource: 对话页真实入口源码，承载对话导航、输入区和轮次时间。
+const chatPageSource = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
+// managementPageSources: 顶部管理页真实路由入口源码，入口文件直接承载供应商、插件、MCP、skill 等页面内容。
+const managementPageSources = [
+  "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
+  "apps/frontend/src/views/Providers/RouterIndex.vue",
+  "apps/frontend/src/views/Proxies/RouterIndex.vue",
+  "apps/frontend/src/views/Runtimes/RouterIndex.vue",
+  "apps/frontend/src/views/Usage/RouterIndex.vue",
+  "apps/frontend/src/views/Plugins/RouterIndex.vue",
+  "apps/frontend/src/views/Mcp/RouterIndex.vue",
+  "apps/frontend/src/views/Skills/RouterIndex.vue",
+  "apps/frontend/src/views/Center/RouterIndex.vue",
+].map((pathInProject) => readProjectFile(pathInProject)).join("\n");
+// projectCapabilityDialogSource: 项目能力详情弹框源码，页面拆分后承载项目级能力说明和不可用原因。
+const projectCapabilityDialogSource = readProjectFile("apps/frontend/src/views/Chat/dialogs/ProjectCapabilityDialog.vue");
+// mainViewSource: 回归检查合并主页面、页面宿主和关键弹框，避免页面拆分后误判能力缺失。
+const mainViewSource = `${mainViewOnlySource}\n${chatPageSource}\n${managementPageSources}\n${projectCapabilityDialogSource}`;
 // storeSource: 前端状态容器源码，覆盖连接状态和桌面壳状态同步。
 const storeSource = readProjectFile("apps/frontend/src/stores/app.ts");
 // apiClientSource: API 客户端源码，覆盖插件、MCP 和 skill 管理页是否接入中心服务。
@@ -153,7 +171,7 @@ const createProjectConversationBody = extractFunctionBody(storeSource, "createPr
 // ensureSessionForSendingBody: 发送前获取真实会话的动作体，不能在消息发送成功前插入左侧历史列表。
 const ensureSessionForSendingBody = extractFunctionBody(storeSource, "ensureSessionForSending");
 // formatTurnTimeFooterBody: 轮次末尾时间文案，只允许已结束轮次显示。
-const formatTurnTimeFooterBody = extractFunctionBody(mainViewSource, "formatTurnTimeFooter");
+const formatTurnTimeFooterBody = extractFunctionBody(chatPageSource, "formatTurnTimeFooter");
 
 assertIncludes(
   mainViewSource,
@@ -247,6 +265,21 @@ assertIncludes(
 );
 assertIncludes(
   mainViewSource,
+  "composerContextUsageText",
+  "输入区必须展示当前窗口上下文用量。",
+);
+assertIncludes(
+  mainViewSource,
+  "composer-context-usage",
+  "输入区必须使用稳定样式展示上下文用量。",
+);
+assertNotIncludes(
+  mainViewSource,
+  "文件上下文",
+  "输入区不能继续展示独立文件上下文按钮。",
+);
+assertIncludes(
+  mainViewSource,
   "composer-reasoning-select",
   "输入区必须提供推理深度选择。",
 );
@@ -287,18 +320,48 @@ assertIncludes(
 );
 assertIncludes(
   storeSource,
-  "await this.loadProviders();\n            await this.loadNavigationData();",
-  "启动流程必须先加载供应商再加载会话，确保输入区模型选择有默认来源。",
+  "await this.loadProviders();",
+  "启动流程必须加载供应商，确保输入区模型选择有默认来源。",
 );
 assertIncludes(
   storeSource,
-  "this.applyDefaultComposerModelSettings();\n                this.clearManagementError(\"providers\");",
+  "await this.loadNavigationData();",
+  "启动流程必须加载会话和项目导航数据。",
+);
+assertIncludes(
+  storeSource,
+  "this.applyDefaultComposerModelSettings();",
   "供应商列表刷新后必须同步输入区默认供应商和模型。",
 );
 assertIncludes(
   storeSource,
   "composerSelectedModelOptions",
   "状态容器必须为输入区模型选择提供模型列表来源。",
+);
+assertIncludes(
+  storeSource,
+  "composerSelectedModelContextWindowTokens",
+  "状态容器必须为输入区上下文用量提供模型窗口上限。",
+);
+assertIncludes(
+  storeSource,
+  "contextUsedTokens",
+  "状态容器必须保存当前窗口已使用上下文数量。",
+);
+assertIncludes(
+  storeSource,
+  "estimateComposerContextUsedTokens",
+  "当前窗口上下文用量不能只保留初始值，必须从当前会话和草稿估算或读取。",
+);
+assertIncludes(
+  storeSource,
+  "buildProviderModelRefreshDraft",
+  "行级刷新模型列表必须按当前供应商构造负载，不能误用其他供应商草稿。",
+);
+assertIncludes(
+  storeSource,
+  "draft.providerId === provider.providerId",
+  "只有表单正在编辑当前供应商时，才能使用表单里的手填模型窗口配置。",
 );
 assertIncludes(
   storeSource,
@@ -441,9 +504,19 @@ assertIncludes(
   "模型默认值为空时必须使用当前供应商模型列表第一项。",
 );
 assertIncludes(
-  mainViewSource,
-  "...summary.plugins,\n    ...summary.mcpServers,\n    ...summary.skills",
+  chatPageSource,
+  "...summary.plugins",
   "项目能力弹框必须使用结构化能力项，不能硬编码伪造启用状态和不可用原因。",
+);
+assertIncludes(
+  chatPageSource,
+  "...summary.mcpServers",
+  "项目能力弹框必须使用结构化 MCP 能力项。",
+);
+assertIncludes(
+  chatPageSource,
+  "...summary.skills",
+  "项目能力弹框必须使用结构化 skill 能力项。",
 );
 assertNotIncludes(
   mainViewSource,
@@ -481,7 +554,7 @@ assertNotIncludes(
   "顶部不应展示本机 Web 端类型标志。",
 );
 assertNotIncludes(
-  mainViewSource,
+  mainViewOnlySource,
   "桌面端",
   "顶部不应展示桌面端类型标志。",
 );

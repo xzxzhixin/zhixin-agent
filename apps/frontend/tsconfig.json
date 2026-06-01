@@ -1,0 +1,49 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ],
+      "~/*": [
+        "src/*"
+      ],
+      "@views/*": [
+        "src/views/*"
+      ],
+      "@components/*": [
+        "src/components/*"
+      ],
+      "@stores/*": [
+        "src/stores/*"
+      ],
+      "@api/*": [
+        "../../packages/api-client/src/*"
+      ],
+      "@zhixin/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@zhixin/shared/*": [
+        "../../packages/shared/src/*"
+      ],
+      "@zhixin/api-client": [
+        "../../packages/api-client/src/index.ts"
+      ],
+      "@zhixin/api-client/*": [
+        "../../packages/api-client/src/*"
+      ],
+      "@zhixin/ui": [
+        "../../packages/ui/src/index.ts"
+      ],
+      "@zhixin/ui/*": [
+        "../../packages/ui/src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "vite.config.ts"
+  ]
+}

@@ -558,18 +558,6 @@ body {
     flex: 0 0 auto;
 }
 
-.project-capability-dialog-body {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.project-capability-dialog-body p {
-    margin: 0;
-    color: var(--zhixin-text-soft);
-    font-size: 13px;
-}
-
 .message-list {
     display: flex;
     min-height: 0;
@@ -676,152 +664,6 @@ body {
     color: var(--zhixin-text-strong);
 }
 
-.composer-task-panel,
-.composer-agent-tree,
-.composer-edit-panel {
-    display: flex;
-    min-height: 0;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 6px;
-    overflow-x: hidden;
-    overflow-y: auto;
-}
-
-.composer-panel-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px 10px;
-    padding: 8px 10px;
-    border: 1px solid var(--zhixin-border);
-    border-radius: 8px;
-    background: var(--zhixin-soft-bg);
-}
-
-.composer-panel-row strong,
-.composer-panel-row span,
-.composer-panel-row small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.composer-panel-row small {
-    grid-column: 1 / -1;
-    color: var(--zhixin-text-soft);
-    font-size: 12px;
-}
-
-.composer-agent-node {
-    display: flex;
-    width: 100%;
-    min-height: 34px;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding-top: 7px;
-    padding-right: 10px;
-    padding-bottom: 7px;
-    border: 1px solid var(--zhixin-border);
-    border-radius: 8px;
-    background: var(--zhixin-soft-bg);
-    color: var(--zhixin-text);
-    text-align: left;
-    cursor: pointer;
-}
-
-.composer-agent-node:hover {
-    border-color: var(--zhixin-selected-border);
-    background: var(--zhixin-hover-bg);
-}
-
-.composer-agent-node.active {
-    border-color: var(--zhixin-selected-border);
-    background: var(--zhixin-selected-bg);
-}
-
-.composer-agent-node span,
-.composer-agent-node small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.composer-agent-node small {
-    color: var(--zhixin-text-soft);
-    font-size: 12px;
-}
-
-.composer-edit-file {
-    display: block;
-    width: 100%;
-    padding: 7px 10px;
-    border: 1px solid var(--zhixin-border);
-    border-radius: 8px;
-    background: var(--zhixin-soft-bg);
-    color: var(--zhixin-text);
-    text-align: left;
-    cursor: pointer;
-}
-
-.composer-edit-file.active,
-.composer-edit-file:hover {
-    border-color: var(--zhixin-selected-border);
-    background: var(--zhixin-hover-bg);
-}
-
-.composer-edit-file header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-}
-
-.composer-edit-file strong,
-.composer-edit-file span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.composer-edit-file span {
-    color: var(--zhixin-text-soft);
-    font-size: 12px;
-}
-
-.composer-diff-view {
-    margin: 0;
-    padding: 8px 10px;
-    border: 1px solid var(--zhixin-border);
-    border-radius: 8px;
-    background: var(--zhixin-soft-bg);
-    overflow: auto;
-    font-size: 12px;
-    line-height: 1.5;
-}
-
-.composer-diff-view code {
-    display: block;
-    font-family: Consolas, "Microsoft YaHei", monospace;
-    white-space: pre;
-}
-
-.composer-diff-view .diff-added {
-    color: #15803d;
-}
-
-.composer-diff-view .diff-removed {
-    color: #dc2626;
-}
-
-.composer-diff-view .diff-context {
-    color: var(--zhixin-text-soft);
-}
-
 .composer-tags {
     display: flex;
     flex-wrap: wrap;
@@ -885,6 +727,14 @@ body {
     color: var(--zhixin-text-soft);
     font-size: 12px;
     line-height: 1.4;
+}
+
+.composer-context-usage {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
+    color: var(--zhixin-text-soft);
+    font-size: 12px;
 }
 
 .theme-icon {
@@ -972,106 +822,6 @@ body {
     border-radius: 8px;
     background: var(--zhixin-panel-bg);
     overflow: hidden;
-}
-
-.composer-mini-dialog .el-dialog__body {
-    max-height: min(68vh, 620px);
-    overflow: hidden;
-}
-
-.composer-mini-dialog-body,
-.child-agent-dialog-body {
-    display: flex;
-    min-height: 0;
-    max-height: min(58vh, 520px);
-    flex-direction: column;
-    gap: 10px;
-    overflow-x: hidden;
-    overflow-y: auto;
-}
-
-.child-agent-dialog-body header {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.child-agent-dialog-body header span {
-    color: var(--zhixin-text-soft);
-    font-size: 12px;
-}
-
-.agent-status-dialog-grid {
-    display: grid;
-    grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
-    gap: 12px;
-    overflow: hidden;
-}
-
-.agent-status-tree {
-    display: flex;
-    min-height: 0;
-    flex-direction: column;
-    gap: 6px;
-    overflow-x: hidden;
-    overflow-y: auto;
-}
-
-.agent-conversation-detail {
-    display: flex;
-    min-width: 0;
-    min-height: 0;
-    flex-direction: column;
-    gap: 10px;
-    overflow: hidden;
-}
-
-.agent-conversation-detail header {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.agent-conversation-detail header span {
-    color: var(--zhixin-text-soft);
-    font-size: 12px;
-}
-
-.agent-conversation-list {
-    display: flex;
-    min-height: 180px;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-    border: 1px solid var(--zhixin-border);
-    border-radius: 8px;
-    background: var(--zhixin-soft-bg);
-    overflow-x: hidden;
-    overflow-y: auto;
-}
-
-.child-agent-message {
-    max-width: 86%;
-    padding: 9px 11px;
-    border-radius: 8px;
-    line-height: 1.5;
-}
-
-.child-agent-message.assistant {
-    align-self: flex-start;
-    background: var(--zhixin-soft-bg);
-}
-
-.child-agent-message.user {
-    align-self: flex-end;
-    background: var(--zhixin-selected-bg);
-}
-
-.child-agent-dialog-actions {
-    display: flex;
-    justify-content: flex-end;
 }
 
 .plugin-inline-status {

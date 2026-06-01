@@ -266,6 +266,8 @@ export interface ProviderDraft {
     proxyPolicy: ProviderProxyPolicy;
     /** refreshModelsText: 手动刷新模型列表的多行文本。 */
     refreshModelsText: string;
+    /** refreshModelContextWindowsText: 手动模型窗口配置，每行格式为 模型名=数字K。 */
+    refreshModelContextWindowsText: string;
     /** refreshReasoningText: 手动刷新推理深度的多行文本。 */
     refreshReasoningText: string;
 }
@@ -550,6 +552,8 @@ export interface ComposerSettings {
     selectedProviderId: string | null;
     /** selectedModel: 当前会话发送前选择或手动输入的模型名称。 */
     selectedModel: string;
+    /** contextUsedTokens: 当前对话窗口已使用上下文数量，单位为 token。 */
+    contextUsedTokens: number;
     /** reasoningEffort: 推理深度协议值。 */
     reasoningEffort: "low" | "medium" | "high" | "xhigh";
 }
@@ -733,6 +737,7 @@ export const useAppStore = defineStore("app", {
             executionMode: "full_auto",
             selectedProviderId: null,
             selectedModel: "",
+            contextUsedTokens: 0,
             reasoningEffort: "medium",
         } as ComposerSettings,
 
@@ -991,6 +996,26 @@ export const useAppStore = defineStore("app", {
             }
 
             return state.providerModelOptions[providerId]?.models ?? [];
+        },
+
+        /**
+         * composerSelectedModelContextWindowTokens：当前模型上下文窗口上限。
+         *
+         * @returns token 数；未配置时为 0，展示层显示未知窗口。
+         */
+        composerSelectedModelContextWindowTokens(state): number {
+            const providerId = state.composerSettings.selectedProviderId;
+            if (!providerId) {
+                return 0;
+            }
+            const modelOptions = state.providerModelOptions[providerId];
+            if (!modelOptions || !Array.isArray(modelOptions.contextWindows)) {
+                return 0;
+            }
+            const contextWindow = modelOptions?.contextWindows.find((item) => {
+                return item.model === state.composerSettings.selectedModel;
+            });
+            return contextWindow?.contextWindowTokens ?? 0;
         },
 
         /**
@@ -1493,6 +1518,7 @@ export const useAppStore = defineStore("app", {
                 await this.loadProjectCapabilitySources();
             }
             this.applyDefaultComposerModelSettings();
+            this.updateComposerContextUsage();
         },
 
         /**
@@ -1859,6 +1885,7 @@ export const useAppStore = defineStore("app", {
                     ...provider.proxyPolicy,
                 },
                 refreshModelsText: provider.defaultModel,
+                refreshModelContextWindowsText: formatModelContextWindowsForDraft(this.providerModelOptions[provider.providerId]?.contextWindows ?? []),
                 refreshReasoningText: "",
             };
             void this.loadProviderModelOptions(provider.providerId);
@@ -1959,10 +1986,16 @@ export const useAppStore = defineStore("app", {
          */
         async refreshProviderModels(provider: ProviderConfigView): Promise<void> {
             try {
+                const refreshDraft = buildProviderModelRefreshDraft(
+                    provider,
+                    this.providerModelOptions[provider.providerId],
+                    this.providerDraft,
+                );
                 await this.api().refreshProviderModels({
                     providerId: provider.providerId,
-                    models: splitLines(this.providerDraft.refreshModelsText),
-                    reasoningEfforts: splitLines(this.providerDraft.refreshReasoningText),
+                    models: refreshDraft.models,
+                    contextWindows: refreshDraft.contextWindows,
+                    reasoningEfforts: refreshDraft.reasoningEfforts,
                 });
                 await this.loadProviderModelOptions(provider.providerId);
                 this.clearManagementError("providers");
@@ -1970,6 +2003,18 @@ export const useAppStore = defineStore("app", {
             } catch (error) {
                 this.recordManagementError("providers", error);
             }
+        },
+
+        /**
+         * updateComposerContextUsage：估算当前窗口上下文已用量。
+         *
+         * @returns 没有返回值。
+         */
+        updateComposerContextUsage(): void {
+            this.composerSettings.contextUsedTokens = estimateComposerContextUsedTokens(
+                this.sessionDetail,
+                this.draft,
+            );
         },
 
         /**
@@ -2711,7 +2756,7 @@ function resolveComposerProjectId(state: {
         return draftProjectId;
     }
 
-    // runtimeProjectContext: IDE 插件入口明确携带的项目上下文，支持首个项目页签尚未发送时使用文件上下文。
+    // runtimeProjectContext: IDE 插件入口明确携带的项目上下文，支持首个项目页签尚未发送时使用项目引用。
     const runtimeProjectContext = state.runtime.projectContext;
     if (!runtimeProjectContext) {
         return null;
@@ -2836,6 +2881,7 @@ function createProviderDraft(): ProviderDraft {
             proxyId: null,
         },
         refreshModelsText: "",
+        refreshModelContextWindowsText: "",
         refreshReasoningText: "",
     };
 }
@@ -3042,6 +3088,122 @@ function splitLines(value: string): string[] {
     }).filter((line) => {
         return line.length > 0;
     });
+}
+
+/**
+ * parseModelContextWindows：解析模型窗口配置多行文本。
+ *
+ * @param value 多行文本，每行格式为 `模型名=数字K`。
+ * @returns 模型窗口 token 配置数组。
+ */
+function parseModelContextWindows(value: string): Array<{
+    model: string;
+    contextWindowTokens: number;
+}> {
+    return splitLines(value).map((line) => {
+        const equalIndex = line.indexOf("=");
+        if (equalIndex <= 0) {
+            return null;
+        }
+        const model = line.slice(0, equalIndex).trim();
+        const contextWindowK = Number(line.slice(equalIndex + 1).replace(/K$/iu, "").trim());
+        if (model.length === 0 || !Number.isFinite(contextWindowK) || contextWindowK <= 0) {
+            return null;
+        }
+        return {
+            model,
+            contextWindowTokens: Math.round(contextWindowK * 1000),
+        };
+    }).filter((item): item is {
+        model: string;
+        contextWindowTokens: number;
+    } => {
+        return item !== null;
+    });
+}
+
+/**
+ * buildProviderModelRefreshDraft：构造指定供应商的模型刷新负载。
+ *
+ * @param provider 当前点击的供应商行。
+ * @param savedOptions 中心服务已保存的模型列表。
+ * @param draft 当前页面全局表单草稿。
+ * @returns 模型、窗口和推理深度数组。
+ */
+function buildProviderModelRefreshDraft(
+    provider: ProviderConfigView,
+    savedOptions: ProviderModelListView | undefined,
+    draft: ProviderDraft,
+): {
+    models: string[];
+    contextWindows: Array<{
+        model: string;
+        contextWindowTokens: number;
+    }>;
+    reasoningEfforts: string[];
+} {
+    // isEditingCurrentProvider: 只有当前表单正在编辑该供应商时，行级刷新才使用表单文本，避免把 A 的草稿误写到 B。
+    const isEditingCurrentProvider = draft.providerId === provider.providerId;
+    const models = isEditingCurrentProvider
+        ? splitLines(draft.refreshModelsText)
+        : savedOptions?.models ?? [];
+    return {
+        models: models.length > 0
+            ? models
+            : [
+                provider.defaultModel,
+            ].filter((model) => {
+                return model.length > 0;
+            }),
+        contextWindows: isEditingCurrentProvider
+            ? parseModelContextWindows(draft.refreshModelContextWindowsText)
+            : savedOptions?.contextWindows ?? [],
+        reasoningEfforts: isEditingCurrentProvider
+            ? splitLines(draft.refreshReasoningText)
+            : savedOptions?.reasoningEfforts ?? [],
+    };
+}
+
+/**
+ * estimateComposerContextUsedTokens：估算当前窗口已用上下文。
+ *
+ * @param sessionDetail 当前会话详情。
+ * @param draft 当前输入草稿。
+ * @returns 估算 token 数。
+ */
+function estimateComposerContextUsedTokens(
+    sessionDetail: SessionDetailResult | null,
+    draft: ComposerDraftModel,
+): number {
+    // plainTextLength: 当前阶段中心服务未返回真实 tokenizer 统计，使用单一临时估算约定，后续替换为服务端上下文统计。
+    const plainTextLength = [
+        ...(sessionDetail?.messages ?? []).map((message) => {
+            return message.contentMarkdown;
+        }),
+        draft.text,
+        ...draft.references.map((reference) => {
+            return reference.displayName;
+        }),
+        ...draft.attachments.map((attachment) => {
+            return attachment.fileName;
+        }),
+    ].join("\n").length;
+    return Math.ceil(plainTextLength / 4);
+}
+
+/**
+ * formatModelContextWindowsForDraft：把模型窗口配置转回表单文本。
+ *
+ * @param value 中心服务返回的 token 窗口配置。
+ * @returns 每行 `模型名=数字K` 的文本。
+ */
+function formatModelContextWindowsForDraft(value: Array<{
+    model: string;
+    contextWindowTokens: number;
+}>): string {
+    return value.map((item) => {
+        return `${item.model}=${Math.round(item.contextWindowTokens / 1000)}K`;
+    }).join("\n");
 }
 
 /**

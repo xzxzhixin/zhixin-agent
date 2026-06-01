@@ -1,0 +1,311 @@
+<script setup lang="ts">
+import {
+  computed,
+  onMounted,
+} from "vue";
+import {
+  use,
+} from "echarts/core";
+
+import {
+  useAppStore,
+} from "@stores/app";
+
+// appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
+const appStore = useAppStore();
+
+// usageChartModulesRegistered：用量统计图形化展示依赖 ECharts 模块注册；真实图表实例后续按数据接入。
+const usageChartModulesRegistered = use;
+
+// currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
+const currentWorkspacePage = "providers";
+// managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
+const managementError = computed(() => appStore.managementErrors.providers ?? "");
+
+/**
+ * formatDisplayTime：统一格式化前端展示时间。
+ *
+ * @param value ISO 时间、空值或服务端时间字符串。
+ * @returns `YYYY-MM-DD HH:mm:ss`，无值时返回“未保存”。
+ */
+function formatDisplayTime(value: string | null | undefined): string {
+  if (!value) {
+    return "未保存";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + " " + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join(":");
+}
+
+/**
+ * formatUsageRecordForDisplay：递归格式化用量记录中的时间字段。
+ *
+ * @param value 中心服务返回的用量记录或聚合记录。
+ * @returns 时间字段已转为 `YYYY-MM-DD HH:mm:ss` 的展示副本。
+ */
+function formatUsageRecordForDisplay(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => formatUsageRecordForDisplay(item));
+  }
+
+  if (value !== null && typeof value === "object") {
+    const formatted: Record<string, unknown> = {};
+    for (const [
+      fieldName,
+      fieldValue,
+    ] of Object.entries(value)) {
+      // fieldName: 服务端用量、事件和配置协议中的时间字段统一以后缀 At 或 Date 表达，展示前必须格式化。
+      if (typeof fieldValue === "string" && isDisplayTimeField(fieldName, fieldValue)) {
+        formatted[fieldName] = formatDisplayTime(fieldValue);
+      } else {
+        formatted[fieldName] = formatUsageRecordForDisplay(fieldValue);
+      }
+    }
+    return formatted;
+  }
+
+  return value;
+}
+
+/**
+ * formatUsageJson：把用量记录展示副本格式化为 JSON。
+ *
+ * @param value 中心服务返回的用量记录或聚合记录。
+ * @returns 不含 ISO 时间直出的 JSON 字符串。
+ */
+function formatUsageJson(value: unknown): string {
+  return JSON.stringify(formatUsageRecordForDisplay(value), null, 2);
+}
+
+/**
+ * isDisplayTimeField：判断字段是否需要按 UI 时间格式展示。
+ *
+ * @param fieldName 字段名。
+ * @param value 字段值。
+ * @returns 属于时间字段且可解析为时间时返回 true。
+ */
+function isDisplayTimeField(fieldName: string, value: string): boolean {
+  const normalizedName = fieldName.toLowerCase();
+  const isTimeName = normalizedName.endsWith("at")
+    || normalizedName.endsWith("date")
+    || normalizedName.includes("time");
+  if (!isTimeName) {
+    return false;
+  }
+
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+// selectedProviderModelOptions：供应商默认模型下拉候选，来源于已保存或刷新后的模型列表。
+const selectedProviderModelOptions = computed(() => {
+  const providerId = appStore.providerDraft.providerId;
+  if (!providerId) {
+    return [];
+  }
+
+  return appStore.providerModelOptions[providerId]?.models ?? [];
+});
+
+// providerModelSourceText：默认模型候选来源说明。
+const providerModelSourceText = computed(() => {
+  if (!appStore.providerDraft.providerId) {
+    return "模型列表来源：新增供应商保存后，可通过刷新模型列表获得下拉选项。";
+  }
+
+  if (selectedProviderModelOptions.value.length > 0) {
+    return "模型列表来源：中心服务已保存或刚刷新得到的供应商模型列表。";
+  }
+
+  return "模型列表来源：该供应商未提供模型列表接口或当前刷新失败，模型名称由用户手动维护。";
+});
+
+/**
+ * onMounted：当前页面挂载时加载中心服务事实数据。
+ *
+ * @returns 没有返回值。
+ */
+onMounted(() => {
+  void appStore.loadProviders();
+});
+
+</script>
+
+<template>
+      <section
+      class="page-panel"
+  >
+    <header class="page-header">
+      <div>
+        <h1>供应商</h1>
+        <p>API Key 只保存在中心电脑，客户端只展示是否已保存；默认模型优先从供应商模型列表选择。</p>
+      </div>
+      <el-button
+          type="primary"
+          @click="appStore.resetProviderDraft"
+      >
+        新增供应商
+      </el-button>
+    </header>
+    <section class="page-scroll">
+      <el-alert
+          v-if="managementError"
+          class="management-error"
+          type="error"
+          :closable="false"
+          :title="managementError"
+      />
+      <el-form
+          class="management-form"
+          label-position="top"
+      >
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="供应商名称">
+              <el-input v-model="appStore.providerDraft.providerName"/>
+              <small class="field-helper">用于在智能体、审计和用量统计中识别该模型提供方。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="协议插件">
+              <el-select v-model="appStore.providerDraft.protocolPluginId">
+                <el-option
+                    label="OpenAI 兼容"
+                    value="builtin-model-openai-compatible"
+                />
+                <el-option
+                    label="Anthropic Messages"
+                    value="builtin-model-anthropic-messages"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="默认模型">
+              <!-- 默认模型必须始终使用可创建下拉，避免无模型列表时退回普通输入框。 -->
+              <el-select
+                  v-model="appStore.providerDraft.model"
+                  filterable
+                  allow-create
+                  default-first-option
+                  placeholder="选择或输入模型名称"
+              >
+                <el-option
+                    v-for="model in selectedProviderModelOptions"
+                    :key="model"
+                    :label="model"
+                    :value="model"
+                />
+              </el-select>
+              <small class="field-helper">{{ providerModelSourceText }}</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="手填模型列表">
+              <el-input
+                  v-model="appStore.providerDraft.refreshModelsText"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="每行一个模型名称"
+              />
+              <small class="field-helper">自动获取不到完整模型时，在这里手动维护模型名称；保存后进入默认模型下拉来源。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="模型窗口上下文">
+              <el-input
+                  v-model="appStore.providerDraft.refreshModelContextWindowsText"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="模型名=1000K"
+              />
+              <small class="field-helper">统一使用 K 作为输入单位，例如 1000K 会保存为约 1M，用于输入区上下文占用计算。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="Base URL">
+              <el-input v-model="appStore.providerDraft.baseUrl"/>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="API Key 新值">
+              <el-input
+                  v-model="appStore.providerDraft.apiKey"
+                  type="password"
+                  show-password
+                  placeholder="保存后不回显"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <div class="management-actions">
+          <el-button
+              type="primary"
+              @click="appStore.saveProvider"
+          >
+            保存供应商
+          </el-button>
+          <el-button @click="appStore.loadProviders">
+            刷新列表
+          </el-button>
+        </div>
+      </el-form>
+      <el-empty
+          v-if="appStore.providers.length === 0"
+          description="暂无供应商"
+      />
+      <section
+          v-else
+          class="management-list"
+      >
+        <article
+            v-for="provider in appStore.providers"
+            :key="provider.providerId"
+            class="management-item"
+        >
+          <div>
+            <strong>{{ provider.providerName }}</strong>
+            <span>{{ provider.protocolPluginId }} · {{ provider.protocolMode }}</span>
+            <small>{{ provider.baseUrl }} · API Key：{{ provider.hasApiKey ? "已保存" : "未保存" }}</small>
+          </div>
+          <div class="management-actions">
+            <el-tag :type="provider.enabled ? 'success' : 'info'">
+              {{ provider.enabled ? "启用" : "停用" }}
+            </el-tag>
+            <el-button @click="appStore.editProvider(provider)">
+              修改
+            </el-button>
+            <el-button @click="appStore.toggleProvider(provider)">
+              {{ provider.enabled ? "停用" : "启用" }}
+            </el-button>
+            <el-button @click="appStore.refreshProviderModels(provider)">
+              刷新模型/推理深度
+            </el-button>
+            <el-button
+                type="danger"
+                plain
+                @click="appStore.deleteProvider(provider)"
+            >
+              删除
+            </el-button>
+          </div>
+        </article>
+      </section>
+    </section>
+  </section>
+</template>
+
+
+

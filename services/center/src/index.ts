@@ -145,6 +145,27 @@ interface ProviderCapabilityDeclaration {
 }
 
 /**
+ * ProviderModelContextWindow：供应商模型上下文窗口配置。
+ *
+ * 来源：供应商页面用户手填模型窗口。
+ * 含义：保存某个模型可用上下文上限，供前端计算当前窗口上下文占用比例。
+ * 格式：模型名称加 token 数值。
+ * 默认值：没有配置时不创建条目，前端展示未知窗口。
+ * 约束：contextWindowTokens 必须是大于 0 的整数。
+ */
+interface ProviderModelContextWindow {
+    /**
+     * model: 模型名称，来源于供应商模型列表或用户手填。
+     */
+    model: string;
+
+    /**
+     * contextWindowTokens: 模型上下文窗口上限，单位为 token。
+     */
+    contextWindowTokens: number;
+}
+
+/**
  * ProviderProxyPolicy：供应商代理策略。
  *
  * 来源：供应商配置页面。
@@ -3153,13 +3174,20 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
             providerId?: string;
             models?: string[];
             reasoningEfforts?: string[];
+            contextWindows?: ProviderModelContextWindow[];
         };
 
         if (!body.providerId) {
             return createErrorResponse("PROVIDER_ID_REQUIRED", "刷新模型列表缺少 providerId", "供应商 ID 不能为空。");
         }
 
-        return createSuccessResponse(refreshProviderModels(config.centerDirectory, body.providerId, body.models ?? [], body.reasoningEfforts ?? []));
+        return createSuccessResponse(refreshProviderModels(
+            config.centerDirectory,
+            body.providerId,
+            body.models ?? [],
+            body.reasoningEfforts ?? [],
+            body.contextWindows ?? [],
+        ));
     });
 
     app.post("/api/provider/model-list", async (request) => {
@@ -5402,6 +5430,23 @@ function renderAgentDefinition(input: {
 }
 
 /**
+ * formatMemoryTimeTitle：生成永久记忆段落标题时间。
+ *
+ * @param value 记忆写入时间。
+ * @returns 只包含 HH:mm:ss 的标题时间文本。
+ */
+function formatMemoryTimeTitle(value: Date): string {
+    // timeText: 永久记忆 Markdown 标题只允许写时间，日期由目录 year/month/day 表达。
+    const timeText = value.toISOString()
+        .slice(
+            11,
+            19,
+        );
+
+    return timeText;
+}
+
+/**
  * writeAgentMemory：追加写入智能体 Markdown 记忆。
  *
  * @param database 中心服务数据库。
@@ -5432,11 +5477,12 @@ function writeAgentMemory(
     const day = String(now.getUTCDate()).padStart(2, "0");
     const relativePath = `memory/agents/${input.agentId}/${year}/${month}/${day}.md`;
     const filePath = join(centerDirectory, relativePath);
+    const memoryTimeTitle = formatMemoryTimeTitle(now);
     mkdirSync(dirname(filePath), {
         recursive: true,
     });
     appendFileSync(filePath, [
-        `# 时间：${now.toISOString()}`,
+        `# ${memoryTimeTitle}`,
         "",
         "## 关键词",
         "",
@@ -5726,21 +5772,29 @@ function refreshProviderModels(
     providerId: string,
     models: string[],
     reasoningEfforts: string[],
+    contextWindows: ProviderModelContextWindow[] = [],
 ): {
     providerId: string;
     models: string[];
     reasoningEfforts: string[];
+    contextWindows: ProviderModelContextWindow[];
 } {
+    const normalizedContextWindows = normalizeProviderModelContextWindows(
+        models,
+        contextWindows,
+    );
     writeJsonFile(join(centerDirectory, "providers", `${providerId}.models.json`), {
         providerId,
         models,
         reasoningEfforts,
+        contextWindows: normalizedContextWindows,
         updatedAt: new Date().toISOString(),
     });
     return {
         providerId,
         models,
         reasoningEfforts,
+        contextWindows: normalizedContextWindows,
     };
 }
 
@@ -5758,6 +5812,7 @@ function readProviderModelList(
     providerId: string;
     models: string[];
     reasoningEfforts: string[];
+    contextWindows: ProviderModelContextWindow[];
     updatedAt: string | null;
 } {
     const modelListPath = join(centerDirectory, "providers", `${providerId}.models.json`);
@@ -5766,6 +5821,7 @@ function readProviderModelList(
             providerId,
             models: [],
             reasoningEfforts: [],
+            contextWindows: [],
             updatedAt: null,
         };
     }
@@ -5774,21 +5830,66 @@ function readProviderModelList(
         providerId?: string;
         models?: unknown;
         reasoningEfforts?: unknown;
+        contextWindows?: unknown;
         updatedAt?: unknown;
     };
+    const models = Array.isArray(value.models)
+        ? value.models.filter((model): model is string => typeof model === "string")
+        : [];
 
     return {
         providerId,
-        models: Array.isArray(value.models)
-            ? value.models.filter((model): model is string => typeof model === "string")
-            : [],
+        models,
         reasoningEfforts: Array.isArray(value.reasoningEfforts)
             ? value.reasoningEfforts.filter((effort): effort is string => typeof effort === "string")
             : [],
+        contextWindows: normalizeProviderModelContextWindows(
+            models,
+            Array.isArray(value.contextWindows)
+                ? value.contextWindows
+                : [],
+        ),
         updatedAt: typeof value.updatedAt === "string"
             ? value.updatedAt
             : null,
     };
+}
+
+/**
+ * normalizeProviderModelContextWindows：规范化模型上下文窗口配置。
+ *
+ * @param models 当前已保存模型名称列表。
+ * @param input 用户提交或文件读取到的窗口配置。
+ * @returns 去重后的模型上下文窗口配置。
+ */
+function normalizeProviderModelContextWindows(
+    models: string[],
+    input: unknown[],
+): ProviderModelContextWindow[] {
+    // allowedModels: 只允许为已保存模型名称记录窗口，避免孤立窗口配置污染默认模型下拉。
+    const allowedModels = new Set(models);
+    const normalized = new Map<string, ProviderModelContextWindow>();
+    for (const item of input) {
+        if (typeof item !== "object" || item === null) {
+            continue;
+        }
+        const record = item as {
+            model?: unknown;
+            contextWindowTokens?: unknown;
+        };
+        if (typeof record.model !== "string" || !allowedModels.has(record.model)) {
+            continue;
+        }
+        if (typeof record.contextWindowTokens !== "number" || !Number.isFinite(record.contextWindowTokens) || record.contextWindowTokens <= 0) {
+            continue;
+        }
+        normalized.set(record.model, {
+            model: record.model,
+            contextWindowTokens: Math.round(record.contextWindowTokens),
+        });
+    }
+
+    return [...normalized.values()];
 }
 
 /**

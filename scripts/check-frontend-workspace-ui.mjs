@@ -6,6 +6,7 @@
  */
 import {
   readFileSync,
+  existsSync,
 } from "node:fs";
 import {
   join,
@@ -20,6 +21,28 @@ const mainViewPath = join(
   "views",
   "MainView.vue",
 );
+// centerServicePath: 中心服务入口源码，用于检查记忆 Markdown 标题协议。
+const centerServicePath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "index.ts",
+);
+// viteConfigPath: Vite 配置源码，用于检查前端路径别名。
+const viteConfigPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "vite.config.ts",
+);
+// frontendTsconfigPath: 前端 IDE 识别配置源码，用于检查路径别名。
+const frontendTsconfigPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "tsconfig.json",
+);
 // stylesPath: 统一前端全局样式源码。
 const stylesPath = join(
   process.cwd(),
@@ -28,11 +51,80 @@ const stylesPath = join(
   "src",
   "styles.css",
 );
-// mainView: 工作台页面文本，用于检查菜单与布局入口。
-const mainView = readFileSync(
+// mainViewShell: 公共工作台壳源码，用于检查顶部菜单和插槽边界。
+const mainViewShell = readFileSync(
   mainViewPath,
   "utf-8",
 );
+// chatPagePath: 对话页真实入口源码，承载对话主体、移动模式和插件紧凑模式。
+const chatPagePath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "views",
+  "Chat",
+  "RouterIndex.vue",
+);
+// chatPage: 对话页源码文本，用于检查输入区和执行模式说明。
+const chatPage = readFileSync(
+  chatPagePath,
+  "utf-8",
+);
+// mainView: 工作台整体源码，合并公共壳和对话页入口，适配页面主体已迁出 MainView 的结构。
+const mainView = `${mainViewShell}\n${chatPage}`;
+// centerService: 中心服务源码文本。
+const centerService = readFileSync(
+  centerServicePath,
+  "utf-8",
+);
+// viteConfig: Vite 配置源码文本。
+const viteConfig = readFileSync(
+  viteConfigPath,
+  "utf-8",
+);
+// frontendTsconfig: 前端 IDE 配置源码文本；不存在时让别名检查失败。
+const frontendTsconfig = existsSync(frontendTsconfigPath)
+  ? readFileSync(
+    frontendTsconfigPath,
+    "utf-8",
+  )
+  : "";
+// routerPath: 前端路由源码路径，用于检查动态 import 写法。
+const routerPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "router.ts",
+);
+// routerSource: 前端路由源码文本。
+const routerSource = readFileSync(
+  routerPath,
+  "utf-8",
+);
+// pageComponentPaths: 顶部管理页的真实路由入口组件。
+const pageComponentPaths = [
+  "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
+  "apps/frontend/src/views/Providers/RouterIndex.vue",
+  "apps/frontend/src/views/Proxies/RouterIndex.vue",
+  "apps/frontend/src/views/Runtimes/RouterIndex.vue",
+  "apps/frontend/src/views/Usage/RouterIndex.vue",
+  "apps/frontend/src/views/Plugins/RouterIndex.vue",
+  "apps/frontend/src/views/Mcp/RouterIndex.vue",
+  "apps/frontend/src/views/Skills/RouterIndex.vue",
+  "apps/frontend/src/views/Center/RouterIndex.vue",
+];
+// workspacePageHost: 管理页真实路由入口源码合并文本，用于跨页面能力检查。
+const workspacePageHost = pageComponentPaths.map((relativePath) => {
+  return readFileSync(
+    join(
+      process.cwd(),
+      relativePath,
+    ),
+    "utf-8",
+  );
+}).join("\n");
 // styles: 工作台样式文本，用于检查固定视口 flex 布局。
 const styles = readFileSync(
   stylesPath,
@@ -52,6 +144,24 @@ const appStore = readFileSync(
   appStorePath,
   "utf-8",
 );
+// agentStatusDialogPath: 智能体状态弹框组件源码。
+const agentStatusDialogPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "views",
+  "Chat",
+  "dialogs",
+  "AgentStatusDialog.vue",
+);
+// agentStatusDialog: 智能体状态弹框组件文本。
+const agentStatusDialog = existsSync(agentStatusDialogPath)
+  ? readFileSync(
+    agentStatusDialogPath,
+    "utf-8",
+  )
+  : "";
 // requirementsPath: 产品需求文档，用于确认本轮 UI 需求只写入产品语义。
 const requirementsPath = join(
   process.cwd(),
@@ -72,6 +182,80 @@ const plan = readFileSync(
   planPath,
   "utf-8",
 );
+
+// requiredComponentPaths: 本轮要求拆出的页面宿主和弹框组件。
+const requiredComponentPaths = [
+  [
+    "apps/frontend/src/views/Login/RouterIndex.vue",
+    "登录页面入口必须迁移或包装到 views/Login/RouterIndex.vue。",
+  ],
+  [
+    "apps/frontend/src/views/Chat/RouterIndex.vue",
+    "对话顶部菜单页面必须建立 views/Chat/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
+    "智能体管理顶部菜单页面必须建立 views/AgentManagement/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Providers/RouterIndex.vue",
+    "供应商顶部菜单页面必须建立 views/Providers/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Proxies/RouterIndex.vue",
+    "网络代理顶部菜单页面必须建立 views/Proxies/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Runtimes/RouterIndex.vue",
+    "运行环境顶部菜单页面必须建立 views/Runtimes/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Usage/RouterIndex.vue",
+    "用量统计顶部菜单页面必须建立 views/Usage/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Plugins/RouterIndex.vue",
+    "插件顶部菜单页面必须建立 views/Plugins/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Mcp/RouterIndex.vue",
+    "MCP 顶部菜单页面必须建立 views/Mcp/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Skills/RouterIndex.vue",
+    "skill 顶部菜单页面必须建立 views/Skills/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Center/RouterIndex.vue",
+    "中心服务顶部菜单页面必须建立 views/Center/RouterIndex.vue 入口。",
+  ],
+  [
+    "apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue",
+    "任务详情小弹框必须拆到 Chat 页面专属 dialogs 目录。",
+  ],
+  [
+    "apps/frontend/src/views/Chat/dialogs/AgentStatusDialog.vue",
+    "智能体状态小弹框和智能体对话必须拆到 Chat 页面专属 dialogs 目录。",
+  ],
+  [
+    "apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue",
+    "编辑详情小弹框必须拆到 Chat 页面专属 dialogs 目录。",
+  ],
+  [
+    "apps/frontend/src/views/Chat/dialogs/ProjectCapabilityDialog.vue",
+    "项目能力详情弹框必须拆到 Chat 页面专属 dialogs 目录。",
+  ],
+];
+
+for (const [
+  relativePath,
+  message,
+] of requiredComponentPaths) {
+  if (!existsSync(join(process.cwd(), relativePath))) {
+    console.error(message);
+    process.exitCode = 1;
+  }
+}
 
 /**
  * expectations: 工作台 UI 必须保留的结构信号。
@@ -108,7 +292,7 @@ const expectations = [
     "桌面端必须包含中心服务管理页面入口。",
   ],
   [
-    mainView,
+    chatPage,
     "conversation-sidebar",
     "对话页必须保留左侧对话导航。",
   ],
@@ -209,8 +393,28 @@ const expectations = [
   ],
   [
     mainView,
-    "composer-mini-dialog",
-    "输入区三段入口的小弹框必须有稳定语义类。",
+    "<TaskDetailDialog",
+    "MainView 必须通过任务详情独立弹框组件承载任务详情。",
+  ],
+  [
+    mainView,
+    "<AgentStatusDialog",
+    "MainView 必须通过智能体状态独立弹框组件承载状态树和对话。",
+  ],
+  [
+    mainView,
+    "<EditDetailDialog",
+    "MainView 必须通过编辑详情独立弹框组件承载编辑摘要。",
+  ],
+  [
+    mainView,
+    "<ProjectCapabilityDialog",
+    "MainView 必须通过项目能力详情独立弹框组件承载项目能力详情。",
+  ],
+  [
+    mainView,
+    "<router-view",
+    "MainView 必须通过 router-view 承载独立顶部菜单页面，不能继续内联所有管理页。",
   ],
   [
     mainView,
@@ -219,13 +423,23 @@ const expectations = [
   ],
   [
     mainView,
-    "agent-conversation-list",
-    "智能体状态弹框必须提供智能体对话消息列表。",
+    "taskProgressText",
+    "任务入口外部数字必须使用已完成序号/总数语义。",
   ],
   [
     mainView,
-    "agentConversationDraft",
-    "智能体对话详情必须提供输入草稿。",
+    "agentStatusProgressText",
+    "智能体状态入口外部数字必须使用运行中数量/总数语义。",
+  ],
+  [
+    mainView,
+    "任务 {{ taskProgressText }}",
+    "输入区任务入口必须外部展示任务进度数字。",
+  ],
+  [
+    mainView,
+    "智能体状态 {{ agentStatusProgressText }}",
+    "输入区智能体状态入口必须外部展示运行中数量/总数。",
   ],
   [
     mainView,
@@ -235,20 +449,30 @@ const expectations = [
   [
     mainView,
     "仍通过当前会话发送",
-    "中心服务缺少独立智能体会话 API 时，UI 文案必须明确仍通过当前会话发送。",
+    "中心服务缺少独立智能体会话 API 时，代码注释或传参必须明确仍通过当前会话发送。",
   ],
   [
-    mainView,
+    agentStatusDialog,
+    "agent-conversation-list",
+    "智能体状态弹框必须提供智能体对话消息列表。",
+  ],
+  [
+    agentStatusDialog,
+    "draft",
+    "智能体对话详情必须提供输入草稿。",
+  ],
+  [
+    appStore,
     "主智能体",
     "智能体状态两级树第一级必须包含主智能体展示语义。",
   ],
   [
-    mainView,
+    appStore,
     "长期智能体",
     "智能体状态两级树第一级必须覆盖团队长期智能体。",
   ],
   [
-    mainView,
+    appStore,
     "子智能体",
     "智能体状态两级树第二级必须展示各长期智能体创建的子智能体。",
   ],
@@ -318,9 +542,29 @@ const expectations = [
     "消息列表必须纳入统一滚动容器样式覆盖。",
   ],
   [
-    styles,
+    agentStatusDialog,
     ".composer-mini-dialog",
-    "任务、智能体状态和编辑小弹框内容必须纳入统一滚动样式覆盖。",
+    "任务、智能体状态和编辑小弹框样式必须写入页面专属 Vue 组件。",
+  ],
+  [
+    chatPage,
+    "execution-mode-option-row",
+    "执行模式下拉面板必须提供带说明的选项行。",
+  ],
+  [
+    chatPage,
+    "每一步副作用操作都需要用户确认",
+    "执行模式下拉必须解释建议模式的审批语义。",
+  ],
+  [
+    chatPage,
+    "低风险读取或编辑流程可自动执行",
+    "执行模式下拉必须解释自动编辑的审批语义。",
+  ],
+  [
+    chatPage,
+    "在权限和沙箱范围内自动执行",
+    "执行模式下拉必须解释全自动的审批语义。",
   ],
   [
     styles,
@@ -490,6 +734,24 @@ if (mainView.includes("<section class=\"composer-context-panel\">")) {
   process.exitCode = 1;
 }
 
+if (mainViewShell.includes("<el-dialog")) {
+  console.error("MainView 不能继续内联弹框大模板，弹框必须拆成独立组件。");
+  process.exitCode = 1;
+}
+
+if (mainViewShell.includes("v-else-if=\"activePage === 'providers'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'proxies'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'runtimes'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'usage'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'plugins'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'mcp'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'skills'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'center'\"")
+    || mainViewShell.includes("v-else-if=\"activePage === 'agent-management'\"")) {
+  console.error("MainView 不能继续内联顶部菜单页面内容，必须交给独立页面宿主组件。");
+  process.exitCode = 1;
+}
+
 if (mainView.includes(">子代理<") || mainView.includes("暂无子代理状态") || mainView.includes("子代理对话")) {
   console.error("前端主界面不能继续出现“子代理”旧文案，必须改为“智能体状态”或“子智能体”。");
   process.exitCode = 1;
@@ -512,3 +774,313 @@ if (appStore.includes("await this.loadProjects();\n            await this.loadSe
   console.error("工作台初始化不能先等待项目列表再加载会话列表。");
   process.exitCode = 1;
 }
+
+if (!routerSource.includes("redirect: \"/chat\"")) {
+  console.error("根路由必须重定向到 /chat，不能保留只转发公共壳的 Main/RouterIndex.vue。");
+  process.exitCode = 1;
+}
+
+if (routerSource.includes("component: () => import(\"./views/MainView.vue\")")
+    || routerSource.includes("component: () => import(\"./views/LoginView.vue\")")
+    || routerSource.includes("import(\"./views")) {
+  console.error("路由不能继续使用 ./views 相对路径，必须使用 @views 别名。");
+  process.exitCode = 1;
+}
+
+const requiredRoutes = [
+  [
+    "/login",
+    "@views/Login/RouterIndex.vue",
+  ],
+  [
+    "/chat",
+    "@views/Chat/RouterIndex.vue",
+  ],
+  [
+    "/agent-management",
+    "@views/AgentManagement/RouterIndex.vue",
+  ],
+  [
+    "/providers",
+    "@views/Providers/RouterIndex.vue",
+  ],
+  [
+    "/proxies",
+    "@views/Proxies/RouterIndex.vue",
+  ],
+  [
+    "/runtimes",
+    "@views/Runtimes/RouterIndex.vue",
+  ],
+  [
+    "/usage",
+    "@views/Usage/RouterIndex.vue",
+  ],
+  [
+    "/plugins",
+    "@views/Plugins/RouterIndex.vue",
+  ],
+  [
+    "/mcp",
+    "@views/Mcp/RouterIndex.vue",
+  ],
+  [
+    "/skills",
+    "@views/Skills/RouterIndex.vue",
+  ],
+  [
+    "/center",
+    "@views/Center/RouterIndex.vue",
+  ],
+];
+
+if (!routerSource.includes("component: () => import(\"@views/MainView.vue\")")) {
+  console.error("工作台父路由必须懒加载 @views/MainView.vue 作为公共壳。");
+  process.exitCode = 1;
+}
+
+if (!routerSource.includes("children: [")) {
+  console.error("工作台页面必须使用 children 嵌套路由承载各 RouterIndex.vue。");
+  process.exitCode = 1;
+}
+
+for (const [
+  routePath,
+  importPath,
+] of requiredRoutes) {
+  if (!routerSource.includes(`path: "${routePath}"`) || !routerSource.includes(`component: () => import("${importPath}")`)) {
+    console.error(`路由 ${routePath} 必须使用 ${importPath} 动态导入注册。`);
+    process.exitCode = 1;
+  }
+}
+
+const pageEntryRoutes = [
+  [
+    "AgentManagement",
+    "agent-management",
+  ],
+  [
+    "Providers",
+    "providers",
+  ],
+  [
+    "Proxies",
+    "proxies",
+  ],
+  [
+    "Runtimes",
+    "runtimes",
+  ],
+  [
+    "Usage",
+    "usage",
+  ],
+  [
+    "Plugins",
+    "plugins",
+  ],
+  [
+    "Mcp",
+    "mcp",
+  ],
+  [
+    "Skills",
+    "skills",
+  ],
+  [
+    "Center",
+    "center",
+  ],
+];
+
+for (const [
+  pageDirectory,
+  initialPage,
+] of pageEntryRoutes) {
+  const pageEntrySource = readFileSync(
+    join(
+      process.cwd(),
+      "apps",
+      "frontend",
+      "src",
+      "views",
+      pageDirectory,
+      "RouterIndex.vue",
+    ),
+    "utf-8",
+  );
+  if (pageEntrySource.includes("import MainView from \"@views/MainView.vue\"")
+      || pageEntrySource.includes("<MainView")
+      || pageEntrySource.includes("import WorkspacePage from \"./WorkspacePage.vue\"")
+      || pageEntrySource.includes("<WorkspacePage")
+      || pageEntrySource.includes("initial-page")) {
+    console.error(`views/${pageDirectory}/RouterIndex.vue 不能继续包公共壳、转发 WorkspacePage 或使用 initial-page。`);
+    process.exitCode = 1;
+  }
+
+  if (!pageEntrySource.includes(`currentWorkspacePage = "${initialPage}"`) && !pageEntrySource.includes("page-panel")) {
+    console.error(`views/${pageDirectory}/RouterIndex.vue 必须在入口文件内承载 ${initialPage} 页面业务，不能只转发 WorkspacePage 或使用 initial-page。`);
+    process.exitCode = 1;
+  }
+}
+
+const forbiddenWorkspacePagePaths = [
+  "AgentManagement",
+  "Providers",
+  "Proxies",
+  "Runtimes",
+  "Usage",
+  "Plugins",
+  "Mcp",
+  "Skills",
+  "Center",
+];
+
+for (const pageDirectory of forbiddenWorkspacePagePaths) {
+  const legacyWorkspacePagePath = join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    pageDirectory,
+    "WorkspacePage.vue",
+  );
+  if (existsSync(legacyWorkspacePagePath)) {
+    console.error(`views/${pageDirectory}/WorkspacePage.vue 不应继续存在，页面业务必须写在 RouterIndex.vue。`);
+    process.exitCode = 1;
+  }
+}
+
+const workspacePageHostRequirements = [
+  [
+    "onMounted",
+    "独立管理 URL 必须在页面宿主挂载时主动加载当前页数据。",
+  ],
+  [
+    "onMounted",
+    "独立管理 URL 必须在页面挂载时主动加载当前页数据。",
+  ],
+  [
+    "loadUsageStatistics",
+    "用量统计独立页面必须主动加载用量数据。",
+  ],
+  [
+    "echarts/core",
+    "用量统计页面宿主必须引入 ECharts，不能只展示 JSON 列表。",
+  ],
+  [
+    "usage-total-chart",
+    "用量统计页面宿主必须展示总量图表容器。",
+  ],
+  [
+    "usage-provider-chart",
+    "用量统计页面宿主必须展示供应商维度图表容器。",
+  ],
+  [
+    "usage-project-chart",
+    "用量统计页面宿主必须展示项目维度图表容器。",
+  ],
+];
+
+for (const [
+  pattern,
+  message,
+] of workspacePageHostRequirements) {
+  if (!workspacePageHost.includes(pattern)) {
+    console.error(message);
+    process.exitCode = 1;
+  }
+}
+
+const requiredAliases = [
+  "@",
+  "~",
+  "@views",
+  "@components",
+  "@stores",
+  "@api",
+];
+
+for (const alias of requiredAliases) {
+  if (!viteConfig.includes(`"${alias}"`)) {
+    console.error(`Vite 配置必须包含 ${alias} 路径别名。`);
+    process.exitCode = 1;
+  }
+
+  if (!frontendTsconfig.includes(`"${alias}/*"`)) {
+    console.error(`apps/frontend/tsconfig.json 必须包含 ${alias}/* IDE 路径别名。`);
+    process.exitCode = 1;
+  }
+}
+
+if (!centerService.includes("const memoryTimeTitle = formatMemoryTimeTitle(now);")
+    || !centerService.includes("`# ${memoryTimeTitle}`")) {
+  console.error("writeAgentMemory 的 Markdown 标题必须只写 # HH:mm:ss。");
+  process.exitCode = 1;
+}
+
+const writeAgentMemoryStart = centerService.indexOf("function writeAgentMemory");
+const writeAgentMemoryEnd = centerService.indexOf("function enterMemoryQueue", writeAgentMemoryStart);
+const writeAgentMemorySource = centerService.slice(
+  writeAgentMemoryStart,
+  writeAgentMemoryEnd,
+);
+if (writeAgentMemorySource.includes("`# 时间：${now.toISOString()}`")
+    || writeAgentMemorySource.includes("# 时间：${now.toISOString()}")
+    || writeAgentMemorySource.includes("# 时间：${memoryTimeTitle}")) {
+  console.error("writeAgentMemory 不允许把 now.toISOString() 写入 Markdown 标题。");
+  process.exitCode = 1;
+}
+
+if (mainView.includes("文件上下文") || mainView.includes("openProjectFileContextPicker")) {
+  console.error("输入区不能继续展示独立文件上下文按钮，应展示当前窗口上下文用量。");
+  process.exitCode = 1;
+}
+
+if (!mainView.includes("composerContextUsageText") || !mainView.includes("composer-context-usage")) {
+  console.error("输入区必须展示当前窗口上下文用量。");
+  process.exitCode = 1;
+}
+
+if (!appStore.includes("contextUsedTokens") || !appStore.includes("composerSelectedModelContextWindowTokens")) {
+  console.error("状态容器必须保存当前窗口上下文已用量并读取模型窗口上限。");
+  process.exitCode = 1;
+}
+
+if (!appStore.includes("estimateComposerContextUsedTokens") || !appStore.includes("updateComposerContextUsage")) {
+  console.error("当前窗口上下文用量不能只保留初始化值，必须随会话和草稿更新。");
+  process.exitCode = 1;
+}
+
+const agentStatusProgressStart = mainView.indexOf("const agentStatusProgressText = computed");
+const agentStatusProgressEnd = mainView.indexOf("// activeTaskPanelRows", agentStatusProgressStart);
+const agentStatusProgressSource = mainView.slice(
+  agentStatusProgressStart,
+  agentStatusProgressEnd,
+);
+if (agentStatusProgressSource.includes("agentStatusTreeRows.value.length")) {
+  console.error("agentStatusProgressText 分母不能使用扁平化全部树行，必须只统计一级长期智能体。");
+  process.exitCode = 1;
+}
+
+if (!agentStatusProgressSource.includes("node.nodeKind === \"主智能体\"")
+    || !agentStatusProgressSource.includes("node.nodeKind === \"长期智能体\"")) {
+  console.error("agentStatusProgressText 必须明确过滤主智能体和长期智能体。");
+  process.exitCode = 1;
+}
+
+if (/const\s+\w+\s*=\s*\(\)\s*=>\s*import\("\.\/views\/[^"]+\.vue"\)/u.test(routerSource)) {
+  console.error("路由懒加载不能先定义变量再挂载到 component。");
+  process.exitCode = 1;
+}
+
+if (mainViewShell.includes("initialPage")
+    || mainViewShell.includes("defineProps<{")
+    || mainViewShell.includes("props.initialPage")
+    || mainViewShell.includes("WorkspacePageHost")) {
+  console.error("MainView 不能继续通过 initialPage 或 WorkspacePageHost 承载管理页，必须改为公共壳插槽。");
+  process.exitCode = 1;
+}
+
+

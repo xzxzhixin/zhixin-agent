@@ -22,6 +22,10 @@ const repoRoot = resolve(process.cwd(), "..", "..");
 const outputRoot = join(process.cwd(), "dist");
 // portableRoot: 绿色版目录。
 const portableRoot = join(outputRoot, "zhixin-agent-portable");
+// centerSourceRoot: 中心服务源码包根目录，桌面打包阶段从这里动态装配运行入口。
+const centerSourceRoot = join(repoRoot, "services", "center");
+// centerResourceRoot: Electron resources 下的随包中心服务目录，生产期不能再指回仓库源码。
+const centerResourceRoot = join(portableRoot, "resources", "center");
 
 rmSync(outputRoot, {
   force: true,
@@ -71,13 +75,30 @@ for (const pluginName of [
   );
 }
 
-mkdirSync(join(portableRoot, "resources", "center"), {
+mkdirSync(centerResourceRoot, {
   recursive: true,
 });
+cpSync(
+  join(centerSourceRoot, "package.json"),
+  join(centerResourceRoot, "package.json"),
+);
+cpSync(
+  join(centerSourceRoot, "src"),
+  join(centerResourceRoot, "src"),
+  {
+    recursive: true,
+  },
+);
 writeFileSync(
-  join(portableRoot, "resources", "center", "index.js"),
+  join(centerResourceRoot, "index.js"),
   [
-    "import '../../../../../services/center/src/index.ts';",
+    "/**",
+    " * 随包中心服务入口。",
+    " *",
+    " * 用途：从绿色版 resources/center 内部加载中心服务源码入口，避免生产包回跳仓库源码路径。",
+    " * 关键逻辑：中心服务当前由 tsx/Node 运行源码，桌面打包阶段先复制运行入口到本目录。",
+    " */",
+    "import './src/index.ts';",
     "",
   ].join("\n"),
   "utf-8",

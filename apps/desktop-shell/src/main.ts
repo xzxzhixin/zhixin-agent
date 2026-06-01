@@ -16,6 +16,7 @@ import {
   spawnSync,
 } from "node:child_process";
 import {
+  appendFileSync,
   readFileSync,
   writeFileSync,
   existsSync,
@@ -57,6 +58,37 @@ interface CenterLaunchConfig {
   centerDirectory: string;
 }
 
+/**
+ * CenterCommandResolution：中心服务启动命令解析结果。
+ *
+ * 来源：桌面壳开发期和绿色版运行期的启动环境。
+ * 含义：记录可执行命令、参数、工作目录和诊断信息。
+ * 格式：运行期对象。
+ * 默认值：无；解析失败时由调用方展示错误。
+ * 约束：开发期只能通过桌面壳拉起中心服务，不能由启动脚本直接运行中心服务。
+ */
+interface CenterCommandResolution {
+  /**
+   * command: spawn 使用的可执行命令绝对路径或 Node/Electron 运行时路径。
+   */
+  command: string;
+
+  /**
+   * args: 传给中心服务命令的参数列表。
+   */
+  args: string[];
+
+  /**
+   * cwd: 中心服务进程工作目录。
+   */
+  cwd: string;
+
+  /**
+   * diagnostics: 启动失败时用于排查的命令解析摘要。
+   */
+  diagnostics: string;
+}
+
 // isDev: 未打包时按源码路径启动中心服务和前端构建产物。
 const isDev = !app.isPackaged;
 // appRoot: Electron 应用根目录。
@@ -79,6 +111,8 @@ const frontendDevUrl = process.env.ZHIXIN_FRONTEND_DEV_URL;
 const centerEntryPath = isDev
   ? join(repoRoot, "services", "center", "src", "index.ts")
   : join(process.resourcesPath, "center", "index.js");
+// centerNodeExecutable: 开发期由启动编排显式传入的 Node 可执行文件，避免 PATH 里混入错误版本。
+const centerNodeExecutable = process.env.ZHIXIN_CENTER_NODE_EXECUTABLE || process.execPath;
 // desktopConfigPath: 桌面壳本机配置文件，保存中心服务端口和中心目录。
 const desktopConfigPath = join(app.getPath("userData"), "desktop-config.json");
 
@@ -178,6 +212,33 @@ function writeDesktopConfig(config: DesktopConfigFile): void {
 }
 
 /**
+ * writeCenterRuntimeLog：写入桌面壳管理中心服务的开发期运行日志。
+ *
+ * @param message 日志正文。
+ * @returns 没有返回值。
+ */
+function writeCenterRuntimeLog(message: string): void {
+  try {
+    // logPath: 日志放在中心目录下，方便和中心服务自身日志一起排查启动链路。
+    const logPath = join(
+      centerLaunchConfig.centerDirectory,
+      "logs",
+      "desktop-center-runtime.log",
+    );
+    mkdirSync(dirname(logPath), {
+      recursive: true,
+    });
+    appendFileSync(
+      logPath,
+      `[${new Date().toISOString()}] ${message}\n`,
+      "utf-8",
+    );
+  } catch {
+    // 日志写入失败不能阻断桌面壳启动；IPC 状态仍会返回 lastCenterError。
+  }
+}
+
+/**
  * normalizePort：把用户输入端口约束为合法 TCP 端口。
  *
  * @param port 用户输入端口。
@@ -188,6 +249,83 @@ function normalizePort(port: unknown): number {
   return Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
     ? parsedPort
     : DEFAULT_CENTER_PORT;
+}
+
+/**
+ * resolveCenterCommand：解析桌面壳管理的中心服务启动命令。
+ *
+ * @returns 成功时返回命令解析结果，失败时返回 null 并写入 lastCenterError。
+ */
+function resolveCenterCommand(): CenterCommandResolution | null {
+  if (!isDev) {
+    return {
+      command: process.execPath,
+      args: [
+        centerEntryPath,
+      ],
+      cwd: process.resourcesPath,
+      diagnostics: `command=${process.execPath}; entry=${centerEntryPath}; cwd=${process.resourcesPath}`,
+    };
+  }
+
+  // tsxCommand: Windows 使用 .CMD 包装脚本，其他平台使用无后缀可执行文件。
+  const tsxCommand = process.platform === "win32" ? "tsx.CMD" : "tsx";
+  // centerPackageDirectory: 中心服务包目录，开发期应优先使用这里的 tsx，保证依赖解析与中心服务包一致。
+  const centerPackageDirectory = join(
+    repoRoot,
+    "services",
+    "center",
+  );
+  // desktopPackageDirectory: 桌面壳包目录，作为开发期兜底命令来源。
+  const desktopPackageDirectory = join(
+    repoRoot,
+    "apps",
+    "desktop-shell",
+  );
+  // candidateCommands: 按包职责顺序查找可执行 tsx，不依赖根 node_modules，避免 pnpm 安装布局下找错命令。
+  const candidateCommands = [
+    join(
+      centerPackageDirectory,
+      "node_modules",
+      ".bin",
+      tsxCommand,
+    ),
+    join(
+      desktopPackageDirectory,
+      "node_modules",
+      ".bin",
+      tsxCommand,
+    ),
+  ];
+  // command: 第一个存在的 tsx 命令，缺失时返回明确诊断。
+  const command = candidateCommands.find((candidateCommand) => existsSync(candidateCommand));
+
+  if (!command) {
+    lastCenterError = [
+      "开发期中心服务启动命令不存在。",
+      `已检查：${candidateCommands.join("；")}`,
+      `中心入口：${centerEntryPath}`,
+      `中心目录：${centerLaunchConfig.centerDirectory}`,
+      `端口：${centerLaunchConfig.port}`,
+    ].join("\n");
+    return null;
+  }
+
+  return {
+    command,
+    args: [
+      centerEntryPath,
+    ],
+    cwd: centerPackageDirectory,
+    diagnostics: [
+      `command=${command}`,
+      `node=${centerNodeExecutable}`,
+      `entry=${centerEntryPath}`,
+      `cwd=${centerPackageDirectory}`,
+      `port=${centerLaunchConfig.port}`,
+      `centerDir=${centerLaunchConfig.centerDirectory}`,
+    ].join("; "),
+  };
 }
 
 /**
@@ -253,16 +391,17 @@ function startCenterService(): void {
     recursive: true,
   });
 
-  const tsxCommand = process.platform === "win32" ? "tsx.CMD" : "tsx";
-  const command = isDev
-    ? join(repoRoot, "node_modules", ".bin", tsxCommand)
-    : process.execPath;
-  const args = [
-    centerEntryPath,
-  ];
+  // resolvedCommand: 区分“命令已解析”和“中心服务实际监听”，避免命令缺失时静默显示运行中。
+  const resolvedCommand = resolveCenterCommand();
+  if (!resolvedCommand) {
+    writeCenterRuntimeLog(lastCenterError);
+    return;
+  }
 
-  centerProcess = spawn(command, args, {
-    cwd: repoRoot,
+  writeCenterRuntimeLog(`start ${resolvedCommand.diagnostics}`);
+
+  centerProcess = spawn(resolvedCommand.command, resolvedCommand.args, {
+    cwd: resolvedCommand.cwd,
     env: {
       ...process.env,
       ZHIXIN_CENTER_PORT: String(centerLaunchConfig.port),
@@ -275,20 +414,28 @@ function startCenterService(): void {
   });
 
   centerProcess.on("error", (error) => {
-    lastCenterError = error.message;
+    lastCenterError = `中心服务启动失败：${error.message}\n${resolvedCommand.diagnostics}`;
+    writeCenterRuntimeLog(`error ${lastCenterError}`);
     centerProcess = null;
   });
   centerProcess.stderr.on("data", (chunk) => {
-    lastCenterError = Buffer.from(chunk).toString("utf-8");
+    lastCenterError = [
+      Buffer.from(chunk).toString("utf-8"),
+      resolvedCommand.diagnostics,
+    ].join("\n");
+    writeCenterRuntimeLog(`stderr ${lastCenterError}`);
     console.error(lastCenterError);
   });
   centerProcess.stdout.on("data", (chunk) => {
-    console.log(Buffer.from(chunk).toString("utf-8"));
+    const output = Buffer.from(chunk).toString("utf-8");
+    writeCenterRuntimeLog(`stdout ${output}`);
+    console.log(output);
   });
   centerProcess.on("exit", (code) => {
     if (code && !lastCenterError) {
-      lastCenterError = `中心服务退出，退出码：${code}`;
+      lastCenterError = `中心服务退出，退出码：${code}\n${resolvedCommand.diagnostics}`;
     }
+    writeCenterRuntimeLog(`exit code=${code ?? "null"} error=${lastCenterError || ""}`);
     centerProcess = null;
   });
 }

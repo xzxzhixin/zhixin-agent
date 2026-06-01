@@ -145,10 +145,11 @@ startProcess(
     "--filter",
     "@zhixin/frontend",
     "dev",
-    "--",
-    "--host",
-    "127.0.0.1",
-  ],
+      "--",
+      "--host",
+      "127.0.0.1",
+      "--strictPort",
+    ],
 );
 
 try {
@@ -163,6 +164,7 @@ try {
     ],
     {
       ZHIXIN_FRONTEND_DEV_URL: frontendDevUrl,
+      ZHIXIN_CENTER_NODE_EXECUTABLE: process.execPath,
     },
   );
 } catch (error) {

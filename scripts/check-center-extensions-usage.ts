@@ -59,6 +59,12 @@ async function main(): Promise<void> {
         models: [
           "model-a",
         ],
+        contextWindows: [
+          {
+            model: "model-a",
+            contextWindowTokens: 1000000,
+          },
+        ],
         reasoningEfforts: [
           "medium",
         ],
@@ -75,10 +81,15 @@ async function main(): Promise<void> {
     })).json<ApiResponse<{
       providerId: string;
       models: string[];
+      contextWindows: Array<{
+        model: string;
+        contextWindowTokens: number;
+      }>;
       reasoningEfforts: string[];
     }>>();
     assert(modelList.success, "模型列表查询失败，当前 services/center 源码不应返回 API_NOT_FOUND");
     assert(modelList.data?.models.includes("model-a") === true, "模型列表查询没有返回刷新后的模型");
+    assert(modelList.data?.contextWindows.some((item) => item.model === "model-a" && item.contextWindowTokens === 1000000) === true, "模型列表查询没有返回模型上下文窗口");
     assert(modelList.data?.reasoningEfforts.includes("medium") === true, "模型列表查询没有返回刷新后的推理深度");
 
     const proxy = (await service.app.inject({

@@ -60,8 +60,6 @@ function readChunkSize(prefix) {
 }
 
 for (const chunkPrefix of [
-  "MainView-",
-  "LoginView-",
   "vendor-vue-",
   "vendor-element-plus-",
   "vendor-vant-",
@@ -71,6 +69,18 @@ for (const chunkPrefix of [
     console.error(`前端构建产物缺少 ${chunkPrefix} JS chunk。`);
     process.exitCode = 1;
   }
+}
+
+// routerEntryChunks: 页面路由入口 chunk，拆分后各页面入口由 RouterIndex 生成独立文件。
+const routerEntryChunks = assetNames.filter((assetName) => (
+  assetName.startsWith("RouterIndex-") &&
+  assetName.endsWith(".js")
+));
+// minRouterEntryChunkCount: 当前至少应包含主页面、登录页和多个管理页入口。
+const minRouterEntryChunkCount = 10;
+if (routerEntryChunks.length < minRouterEntryChunkCount) {
+  console.error(`前端构建产物 RouterIndex 页面 chunk 数量不足：${routerEntryChunks.length}。`);
+  process.exitCode = 1;
 }
 
 // mainChunkSize: 主入口 JS 文件大小，目标是只保留应用引导和路由，不混入页面与三方大包。
