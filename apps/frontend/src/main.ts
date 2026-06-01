@@ -20,4 +20,15 @@ app.use(pinia);
 app.use(ElementPlus);
 app.use(Vant);
 app.use(router);
-app.mount("#app");
+
+/**
+ * mountApplication：等待 Vue Router 完成初始 hash 解析后再挂载。
+ *
+ * @returns 挂载完成后没有返回值。
+ */
+async function mountApplication(): Promise<void> {
+  await router.isReady();
+  app.mount("#app");
+}
+
+void mountApplication();

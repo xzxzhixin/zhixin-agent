@@ -10,6 +10,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import WorkspaceRouteHost from "@views/WorkspaceRouteHost.vue";
 
 /**
  * WorkspacePage：顶部工作台页面协议值。
@@ -128,10 +129,20 @@ const visibleMenuItems = computed(() => workspaceMenuItems.filter((item) => {
  * switchPage：切换顶部工作台页面。
  *
  * @param page 目标页面。
- * @returns 没有返回值。
+ * @returns 切换完成后没有返回值。
  */
-function switchPage(page: WorkspacePage): void {
-  void router.push(resolveWorkspacePagePath(page));
+async function switchPage(page: WorkspacePage): Promise<void> {
+  const targetPath = resolveWorkspacePagePath(page);
+  if (route.path === targetPath) {
+    return;
+  }
+
+  await router.push(targetPath);
+  if (appStore.runtime.capabilities.canManageCenterService) {
+    // Electron WebContents 在部分环境中会出现 hash 和菜单高亮已变、二级主体仍复用旧 DOM 的情况。
+    // 桌面壳管理页面切换频率低，开发期和桌面端优先保证页面事实一致，因此以目标 hash 触发轻量重载兜底。
+    window.location.reload();
+  }
 }
 
 /**
@@ -224,7 +235,7 @@ function formatConnectionState(state: string): string {
       </header>
 
       <section class="workspace-slot">
-        <router-view :key="route.fullPath"/>
+        <WorkspaceRouteHost/>
       </section>
     </section>
   </main>
@@ -308,4 +319,5 @@ function formatConnectionState(state: string): string {
   min-height: 0;
   overflow: hidden;
 }
+
 </style>

@@ -719,46 +719,46 @@ assertNotIncludes(
   "MainView 不能继续用 activePage 条件渲染供应商页面。",
 );
 
-// routeExpectations: 顶部菜单 URL 必须指向各自 RouterIndex.vue，避免刷新或复制链接后回到对话页。
+// routeExpectations: 顶部菜单子路由必须指向各自 RouterIndex.vue，避免刷新或复制链接后回到对话页。
 const routeExpectations = [
   [
-    "/chat",
+    "chat",
     "@views/Chat/RouterIndex.vue",
   ],
   [
-    "/agent-management",
+    "agent-management",
     "@views/AgentManagement/RouterIndex.vue",
   ],
   [
-    "/providers",
+    "providers",
     "@views/Providers/RouterIndex.vue",
   ],
   [
-    "/proxies",
+    "proxies",
     "@views/Proxies/RouterIndex.vue",
   ],
   [
-    "/runtimes",
+    "runtimes",
     "@views/Runtimes/RouterIndex.vue",
   ],
   [
-    "/usage",
+    "usage",
     "@views/Usage/RouterIndex.vue",
   ],
   [
-    "/plugins",
+    "plugins",
     "@views/Plugins/RouterIndex.vue",
   ],
   [
-    "/mcp",
+    "mcp",
     "@views/Mcp/RouterIndex.vue",
   ],
   [
-    "/skills",
+    "skills",
     "@views/Skills/RouterIndex.vue",
   ],
   [
-    "/center",
+    "center",
     "@views/Center/RouterIndex.vue",
   ],
 ];
@@ -770,7 +770,7 @@ for (const [
   assertIncludes(
     routerSource,
     `path: "${routePath}"`,
-    `路由必须注册独立 URL ${routePath}。`,
+    `路由必须注册独立子路径 ${routePath}。`,
   );
   assertIncludes(
     routerSource,
@@ -781,10 +781,14 @@ for (const [
 
 assertIncludes(
   routerSource,
+  "path: \"/\"",
+  "工作台父路由必须保持根路径。",
+);
+assertIncludes(
+  routerSource,
   "component: () => import(\"@views/MainView.vue\")",
   "工作台父路由必须懒加载 MainView 作为公共壳。",
 );
-
 assertIncludes(
   routerSource,
   "children: [",
@@ -793,7 +797,7 @@ assertIncludes(
 
 assertIncludes(
   mainViewOnly,
-  "void router.push(resolveWorkspacePagePath(page));",
+  "await router.push(targetPath);",
   "顶部菜单切换必须调用 Vue Router 更新 hash URL。",
 );
 assertIncludes(

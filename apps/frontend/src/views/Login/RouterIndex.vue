@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  onMounted,
   reactive,
   ref,
 } from "vue";
@@ -27,6 +28,17 @@ const form = reactive({
 });
 // loading：登录请求状态，避免重复提交。
 const loading = ref(false);
+
+/**
+ * onMounted：本机和桌面壳已授权入口不展示远程登录主体。
+ *
+ * @returns 没有返回值。
+ */
+onMounted(async () => {
+  if (!appStore.runtime.capabilities.canUseRemoteLogin) {
+    await router.replace("/chat");
+  }
+});
 
 /**
  * submitRemoteLogin：提交远程 Web 登录。

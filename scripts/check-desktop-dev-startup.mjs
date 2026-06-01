@@ -177,3 +177,18 @@ assertIncludes(
   "ZHIXIN_FRONTEND_DIST",
   "桌面壳启动中心服务时必须传入前端资源目录。",
 );
+assertIncludes(
+  desktopMain,
+  "mainWindow.webContents.session.clearCache()",
+  "桌面壳开发期加载 Vite 前端前必须清理 Electron 会话缓存，避免旧前端模块导致路由主体残留。",
+);
+assertIncludes(
+  desktopMain,
+  "window-load-url",
+  "桌面壳必须记录实际加载的前端 URL，方便验证开发期是否连接 Vite。",
+);
+assertIncludes(
+  desktopMain,
+  "did-navigate-in-page",
+  "桌面壳必须记录 hash 页内导航，方便排查菜单点击后 URL 与主体不同步。",
+);

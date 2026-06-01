@@ -21,6 +21,15 @@ const mainViewPath = join(
   "views",
   "MainView.vue",
 );
+// workspaceRouteHostPath: 工作台二级路由出口组件源码。
+const workspaceRouteHostPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "views",
+  "WorkspaceRouteHost.vue",
+);
 // centerServicePath: 中心服务入口源码，用于检查记忆 Markdown 标题协议。
 const centerServicePath = join(
   process.cwd(),
@@ -56,6 +65,11 @@ const mainViewShell = readFileSync(
   mainViewPath,
   "utf-8",
 );
+// workspaceRouteHost: 独立二级路由出口源码，避免公共壳菜单状态和主体更新混在同一组件。
+const workspaceRouteHost = readFileSync(
+  workspaceRouteHostPath,
+  "utf-8",
+);
 // chatPagePath: 对话页真实入口源码，承载对话主体、移动模式和插件紧凑模式。
 const chatPagePath = join(
   process.cwd(),
@@ -72,7 +86,7 @@ const chatPage = readFileSync(
   "utf-8",
 );
 // mainView: 工作台整体源码，合并公共壳和对话页入口，适配页面主体已迁出 MainView 的结构。
-const mainView = `${mainViewShell}\n${chatPage}`;
+const mainView = `${mainViewShell}\n${chatPage}\n${workspaceRouteHost}`;
 // centerService: 中心服务源码文本。
 const centerService = readFileSync(
   centerServicePath,
@@ -412,9 +426,14 @@ const expectations = [
     "MainView 必须通过项目能力详情独立弹框组件承载项目能力详情。",
   ],
   [
-    mainView,
-    "<router-view",
-    "MainView 必须通过 router-view 承载独立顶部菜单页面，不能继续内联所有管理页。",
+    mainViewShell,
+    "<WorkspaceRouteHost/>",
+    "MainView 必须通过 WorkspaceRouteHost 承载独立顶部菜单页面，不能继续内联所有管理页。",
+  ],
+  [
+    workspaceRouteHost,
+    "<RouterView",
+    "WorkspaceRouteHost 必须通过 RouterView 承载独立顶部菜单页面。",
   ],
   [
     mainView,
@@ -848,7 +867,10 @@ for (const [
   routePath,
   importPath,
 ] of requiredRoutes) {
-  if (!routerSource.includes(`path: "${routePath}"`) || !routerSource.includes(`component: () => import("${importPath}")`)) {
+  const routerPath = routePath === "/login"
+    ? routePath
+    : routePath.replace(/^\//u, "");
+  if (!routerSource.includes(`path: "${routerPath}"`) || !routerSource.includes(`component: () => import("${importPath}")`)) {
     console.error(`路由 ${routePath} 必须使用 ${importPath} 动态导入注册。`);
     process.exitCode = 1;
   }

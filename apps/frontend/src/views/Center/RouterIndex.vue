@@ -138,7 +138,7 @@ const providerModelSourceText = computed(() => {
  * @returns 没有返回值。
  */
 onMounted(() => {
-  void appStore.loadDesktopStatus();
+  void appStore.syncDesktopStatus();
 });
 
 </script>

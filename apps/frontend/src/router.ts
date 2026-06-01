@@ -15,55 +15,52 @@ export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     {
-      path: "/",
-      redirect: "/chat",
-    },
-    {
       path: "/login",
       component: () => import("@views/Login/RouterIndex.vue"),
     },
     {
       path: "/",
+      redirect: "/chat",
       component: () => import("@views/MainView.vue"),
       children: [
         {
-          path: "/chat",
+          path: "chat",
           component: () => import("@views/Chat/RouterIndex.vue"),
         },
         {
-          path: "/agent-management",
+          path: "agent-management",
           component: () => import("@views/AgentManagement/RouterIndex.vue"),
         },
         {
-          path: "/providers",
+          path: "providers",
           component: () => import("@views/Providers/RouterIndex.vue"),
         },
         {
-          path: "/proxies",
+          path: "proxies",
           component: () => import("@views/Proxies/RouterIndex.vue"),
         },
         {
-          path: "/runtimes",
+          path: "runtimes",
           component: () => import("@views/Runtimes/RouterIndex.vue"),
         },
         {
-          path: "/usage",
+          path: "usage",
           component: () => import("@views/Usage/RouterIndex.vue"),
         },
         {
-          path: "/plugins",
+          path: "plugins",
           component: () => import("@views/Plugins/RouterIndex.vue"),
         },
         {
-          path: "/mcp",
+          path: "mcp",
           component: () => import("@views/Mcp/RouterIndex.vue"),
         },
         {
-          path: "/skills",
+          path: "skills",
           component: () => import("@views/Skills/RouterIndex.vue"),
         },
         {
-          path: "/center",
+          path: "center",
           component: () => import("@views/Center/RouterIndex.vue"),
         },
       ],

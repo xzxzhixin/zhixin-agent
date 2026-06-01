@@ -4,6 +4,7 @@ import {
 import {
   app,
   BrowserWindow,
+  dialog,
   Notification,
   ipcMain,
   Menu,
@@ -89,6 +90,17 @@ interface CenterCommandResolution {
   diagnostics: string;
 }
 
+/**
+ * CloseActionPreference：桌面端关闭按钮行为偏好。
+ *
+ * 来源：用户首次点击窗口关闭按钮时的选择。
+ * 含义：决定后续点击关闭按钮时是继续询问、直接退出还是隐藏到托盘。
+ * 格式：固定字符串枚举。
+ * 默认值：ask，避免替用户擅自决定退出或驻留托盘。
+ * 约束：只影响桌面壳本机窗口行为，不进入中心服务事实源。
+ */
+type CloseActionPreference = "ask" | "quit" | "hide-to-tray";
+
 // isDev: 未打包时按源码路径启动中心服务和前端构建产物。
 const isDev = !app.isPackaged;
 // appRoot: Electron 应用根目录。
@@ -115,6 +127,8 @@ const centerEntryPath = isDev
 const centerNodeExecutable = process.env.ZHIXIN_CENTER_NODE_EXECUTABLE || process.execPath;
 // desktopConfigPath: 桌面壳本机配置文件，保存中心服务端口和中心目录。
 const desktopConfigPath = join(app.getPath("userData"), "desktop-config.json");
+// DEFAULT_CLOSE_ACTION_PREFERENCE: 首次关闭窗口时必须询问用户，符合常见桌面应用关闭习惯。
+const DEFAULT_CLOSE_ACTION_PREFERENCE: CloseActionPreference = "ask";
 
 // mainWindow: 主窗口引用，避免被垃圾回收。
 let mainWindow: BrowserWindow | null = null;
@@ -124,6 +138,8 @@ let tray: Tray | null = null;
 let centerProcess: ChildProcessWithoutNullStreams | null = null;
 // lastCenterError: 最近一次中心服务启动或运行错误。
 let lastCenterError = "";
+// isAppQuitting: 区分用户点击关闭按钮和应用真正退出，避免退出流程被隐藏托盘逻辑拦截。
+let isAppQuitting = false;
 // centerLaunchConfig: 当前中心服务启动参数。
 const centerLaunchConfig: CenterLaunchConfig = {
   port: DEFAULT_CENTER_PORT,
@@ -151,6 +167,23 @@ interface DesktopConfigFile {
    * centerDirectory: 中心目录绝对路径。
    */
   centerDirectory: string;
+
+  /**
+   * closeActionPreference: 窗口关闭按钮行为偏好。
+   */
+  closeActionPreference: CloseActionPreference;
+}
+
+/**
+ * normalizeCloseActionPreference：把配置文件中的关闭偏好约束为支持值。
+ *
+ * @param preference 配置文件或运行期传入的关闭偏好。
+ * @returns 合法关闭偏好；非法时返回 ask，确保首次关闭仍由用户决定。
+ */
+function normalizeCloseActionPreference(preference: unknown): CloseActionPreference {
+  return preference === "quit" || preference === "hide-to-tray"
+    ? preference
+    : DEFAULT_CLOSE_ACTION_PREFERENCE;
 }
 
 /**
@@ -177,6 +210,7 @@ function readDesktopConfig(): DesktopConfigFile {
     return {
       port: centerLaunchConfig.port,
       centerDirectory: centerLaunchConfig.centerDirectory,
+      closeActionPreference: DEFAULT_CLOSE_ACTION_PREFERENCE,
     };
   }
 
@@ -188,12 +222,14 @@ function readDesktopConfig(): DesktopConfigFile {
       centerDirectory: parsed.centerDirectory
         ? resolve(parsed.centerDirectory)
         : centerLaunchConfig.centerDirectory,
+      closeActionPreference: normalizeCloseActionPreference(parsed.closeActionPreference),
     };
   } catch (error) {
     lastCenterError = error instanceof Error ? error.message : "桌面配置读取失败";
     return {
       port: centerLaunchConfig.port,
       centerDirectory: centerLaunchConfig.centerDirectory,
+      closeActionPreference: DEFAULT_CLOSE_ACTION_PREFERENCE,
     };
   }
 }
@@ -210,6 +246,9 @@ function writeDesktopConfig(config: DesktopConfigFile): void {
   });
   writeFileSync(desktopConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
 }
+
+// desktopConfig: 当前桌面壳本机配置缓存，中心服务配置和关闭按钮偏好共用同一个本机文件。
+let desktopConfig = readDesktopConfig();
 
 /**
  * writeCenterRuntimeLog：写入桌面壳管理中心服务的开发期运行日志。
@@ -375,7 +414,110 @@ function saveAccessAccountConfig(account: string, password: string): {
   };
 }
 
-applyDesktopConfig(readDesktopConfig());
+applyDesktopConfig(desktopConfig);
+
+/**
+ * persistDesktopConfig：保存并更新桌面壳本机配置缓存。
+ *
+ * @param nextConfig 下一份完整桌面壳本机配置。
+ * @returns 没有返回值。
+ */
+function persistDesktopConfig(nextConfig: DesktopConfigFile): void {
+  desktopConfig = nextConfig;
+  writeDesktopConfig(desktopConfig);
+}
+
+/**
+ * updateCloseActionPreference：保存关闭按钮行为偏好。
+ *
+ * @param preference 用户选择的关闭行为偏好。
+ * @returns 没有返回值。
+ */
+function updateCloseActionPreference(preference: CloseActionPreference): void {
+  persistDesktopConfig({
+    ...desktopConfig,
+    closeActionPreference: preference,
+  });
+}
+
+/**
+ * hideMainWindowToTray：隐藏主窗口到系统托盘。
+ *
+ * @returns 没有返回值。
+ */
+function hideMainWindowToTray(): void {
+  // hide: 隐藏窗口但保留应用和中心服务运行，用户可从托盘恢复。
+  mainWindow?.hide();
+}
+
+/**
+ * requestApplicationQuit：进入真正退出流程。
+ *
+ * @returns 没有返回值。
+ */
+function requestApplicationQuit(): void {
+  // isAppQuitting: 后续 close 事件不再弹出或隐藏，保证 app.quit 能继续完成。
+  isAppQuitting = true;
+  app.quit();
+}
+
+/**
+ * handleMainWindowClose：处理用户点击窗口关闭按钮的行为。
+ *
+ * @param event Electron 窗口关闭事件。
+ * @returns 异步处理完成后没有返回值。
+ */
+async function handleMainWindowClose(event: Electron.Event): Promise<void> {
+  if (isAppQuitting) {
+    return;
+  }
+
+  if (desktopConfig.closeActionPreference === "quit") {
+    requestApplicationQuit();
+    return;
+  }
+
+  if (desktopConfig.closeActionPreference === "hide-to-tray") {
+    event.preventDefault();
+    hideMainWindowToTray();
+    return;
+  }
+
+  // preventDefault: 首次关闭需要等用户选择，不能让 Electron 先销毁窗口。
+  event.preventDefault();
+
+  const result = await dialog.showMessageBox(mainWindow!, {
+    type: "question",
+    title: "关闭致心智能体",
+    message: "关闭窗口时要直接退出，还是隐藏到系统托盘继续运行？",
+    detail: "隐藏到托盘后，中心服务会继续运行，可从托盘菜单重新打开窗口。",
+    buttons: [
+      "隐藏到托盘",
+      "直接退出",
+      "取消",
+    ],
+    defaultId: 0,
+    cancelId: 2,
+    checkboxLabel: "记住我的选择",
+    checkboxChecked: false,
+    noLink: true,
+  });
+
+  if (result.response === 0) {
+    if (result.checkboxChecked) {
+      updateCloseActionPreference("hide-to-tray");
+    }
+    hideMainWindowToTray();
+    return;
+  }
+
+  if (result.response === 1) {
+    if (result.checkboxChecked) {
+      updateCloseActionPreference("quit");
+    }
+    requestApplicationQuit();
+  }
+}
 
 /**
  * startCenterService：启动桌面壳管理的中心服务。
@@ -497,16 +639,35 @@ async function createWindow(): Promise<void> {
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
+  mainWindow.webContents.on("did-navigate", (_event, url) => {
+    // url: Electron 实际加载地址，写入日志用于区分 Vite 开发页和中心服务托管页。
+    writeCenterRuntimeLog(`window-did-navigate ${url}`);
+  });
+  mainWindow.webContents.on("did-navigate-in-page", (_event, url) => {
+    // url: hash 路由页内导航地址，用于排查菜单点击后 URL 与主体是否同步。
+    writeCenterRuntimeLog(`window-did-navigate-in-page ${url}`);
+  });
+  // maximize: 默认最大化必须显式调用；width/height 仅作为无法最大化环境下的回退窗口尺寸。
+  mainWindow.maximize();
+  mainWindow.on("close", (event) => {
+    void handleMainWindowClose(event);
+  });
 
   if (isDev && frontendDevUrl) {
+    // clearCache: 开发期必须优先使用 Vite 最新模块，避免 Electron 会话缓存旧 RouterView 产物。
+    await mainWindow.webContents.session.clearCache();
     // 开发期优先加载 Vite dev server，避免每次开壳前构建前端。
-    await mainWindow.loadURL(`${frontendDevUrl}?port=${centerLaunchConfig.port}`);
+    const targetUrl = `${frontendDevUrl}?port=${centerLaunchConfig.port}`;
+    writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
+    await mainWindow.loadURL(targetUrl);
     return;
   }
 
   // 生产期和无前端 dev server 的开发兜底都走中心服务 HTTP 页面。
   // Vite 拆包后的 ES module 不能可靠通过普通 file:// 页面加载，统一由中心服务托管静态资源。
-  await mainWindow.loadURL(`http://127.0.0.1:${centerLaunchConfig.port}?port=${centerLaunchConfig.port}`);
+  const targetUrl = `http://127.0.0.1:${centerLaunchConfig.port}?port=${centerLaunchConfig.port}`;
+  writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
+  await mainWindow.loadURL(targetUrl);
 }
 
 /**
@@ -533,9 +694,10 @@ function registerIpc(): void {
       centerDirectory: payload.centerDirectory
         ? resolve(payload.centerDirectory)
         : centerLaunchConfig.centerDirectory,
+      closeActionPreference: desktopConfig.closeActionPreference,
     };
     applyDesktopConfig(nextConfig);
-    writeDesktopConfig(nextConfig);
+    persistDesktopConfig(nextConfig);
     stopCenterService();
     startCenterService();
     mainWindow?.webContents.send("zhixin:center-config-changed", {
@@ -607,7 +769,7 @@ function createTray(): void {
     },
     {
       label: "退出",
-      click: () => app.quit(),
+      click: () => requestApplicationQuit(),
     },
   ]));
 }
@@ -620,7 +782,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" && isAppQuitting) {
     app.quit();
   }
 });
@@ -632,5 +794,6 @@ app.on("activate", () => {
 });
 
 app.on("before-quit", () => {
+  isAppQuitting = true;
   stopCenterService();
 });
