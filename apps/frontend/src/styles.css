@@ -488,6 +488,15 @@ body {
     position: relative;
 }
 
+.pending-session-row {
+    border-style: dashed;
+}
+
+.pending-session-hint {
+    color: var(--zhixin-accent);
+    font-weight: 600;
+}
+
 .session-tooltip-content {
     position: absolute;
     width: 1px;
@@ -541,6 +550,11 @@ body {
     flex: 0 0 auto;
     align-items: center;
     gap: 8px;
+}
+
+.chat-visible-error {
+    flex: 0 0 auto;
+    margin-bottom: 10px;
 }
 
 .project-capability-summary {
@@ -1050,8 +1064,68 @@ body {
 }
 
 .usage-chart {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     width: 100%;
     height: 240px;
+}
+
+.usage-total-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.usage-total-grid span {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--zhixin-border);
+    border-radius: 6px;
+}
+
+.usage-total-grid strong {
+    font-size: 20px;
+}
+
+.usage-bar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.usage-bar-row {
+    display: grid;
+    grid-template-columns: minmax(84px, 1fr) minmax(90px, 2fr) minmax(54px, auto);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.usage-bar-row span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.usage-bar-track {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--zhixin-hover-bg);
+}
+
+.usage-bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--zhixin-accent);
+}
+
+.usage-empty-state {
+    color: var(--zhixin-text-muted);
 }
 
 .usage-list {

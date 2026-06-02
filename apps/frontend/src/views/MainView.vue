@@ -213,6 +213,9 @@ function formatConnectionState(state: string): string {
               :key="item.page"
               class="top-menu-item"
               :class="{ active: activePage === item.page }"
+              :aria-current="activePage === item.page ? 'page' : undefined"
+              :data-active-page="activePage === item.page ? 'true' : 'false'"
+              :data-route-path="resolveWorkspacePagePath(item.page)"
               type="button"
               @click="switchPage(item.page)"
           >
@@ -280,16 +283,21 @@ function formatConnectionState(state: string): string {
 .top-menu-item {
   flex: 0 0 auto;
   border: 0;
+  border-bottom: 2px solid transparent;
   border-radius: 6px;
   padding: 7px 10px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+  font-weight: 500;
 }
 
 .top-menu-item.active {
-  background: var(--active-bg);
+  border-bottom: 2px solid var(--zhixin-accent);
+  background: color-mix(in srgb, var(--zhixin-accent) 18%, transparent);
+  box-shadow: inset 0 -2px 0 var(--zhixin-accent);
   color: var(--text-primary);
+  font-weight: 700;
 }
 
 .topbar-status {

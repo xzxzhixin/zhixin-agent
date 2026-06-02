@@ -123,6 +123,17 @@ const frontendDevUrl = process.env.ZHIXIN_FRONTEND_DEV_URL;
 const centerEntryPath = isDev
   ? join(repoRoot, "services", "center", "src", "index.ts")
   : join(process.resourcesPath, "center", "index.js");
+// centerNativeBindingPath: better-sqlite3 原生绑定文件路径，开发期用于提前诊断中心服务无法监听的根因。
+const centerNativeBindingPath = join(
+  repoRoot,
+  "services",
+  "center",
+  "node_modules",
+  "better-sqlite3",
+  "build",
+  "Release",
+  "better_sqlite3.node",
+);
 // centerNodeExecutable: 开发期由启动编排显式传入的 Node 可执行文件，避免 PATH 里混入错误版本。
 const centerNodeExecutable = process.env.ZHIXIN_CENTER_NODE_EXECUTABLE || process.execPath;
 // desktopConfigPath: 桌面壳本机配置文件，保存中心服务端口和中心目录。
@@ -296,6 +307,18 @@ function normalizePort(port: unknown): number {
  * @returns 成功时返回命令解析结果，失败时返回 null 并写入 lastCenterError。
  */
 function resolveCenterCommand(): CenterCommandResolution | null {
+  if (isDev && !existsSync(centerNativeBindingPath)) {
+    lastCenterError = [
+      "中心服务缺少 better-sqlite3 原生绑定，无法启动 SQLite 数据库。",
+      `缺失文件：${centerNativeBindingPath}`,
+      "请在仓库根目录执行：pnpm rebuild better-sqlite3 --filter @zhixin/center",
+      `中心入口：${centerEntryPath}`,
+      `中心目录：${centerLaunchConfig.centerDirectory}`,
+      `端口：${centerLaunchConfig.port}`,
+    ].join("\n");
+    return null;
+  }
+
   if (!isDev) {
     return {
       command: process.execPath,
@@ -549,6 +572,7 @@ function startCenterService(): void {
       ZHIXIN_CENTER_PORT: String(centerLaunchConfig.port),
       ZHIXIN_CENTER_DIR: centerLaunchConfig.centerDirectory,
       ZHIXIN_FRONTEND_DIST: frontendDistPath,
+      ZHIXIN_FRONTEND_DEV_URL: frontendDevUrl ?? "",
     },
     shell: isDev,
     stdio: "pipe",

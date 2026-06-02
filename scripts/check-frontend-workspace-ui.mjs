@@ -1105,4 +1105,31 @@ if (mainViewShell.includes("initialPage")
   process.exitCode = 1;
 }
 
+// topMenuButtonBlock：顶部菜单按钮模板片段，检查点击和刷新后的激活态可观测信号。
+const topMenuButtonBlockStart = mainViewShell.indexOf("v-for=\"item in visibleMenuItems\"");
+const topMenuButtonBlockEnd = mainViewShell.indexOf("@click=\"switchPage(item.page)\"", topMenuButtonBlockStart);
+const topMenuButtonBlock = topMenuButtonBlockStart >= 0 && topMenuButtonBlockEnd >= 0
+  ? mainViewShell.slice(
+    topMenuButtonBlockStart,
+    topMenuButtonBlockEnd,
+  )
+  : "";
+
+if (!topMenuButtonBlock.includes(":aria-current=\"activePage === item.page ? 'page' : undefined\"")) {
+  console.error("顶部菜单当前项必须设置 aria-current=page，保证直接访问路由和刷新后有可观测激活态。");
+  process.exitCode = 1;
+}
+
+if (!topMenuButtonBlock.includes(":data-route-path=\"resolveWorkspacePagePath(item.page)\"")) {
+  console.error("顶部菜单按钮必须暴露对应路由路径，方便浏览器验证点击菜单后当前项和 URL 一致。");
+  process.exitCode = 1;
+}
+
+if (!mainViewShell.includes("border-bottom: 2px solid var(--zhixin-accent);")
+    || !mainViewShell.includes("box-shadow: inset 0 -2px 0 var(--zhixin-accent);")
+    || !mainViewShell.includes("font-weight: 700;")) {
+  console.error("顶部菜单激活样式必须有清晰下划线、强调阴影和字重，不能只依赖弱背景色。");
+  process.exitCode = 1;
+}
+
 

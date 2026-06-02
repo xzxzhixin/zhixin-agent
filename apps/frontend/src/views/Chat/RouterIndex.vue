@@ -37,6 +37,7 @@ import type {
   ProjectRecord,
   TaskStatus,
 } from "@zhixin/shared";
+import "./style.css";
 
 /**
  * ComposerEntryKind：输入框三段入口。
@@ -143,8 +144,18 @@ const projectCapabilityDialogVisible = ref(false);
 const messages = computed(() => appStore.sessionDetail?.messages ?? []);
 // normalSessions：普通会话列表，来源于中心服务 sessionType 字段。
 const normalSessions = computed(() => appStore.sessions.filter((session) => session.sessionType === "normal"));
-// activeSessionTitle：顶部标题使用当前会话标题，没有会话时展示固定入口名。
+// activeSessionTitle：顶部标题优先展示真实会话；没有真实会话时展示本地待发送草稿标题。
 const activeSessionTitle = computed(() => appStore.sessionDetail?.session.title ?? "对话");
+// activeDraftProjectName：项目对话草稿绑定的项目名称，用于点击新增后给出可见反馈。
+const activeDraftProjectName = computed(() => {
+  if (appStore.pendingSessionDraft?.sessionType !== "project" || !appStore.pendingSessionDraft.projectId) {
+    return "";
+  }
+  const project = appStore.projects.find((item) => {
+    return item.projectId === appStore.pendingSessionDraft?.projectId;
+  });
+  return project?.displayName ?? appStore.pendingSessionDraft.projectId;
+});
 // agentStatusEvents：智能体状态来源于中心服务事件日志，不在右栏展示中心服务配置摘要。
 const agentStatusEvents = computed(() => appStore.events.filter((event) => {
   return event.eventType.includes("agent");
@@ -613,7 +624,7 @@ function handleProjectRowCreate(project: ProjectRecord): void {
 function handleProjectHeaderCreate(): void {
   const firstProject = appStore.projects[0];
   if (!firstProject) {
-    appStore.lastError = "新增项目入口待接入项目登记流程。";
+    void appStore.createDefaultBrowserProjectConversation();
     return;
   }
 
@@ -948,8 +959,26 @@ onBeforeUnmount(() => {
                     v-if="group.expanded"
                     class="project-session-list"
                 >
+                  <button
+                      v-if="appStore.pendingSessionDraft?.sessionType === 'project' && appStore.pendingSessionDraft.projectId === group.project.projectId"
+                      class="conversation-item project-session-row pending-session-row active"
+                      type="button"
+                      data-nav-kind="project-session-draft"
+                  >
+                    <span class="conversation-row-main">
+                      <el-icon class="session-kind-icon">
+                        <ChatDotRound/>
+                      </el-icon>
+                      <span class="conversation-title">{{ appStore.pendingSessionDraft.title }}</span>
+                    </span>
+                    <span class="conversation-row-trailing">
+                      <small class="conversation-time-node">
+                        待发送
+                      </small>
+                    </span>
+                  </button>
                   <el-empty
-                      v-if="group.sessions.length === 0"
+                      v-if="group.sessions.length === 0 && !(appStore.pendingSessionDraft?.sessionType === 'project' && appStore.pendingSessionDraft.projectId === group.project.projectId)"
                       description="暂无项目对话"
                   />
                   <el-tooltip
@@ -982,7 +1011,7 @@ onBeforeUnmount(() => {
                               class="conversation-icon-button"
                               type="button"
                               title="删除对话"
-                              @click="stopNavigationAction($event); appStore.deleteConversationPlaceholder(session.sessionId)"
+                              @click="stopNavigationAction($event); appStore.deleteConversation(session.sessionId)"
                           >
                             <el-icon>
                               <Delete/>
@@ -1047,7 +1076,7 @@ onBeforeUnmount(() => {
                           class="conversation-icon-button"
                           type="button"
                           title="删除对话"
-                          @click="stopNavigationAction($event); appStore.deleteConversationPlaceholder(session.sessionId)"
+                          @click="stopNavigationAction($event); appStore.deleteConversation(session.sessionId)"
                       >
                         <el-icon>
                           <Delete/>
@@ -1094,7 +1123,21 @@ onBeforeUnmount(() => {
 
           <header class="chat-header">
             <div>
-              <h1>{{ activeSessionTitle }}</h1>
+              <h1>
+                {{ appStore.pendingSessionDraft ? appStore.pendingSessionDraft.title : activeSessionTitle }}
+              </h1>
+              <span
+                  v-if="appStore.pendingSessionDraft?.sessionType === 'project'"
+                  class="pending-session-hint"
+              >
+                项目对话草稿：{{ activeDraftProjectName }}，发送第一条消息后写入历史列表
+              </span>
+              <span
+                  v-else-if="appStore.pendingSessionDraft?.sessionType === 'normal'"
+                  class="pending-session-hint"
+              >
+                普通对话草稿，发送第一条消息后写入历史列表
+              </span>
               <span
                   v-if="appStore.entryMode === 'plugin-compact' && appStore.runtime.projectContext"
                   class="plugin-project-name"
@@ -1123,6 +1166,15 @@ onBeforeUnmount(() => {
               </el-button>
             </div>
           </header>
+
+          <el-alert
+              v-if="appStore.lastError"
+              class="chat-visible-error"
+              type="warning"
+              :title="appStore.lastError"
+              show-icon
+              :closable="false"
+          />
 
           <section
               v-if="appStore.projectCapabilitySummary"
@@ -1438,4 +1490,3 @@ onBeforeUnmount(() => {
       </section>
   </main>
 </template>
-

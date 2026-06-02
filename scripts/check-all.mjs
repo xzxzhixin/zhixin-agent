@@ -13,6 +13,12 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-code-file-line-limit.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-no-type-compiler.mjs",
     ],
   ],
@@ -138,6 +144,18 @@ const commands = [
     "node",
     [
       "scripts/check-frontend-management-pages.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-top-menu-active-state-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-usage-statistics-regression.mjs",
     ],
   ],
   [

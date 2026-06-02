@@ -3,6 +3,9 @@ import {
   computed,
   onMounted,
 } from "vue";
+import {
+  ElMessageBox,
+} from "element-plus";
 
 import {
   useAppStore,
@@ -26,6 +29,12 @@ const mainAgent = computed(() => appStore.agents.find((agent) => {
 const longTermAgents = computed(() => appStore.agents.filter((agent) => {
   return agent.agentId !== "main";
 }));
+// agentFormTitle：根据草稿是否有 ID 决定表单标题。
+const agentFormTitle = computed(() => {
+  return appStore.agentDraft.agentId
+    ? "修改长期智能体"
+    : "创建长期智能体";
+});
 
 /**
  * formatDisplayTime：统一格式化前端展示时间。
@@ -82,12 +91,51 @@ function formatAgentSource(agent: AgentConfigView): string {
 }
 
 /**
+ * confirmDisableAgent：确认停用长期智能体。
+ *
+ * @param agent 中心服务返回的长期智能体。
+ * @returns 确认并提交后没有返回值。
+ */
+async function confirmDisableAgent(agent: AgentConfigView): Promise<void> {
+  await ElMessageBox.confirm(
+    `停用 ${agent.name} 会移除后续任务调度入口，历史会话仍保留。`,
+    "确认停用长期智能体",
+    {
+      confirmButtonText: "确认停用",
+      cancelButtonText: "取消",
+      type: "warning",
+    },
+  );
+  await appStore.disableAgent(agent);
+}
+
+/**
+ * confirmDeleteAgent：确认删除长期智能体。
+ *
+ * @param agent 中心服务返回的长期智能体。
+ * @returns 确认并提交后没有返回值。
+ */
+async function confirmDeleteAgent(agent: AgentConfigView): Promise<void> {
+  await ElMessageBox.confirm(
+    `删除 ${agent.name} 会处理专属记忆、移除后续任务调度入口和会话可选入口，历史对话内容按会话记录保留。`,
+    "确认删除长期智能体",
+    {
+      confirmButtonText: "确认删除",
+      cancelButtonText: "取消",
+      type: "warning",
+    },
+  );
+  await appStore.deleteAgent(agent);
+}
+
+/**
  * onMounted：当前页面挂载时加载中心服务事实数据。
  *
  * @returns 没有返回值。
  */
 onMounted(() => {
   void appStore.loadAgents();
+  void appStore.loadProviders();
 });
 
 </script>
@@ -148,12 +196,91 @@ onMounted(() => {
       </section>
       <section class="management-section">
         <h2>长期智能体</h2>
-        <el-alert
-            class="management-error"
-            type="info"
-            :closable="false"
-            title="长期智能体的创建、修改、停用和删除需要中心服务提供对应接口；当前页面只展示已固化定义，不伪造破坏性操作。"
-        />
+        <el-form
+            class="management-form agent-management-form"
+            label-position="top"
+            @submit.prevent
+        >
+          <h3>{{ agentFormTitle }}</h3>
+          <div class="management-form-grid">
+            <el-form-item label="智能体名称">
+              <el-input
+                  v-model="appStore.agentDraft.name"
+                  placeholder="例如：代码审查助手"
+              />
+            </el-form-item>
+            <el-form-item label="推理深度">
+              <el-select v-model="appStore.agentDraft.reasoningEffort">
+                <el-option
+                    label="低"
+                    value="low"
+                />
+                <el-option
+                    label="中"
+                    value="medium"
+                />
+                <el-option
+                    label="高"
+                    value="high"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="默认供应商">
+              <el-select
+                  v-model="appStore.agentDraft.defaultProviderId"
+                  clearable
+                  placeholder="不指定供应商"
+              >
+                <el-option
+                    v-for="provider in appStore.providers"
+                    :key="provider.providerId"
+                    :label="provider.providerName"
+                    :value="provider.providerId"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="默认模型">
+              <el-input
+                  v-model="appStore.agentDraft.defaultModel"
+                  placeholder="例如 gpt-4o"
+              />
+            </el-form-item>
+          </div>
+          <el-form-item label="角色说明">
+            <el-input
+                v-model="appStore.agentDraft.roleDescription"
+                :rows="3"
+                type="textarea"
+                placeholder="说明该长期智能体负责什么。"
+            />
+          </el-form-item>
+          <el-form-item label="能力边界">
+            <el-input
+                v-model="appStore.agentDraft.capabilityBoundary"
+                :rows="3"
+                type="textarea"
+                placeholder="说明该智能体不能越过的任务、权限和上下文边界。"
+            />
+          </el-form-item>
+          <el-form-item label="删除记忆处理">
+            <el-switch
+                v-model="appStore.agentDraft.archiveMemoryOnDelete"
+                active-text="删除时归档专属记忆"
+                inactive-text="删除时移除专属记忆"
+            />
+          </el-form-item>
+          <div class="management-actions">
+            <el-button
+                type="primary"
+                @click="appStore.saveAgent"
+            >
+              {{ appStore.agentDraft.agentId ? "保存修改" : "创建智能体" }}
+            </el-button>
+            <el-button @click="appStore.resetAgentDraft">
+              清空表单
+            </el-button>
+          </div>
+        </el-form>
         <el-empty
             v-if="longTermAgents.length === 0"
             description="暂无长期智能体"
@@ -180,16 +307,19 @@ onMounted(() => {
               <el-tag :type="agent.enabled ? 'success' : 'info'">
                 {{ agent.enabled ? "启用" : "停用" }}
               </el-tag>
-              <el-button disabled>
+              <el-button @click="appStore.editAgent(agent)">
                 修改
               </el-button>
-              <el-button disabled>
-                {{ agent.enabled ? "停用" : "启用" }}
+              <el-button
+                  :disabled="!agent.enabled"
+                  @click="confirmDisableAgent(agent)"
+              >
+                停用
               </el-button>
               <el-button
-                  disabled
                   type="danger"
                   plain
+                  @click="confirmDeleteAgent(agent)"
               >
                 删除
               </el-button>
@@ -203,7 +333,7 @@ onMounted(() => {
           <div>
             <strong>删除前必须由中心服务确认影响</strong>
             <span>删除长期智能体会影响专属记忆、后续任务调度入口和正在使用该智能体的会话入口。</span>
-            <small>历史对话按会话记录保留；没有删除接口前，前端只展示说明，不在本地模拟删除。</small>
+            <small>历史对话按会话记录保留；删除时可选择归档专属记忆或移除专属记忆，停用不处理记忆。</small>
           </div>
         </article>
       </section>
@@ -211,5 +341,43 @@ onMounted(() => {
       </section>
 </template>
 
+<style scoped>
+.agent-management-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--panel-bg);
+}
 
+.agent-management-form h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.management-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-management-card {
+  align-items: flex-start;
+}
+
+.management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .management-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
 

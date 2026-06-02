@@ -133,6 +133,32 @@ async function main(): Promise<void> {
     assert(indexHtml.includes("致心智能体") && indexHtml.includes("id=\"app\""), "中心服务 / 未返回前端 index.html。");
     assert(pluginHtml.includes("<title>致心</title>") && pluginHtml.includes("id=\"app\""), "中心服务 /plugin.html 未返回插件入口。");
     assert(mainJs.length > 1000, "中心服务未正确返回前端 main JS chunk。");
+
+    // devRedirectConfig: 开发期带前端 dev server 时，页面请求应清晰复用 5173 HMR。
+    const devRedirectConfig = readCenterServiceConfig({
+      cwd: root,
+      frontendDistDirectory,
+      env: {
+        ZHIXIN_CENTER_PORT: String(port),
+        ZHIXIN_CENTER_DIR: centerDirectory,
+        ZHIXIN_FRONTEND_DEV_URL: "http://127.0.0.1:5173",
+      },
+    });
+    // devRedirectService: 同进程注入验证跳转响应，不需要真实启动 Vite。
+    const devRedirectService = await createCenterService(devRedirectConfig);
+    const redirectResponse = await devRedirectService.app.inject({
+      method: "GET",
+      url: "/chat",
+    });
+    const assetResponse = await devRedirectService.app.inject({
+      method: "GET",
+      url: `/assets/${mainAssetName}`,
+    });
+    await devRedirectService.close();
+
+    assert(redirectResponse.statusCode === 302, "开发期中心服务 /chat 应跳转到前端 Vite dev server。");
+    assert(redirectResponse.headers.location === `http://127.0.0.1:5173/chat?port=${port}`, "开发期中心服务跳转地址没有携带中心服务端口。");
+    assert(assetResponse.statusCode === 200 && assetResponse.body.length > 1000, "开发期 /assets/* 请求仍应能读取 dist 静态资源。");
   } finally {
     await service.close();
     await rm(

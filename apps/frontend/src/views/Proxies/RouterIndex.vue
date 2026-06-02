@@ -189,6 +189,14 @@ onMounted(() => {
                     value="HTTPS"
                 />
                 <el-option
+                    label="SOCKS4"
+                    value="SOCKS4"
+                />
+                <el-option
+                    label="SOCKS4a"
+                    value="SOCKS4a"
+                />
+                <el-option
                     label="SOCKS5"
                     value="SOCKS5"
                 />
@@ -210,6 +218,41 @@ onMounted(() => {
             </el-form-item>
           </el-col>
         </el-row>
+        <el-row :gutter="12">
+          <el-col :span="6">
+            <el-form-item label="用户名">
+              <el-input
+                  v-model="appStore.proxyDraft.username"
+                  placeholder="留空表示无认证"
+              />
+              <small class="field-helper">用户名和密码都为空时，中心服务按无认证代理保存。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="密码">
+              <el-input
+                  v-model="appStore.proxyDraft.password"
+                  type="password"
+                  show-password
+                  placeholder="保存后不回显"
+              />
+              <small class="field-helper">留空表示不修改已保存密码；勾选清除认证后会删除已保存密码。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="清除认证">
+              <el-checkbox v-model="appStore.proxyDraft.clearAuth">
+                清除用户名和已保存密码
+              </el-checkbox>
+              <small class="field-helper">用于把已有认证代理改回无认证代理。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="备注">
+              <el-input v-model="appStore.proxyDraft.note"/>
+            </el-form-item>
+          </el-col>
+        </el-row>
         <div class="management-actions">
           <el-button
               type="primary"
@@ -220,8 +263,8 @@ onMounted(() => {
           <el-button @click="appStore.loadProxies">
             刷新列表
           </el-button>
-          <el-button @click="appStore.setGlobalDefaultProxy">
-            设置全局默认代理
+          <el-button @click="appStore.setGlobalDefaultProxy(null)">
+            取消全局默认代理
           </el-button>
         </div>
       </el-form>
@@ -235,6 +278,30 @@ onMounted(() => {
             <strong>{{ proxy.proxyName }}</strong>
             <span>{{ proxy.protocol }} · {{ proxy.host }}:{{ proxy.port }}</span>
             <small>{{ proxy.hasAuth ? "已配置认证" : "无认证" }}</small>
+            <small v-if="appStore.defaultProxyId === proxy.proxyId">全局默认代理</small>
+            <small>更新时间：{{ formatDisplayTime(proxy.updatedAt) }}</small>
+            <small v-if="proxy.note">备注：{{ proxy.note }}</small>
+          </div>
+          <div class="management-actions">
+            <el-tag :type="proxy.enabled ? 'success' : 'info'">
+              {{ proxy.enabled ? "启用" : "停用" }}
+            </el-tag>
+            <el-button @click="appStore.editProxy(proxy)">
+              修改
+            </el-button>
+            <el-button @click="appStore.toggleProxy(proxy)">
+              {{ proxy.enabled ? "停用" : "启用" }}
+            </el-button>
+            <el-button @click="appStore.setGlobalDefaultProxy(proxy.proxyId)">
+              设为全局默认
+            </el-button>
+            <el-button
+                type="danger"
+                plain
+                @click="appStore.deleteProxy(proxy)"
+            >
+              删除
+            </el-button>
           </div>
         </article>
       </section>

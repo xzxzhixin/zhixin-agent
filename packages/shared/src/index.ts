@@ -285,6 +285,32 @@ export interface ConversationSession {
 }
 
 /**
+ * 会话更新实时载荷。
+ *
+ * 来源：中心服务 `session.updated` 事件。
+ * 含义：会话标题、更新时间或摘要类状态变化后同步给前端列表和详情。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：session 必须来自中心服务事实源，前端不能自行推断标题。
+ */
+export interface SessionUpdatedPayload {
+  /**
+   * session: 更新后的会话事实记录。
+   */
+  session: ConversationSession;
+
+  /**
+   * previousTitle: 更新前标题，用于审计和 UI 判断是否需要刷新。
+   */
+  previousTitle: string;
+
+  /**
+   * titleSummarySource: 标题摘要来源，当前为本轮用户输入和助手回复。
+   */
+  titleSummarySource: "turn-completion";
+}
+
+/**
  * 消息角色。
  *
  * 来源：会话消息展示协议。

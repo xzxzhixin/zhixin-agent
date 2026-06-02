@@ -41,6 +41,24 @@ const storePath = join(
   "stores",
   "app.ts",
 );
+// storeManagementActionsPath: 管理页 actions 拆分文件路径。
+const storeManagementActionsPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "stores",
+  "app-management-actions.ts",
+);
+// storeHelpersPath: 管理页 helper 拆分文件路径。
+const storeHelpersPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "stores",
+  "app-helpers.ts",
+);
 // apiClientPath: 中心服务 API 客户端源码路径。
 const apiClientPath = join(
   process.cwd(),
@@ -56,6 +74,30 @@ const centerServicePath = join(
   "center",
   "src",
   "index.ts",
+);
+// centerApiRoutesPath: 中心服务 API 路由拆分文件路径。
+const centerApiRoutesPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "api-routes.ts",
+);
+// centerProviderDomainPath: 中心服务供应商和代理领域文件路径。
+const centerProviderDomainPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "provider-domain.ts",
+);
+// centerUsageDomainPath: 中心服务用量领域文件路径。
+const centerUsageDomainPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "usage-domain.ts",
 );
 // desktopShellMainPath: 桌面壳主进程源码路径，用于确认桌面壳启动新版中心服务。
 const desktopShellMainPath = join(
@@ -131,21 +173,34 @@ const allManagementPages = pageComponentPaths.map((relativePath) => {
 const managementPageError = allManagementPages.includes("const managementError = computed");
 // mainView: 管理页能力检查使用主页面和页面宿主合并文本，适配管理页面已从 MainView 拆出的架构。
 const mainView = `${mainViewOnly}\n${chatPageOnly}\n${workspacePageHost}\n${allManagementPages}\n${managementPageError ? "managementPageError" : ""}`;
-// store: 用于检查页面是否通过状态容器调用 API 客户端。
-const store = readFileSync(
+// store: 用于检查页面是否通过状态容器调用 API 客户端；P01 已把管理动作和 helper 拆出，因此这里合并当前职责文件。
+const store = [
   storePath,
-  "utf-8",
-);
+  storeManagementActionsPath,
+  storeHelpersPath,
+].map((sourcePath) => {
+  return readFileSync(
+    sourcePath,
+    "utf-8",
+  );
+}).join("\n");
 // apiClient: 用于检查协议是否集中在 API 客户端。
 const apiClient = readFileSync(
   apiClientPath,
   "utf-8",
 );
-// centerService: 用于检查中心服务不是只声明接口而没有落地行为。
-const centerService = readFileSync(
+// centerService: 用于检查中心服务不是只声明接口而没有落地行为；P01/P02 已把路由和领域逻辑拆出，因此这里合并当前职责文件。
+const centerService = [
   centerServicePath,
-  "utf-8",
-);
+  centerApiRoutesPath,
+  centerProviderDomainPath,
+  centerUsageDomainPath,
+].map((sourcePath) => {
+  return readFileSync(
+    sourcePath,
+    "utf-8",
+  );
+}).join("\n");
 // desktopShellMain: 桌面壳主进程源码文本。
 const desktopShellMain = readFileSync(
   desktopShellMainPath,
@@ -175,6 +230,26 @@ const expectations = [
     store,
     "loadProviders",
     "前端状态容器必须加载供应商列表。",
+  ],
+  [
+    store,
+    "agentDraft",
+    "前端状态容器必须提供智能体管理草稿。",
+  ],
+  [
+    store,
+    "saveAgent",
+    "智能体管理页必须支持创建和修改长期智能体。",
+  ],
+  [
+    store,
+    "disableAgent",
+    "智能体管理页必须支持停用长期智能体。",
+  ],
+  [
+    store,
+    "deleteAgent",
+    "智能体管理页必须支持删除长期智能体。",
   ],
   [
     mainView,
@@ -300,6 +375,26 @@ const expectations = [
     centerService,
     "contextWindowTokens",
     "中心服务必须保存模型上下文窗口 token 数值。",
+  ],
+  [
+    mainView,
+    "主智能体不可删除",
+    "智能体管理页必须说明主智能体不可删除。",
+  ],
+  [
+    mainView,
+    "confirmDeleteAgent",
+    "智能体管理页必须在删除前展示影响确认。",
+  ],
+  [
+    centerService,
+    "/api/agent/delete",
+    "中心服务必须提供长期智能体删除接口。",
+  ],
+  [
+    centerService,
+    "MAIN_AGENT_DELETE_FORBIDDEN",
+    "中心服务必须显式禁止删除主智能体。",
   ],
   [
     mainView,
@@ -647,6 +742,71 @@ assertIncludes(
   centerService,
   "passwordSecretRef",
   "代理配置必须使用中心服务可用且客户端不可见的密码 secret 引用字段。",
+);
+assertIncludes(
+  mainView,
+  "value=\"SOCKS4\"",
+  "网络代理页面必须提供 SOCKS4 协议选项。",
+);
+assertIncludes(
+  mainView,
+  "value=\"SOCKS4a\"",
+  "网络代理页面必须提供 SOCKS4a 协议选项。",
+);
+assertIncludes(
+  mainView,
+  "v-model=\"appStore.proxyDraft.username\"",
+  "网络代理页面必须恢复用户名输入。",
+);
+assertIncludes(
+  mainView,
+  "v-model=\"appStore.proxyDraft.password\"",
+  "网络代理页面必须恢复密码输入。",
+);
+assertIncludes(
+  mainView,
+  "v-model=\"appStore.proxyDraft.clearAuth\"",
+  "网络代理页面必须提供清除已保存认证的显式控件。",
+);
+assertIncludes(
+  store,
+  "clearAuth: this.proxyDraft.clearAuth",
+  "代理保存必须提交 clearAuth，支持把已认证代理改回无认证代理。",
+);
+assertIncludes(
+  apiClient,
+  "clearAuth: boolean",
+  "API 客户端代理保存协议必须包含 clearAuth 字段。",
+);
+assertIncludes(
+  centerService,
+  "removeSecretValue",
+  "中心服务必须能在用户明确清除认证时删除代理密码 secret。",
+);
+assertIncludes(
+  mainView,
+  "v-model=\"appStore.providerDraft.proxyPolicy.mode\"",
+  "供应商页面必须提供代理策略选择。",
+);
+assertIncludes(
+  mainView,
+  "value=\"use-specified\"",
+  "供应商代理策略必须支持指定代理。",
+);
+assertIncludes(
+  mainView,
+  "v-model=\"appStore.providerDraft.proxyPolicy.proxyId\"",
+  "供应商页面必须提供指定代理 ID 选择。",
+);
+assertIncludes(
+  store,
+  "note: proxy.note",
+  "前端编辑或切换代理时必须保留代理备注，不能静默清空。",
+);
+assertIncludes(
+  centerService,
+  "note: proxy.note ?? \"\"",
+  "中心服务代理列表必须返回备注并兼容旧配置缺省值。",
 );
 assertIncludes(
   centerService,

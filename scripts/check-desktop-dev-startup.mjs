@@ -7,6 +7,7 @@
  * 返回值：检查通过退出 0，发现启动链路绕过桌面壳退出 1。
  */
 import {
+  existsSync,
   readFileSync,
 } from "node:fs";
 import {
@@ -34,6 +35,24 @@ const desktopMainPath = join(
   "src",
   "main.ts",
 );
+// frontendViteConfigPath: 前端 Vite 配置路径，用于检查开发期端口不能自动退避。
+const frontendViteConfigPath = join(
+  root,
+  "apps",
+  "frontend",
+  "vite.config.ts",
+);
+// centerNativeBindingPath: 中心服务 better-sqlite3 原生绑定路径，桌面壳拉起中心服务前必须存在。
+const centerNativeBindingPath = join(
+  root,
+  "services",
+  "center",
+  "node_modules",
+  "better-sqlite3",
+  "build",
+  "Release",
+  "better_sqlite3.node",
+);
 
 // packageJson: 根 package.json 文本，用于检查脚本入口。
 const packageJson = JSON.parse(readFileSync(
@@ -48,6 +67,11 @@ const devScript = readFileSync(
 // desktopMain: 桌面壳主进程文本。
 const desktopMain = readFileSync(
   desktopMainPath,
+  "utf-8",
+);
+// frontendViteConfig: 前端 Vite 配置文本。
+const frontendViteConfig = readFileSync(
+  frontendViteConfigPath,
   "utf-8",
 );
 
@@ -117,6 +141,26 @@ assertIncludes(
   "ZHIXIN_FRONTEND_DEV_URL",
   "桌面开发脚本必须把前端 dev server 地址注入桌面壳。",
 );
+assertIncludes(
+  devScript,
+  "--strictPort",
+  "桌面开发脚本必须使用 Vite strictPort，避免 5173 被占用时退避到其他端口。",
+);
+assertIncludes(
+  devScript,
+  "waitForFrontend()",
+  "桌面开发脚本必须等待固定前端 URL 可访问后再启动 Electron。",
+);
+assertIncludes(
+  frontendViteConfig,
+  "port: 5173",
+  "前端 Vite 配置必须固定开发端口 5173，避免测试 URL 与桌面加载 URL 不一致。",
+);
+assertIncludes(
+  frontendViteConfig,
+  "strictPort: true",
+  "前端 Vite 配置必须启用 strictPort，端口被占用时应失败而不是退避。",
+);
 assertNotIncludes(
   devScript,
   "@zhixin/center",
@@ -151,6 +195,11 @@ assertIncludes(
   desktopMain,
   "centerPackageDirectory",
   "桌面壳开发期必须优先查找 services/center/node_modules/.bin 下的 tsx 命令。",
+);
+assertIncludes(
+  desktopMain,
+  "centerNativeBindingPath",
+  "桌面壳开发期必须在拉起中心服务前检查 better-sqlite3 原生绑定。",
 );
 assertIncludes(
   desktopMain,
@@ -192,3 +241,7 @@ assertIncludes(
   "did-navigate-in-page",
   "桌面壳必须记录 hash 页内导航，方便排查菜单点击后 URL 与主体不同步。",
 );
+
+if (!existsSync(centerNativeBindingPath)) {
+  fail(`中心服务缺少 better-sqlite3 原生绑定，请先执行 pnpm rebuild better-sqlite3 --filter @zhixin/center：${centerNativeBindingPath}`);
+}

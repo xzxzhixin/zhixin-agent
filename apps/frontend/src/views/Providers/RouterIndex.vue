@@ -22,6 +22,18 @@ const currentWorkspacePage = "providers";
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.providers ?? "");
 
+// selectedProtocolPlugin：当前草稿选中的协议插件，来源于中心服务注册列表。
+const selectedProtocolPlugin = computed(() => {
+  return appStore.providerProtocolPlugins.find((plugin) => {
+    return plugin.pluginId === appStore.providerDraft.protocolPluginId;
+  }) ?? null;
+});
+
+// selectedProtocolModes：当前协议插件支持的协议模式列表，用于避免前端写死模式。
+const selectedProtocolModes = computed(() => {
+  return selectedProtocolPlugin.value?.protocolModes ?? [];
+});
+
 /**
  * formatDisplayTime：统一格式化前端展示时间。
  *
@@ -132,6 +144,47 @@ const providerModelSourceText = computed(() => {
   return "模型列表来源：该供应商未提供模型列表接口或当前刷新失败，模型名称由用户手动维护。";
 });
 
+// manualModelContextText：供应商手填模型的唯一输入口，页面层同步旧状态字段，避免继续显示两个文本域。
+const manualModelContextText = computed({
+  get() {
+    return appStore.providerDraft.refreshModelContextWindowsText;
+  },
+  set(value: string) {
+    appStore.providerDraft.refreshModelContextWindowsText = value;
+    // refreshModelsText：模型刷新接口仍接收模型名数组，这里只从明确的 `模型名=上下文长度` 左侧解析，不做候选字段兜底。
+    appStore.providerDraft.refreshModelsText = value.split(/\r?\n/u).map((line) => {
+      const equalIndex = line.indexOf("=");
+      return equalIndex > 0 ? line.slice(0, equalIndex).trim() : "";
+    }).filter((model) => {
+      return model.length > 0;
+    }).join("\n");
+  },
+});
+
+// manualReasoningEffortText：推理深度手填入口，来源于供应商模型刷新协议 reasoningEfforts。
+const manualReasoningEffortText = computed({
+  get() {
+    return appStore.providerDraft.refreshReasoningText;
+  },
+  set(value: string) {
+    appStore.providerDraft.refreshReasoningText = value;
+  },
+});
+
+// manualModelContextError：手填模型格式错误提示，来源于当前唯一文本域。
+const manualModelContextError = computed(() => {
+  const invalidLine = manualModelContextText.value.split(/\r?\n/u).find((line) => {
+    const trimmedLine = line.trim();
+    if (trimmedLine.length === 0) {
+      return false;
+    }
+    const equalIndex = trimmedLine.indexOf("=");
+    const contextWindowK = Number(trimmedLine.slice(equalIndex + 1).replace(/K$/iu, "").trim());
+    return equalIndex <= 0 || !Number.isFinite(contextWindowK) || contextWindowK <= 0;
+  });
+  return invalidLine ? "手填模型必须使用“模型名=上下文长度K”，例如 gpt-4o=128K。" : "";
+});
+
 /**
  * onMounted：当前页面挂载时加载中心服务事实数据。
  *
@@ -139,6 +192,7 @@ const providerModelSourceText = computed(() => {
  */
 onMounted(() => {
   void appStore.loadProviders();
+  void appStore.loadProxies();
 });
 
 </script>
@@ -172,27 +226,45 @@ onMounted(() => {
           label-position="top"
       >
         <el-row :gutter="12">
-          <el-col :span="8">
+          <el-col :span="6">
             <el-form-item label="供应商名称">
               <el-input v-model="appStore.providerDraft.providerName"/>
               <small class="field-helper">用于在智能体、审计和用量统计中识别该模型提供方。</small>
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <el-form-item label="协议插件">
-              <el-select v-model="appStore.providerDraft.protocolPluginId">
+              <el-select
+                  v-model="appStore.providerDraft.protocolPluginId"
+                  @change="appStore.selectProviderProtocolPlugin"
+              >
                 <el-option
-                    label="OpenAI 兼容"
-                    value="builtin-model-openai-compatible"
-                />
-                <el-option
-                    label="Anthropic Messages"
-                    value="builtin-model-anthropic-messages"
+                    v-for="plugin in appStore.providerProtocolPlugins"
+                    :key="plugin.pluginId"
+                    :label="plugin.pluginName"
+                    :value="plugin.pluginId"
                 />
               </el-select>
+              <small class="field-helper">协议插件来自中心服务已注册内置模型协议清单。</small>
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
+            <el-form-item label="协议模式">
+              <el-select v-model="appStore.providerDraft.protocolMode">
+                <el-option
+                    v-for="mode in selectedProtocolModes"
+                    :key="mode.mode"
+                    :label="mode.label"
+                    :value="mode.mode"
+                >
+                  <span>{{ mode.label }}</span>
+                  <small class="option-helper">{{ mode.description }}</small>
+                </el-option>
+              </el-select>
+              <small class="field-helper">协议模式由当前模型协议插件声明，保存后进入中心服务供应商配置。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
             <el-form-item label="默认模型">
               <!-- 默认模型必须始终使用可创建下拉，避免无模型列表时退回普通输入框。 -->
               <el-select
@@ -212,26 +284,60 @@ onMounted(() => {
               <small class="field-helper">{{ providerModelSourceText }}</small>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="手填模型列表">
+          <el-col :span="24">
+            <el-form-item label="手填模型与上下文">
               <el-input
-                  v-model="appStore.providerDraft.refreshModelsText"
+                  v-model="manualModelContextText"
                   type="textarea"
                   :rows="4"
-                  placeholder="每行一个模型名称"
+                  placeholder="gpt-4o=128K"
               />
-              <small class="field-helper">自动获取不到完整模型时，在这里手动维护模型名称；保存后进入默认模型下拉来源。</small>
+              <small class="field-helper">一行一个 `模型名=上下文长度`，统一使用 K 作为输入单位；保存后会转换为 token 数值并进入默认模型下拉来源。</small>
+              <small
+                  v-if="manualModelContextError"
+                  class="el-form-item__error"
+              >
+                {{ manualModelContextError }}
+              </small>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="模型窗口上下文">
+            <el-form-item label="推理深度">
               <el-input
-                  v-model="appStore.providerDraft.refreshModelContextWindowsText"
+                  v-model="manualReasoningEffortText"
                   type="textarea"
                   :rows="4"
-                  placeholder="模型名=1000K"
+                  placeholder="low&#10;medium&#10;high"
               />
-              <small class="field-helper">统一使用 K 作为输入单位，例如 1000K 会保存为约 1M，用于输入区上下文占用计算。</small>
+              <small class="field-helper">一行一个推理深度协议值；只有能力声明启用推理深度时，后续发送才会消费该列表。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="能力声明">
+              <div class="provider-capability-grid">
+                <el-checkbox v-model="appStore.providerDraft.capabilities.supportsVision">
+                  图片输入
+                </el-checkbox>
+                <el-checkbox v-model="appStore.providerDraft.capabilities.supportsToolCalling">
+                  工具调用
+                </el-checkbox>
+                <el-checkbox v-model="appStore.providerDraft.capabilities.supportsJsonOutput">
+                  JSON 输出
+                </el-checkbox>
+                <el-checkbox v-model="appStore.providerDraft.capabilities.supportsReasoningEffort">
+                  推理深度
+                </el-checkbox>
+                <el-checkbox v-model="appStore.providerDraft.capabilities.supportsModelList">
+                  模型列表
+                </el-checkbox>
+                <el-checkbox v-model="appStore.providerDraft.capabilities.supportsStreaming">
+                  流式输出
+                </el-checkbox>
+                <el-checkbox v-model="appStore.providerDraft.capabilities.providesCacheUsage">
+                  缓存用量
+                </el-checkbox>
+              </div>
+              <small class="field-helper">能力声明保存到中心服务供应商配置，用于图片、工具、JSON、推理深度、模型列表、流式和缓存用量判断。</small>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -247,6 +353,43 @@ onMounted(() => {
                   show-password
                   placeholder="保存后不回显"
               />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="代理策略">
+              <el-select v-model="appStore.providerDraft.proxyPolicy.mode">
+                <el-option
+                    label="不使用代理"
+                    value="none"
+                />
+                <el-option
+                    label="使用全局默认代理"
+                    value="use-global-default"
+                />
+                <el-option
+                    label="使用指定代理"
+                    value="use-specified"
+                />
+              </el-select>
+              <small class="field-helper">代理策略只影响后续供应商请求，不回改历史模型调用记录。</small>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="指定代理">
+              <el-select
+                  v-model="appStore.providerDraft.proxyPolicy.proxyId"
+                  :disabled="appStore.providerDraft.proxyPolicy.mode !== 'use-specified'"
+                  clearable
+                  placeholder="选择网络代理"
+              >
+                <el-option
+                    v-for="proxy in appStore.proxies"
+                    :key="proxy.proxyId"
+                    :label="`${proxy.proxyName} · ${proxy.protocol} · ${proxy.host}:${proxy.port}`"
+                    :value="proxy.proxyId"
+                />
+              </el-select>
+              <small class="field-helper">只有选择“使用指定代理”时，中心服务才会读取这里的代理 ID。</small>
             </el-form-item>
           </el-col>
         </el-row>
@@ -307,5 +450,17 @@ onMounted(() => {
   </section>
 </template>
 
+<style scoped>
+.option-helper {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
 
-
+.provider-capability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+</style>

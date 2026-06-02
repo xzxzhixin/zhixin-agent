@@ -3,6 +3,7 @@ import type {
   ModelRequest,
   ModelUsage,
 } from "@zhixin/model-protocol";
+import type {PluginManifest} from "@zhixin/plugin-sdk";
 
 /**
  * OpenAI 兼容协议模式。
@@ -16,6 +17,60 @@ import type {
 export type OpenAiCompatibleMode =
   | "responses"
   | "chat-completions";
+
+/**
+ * openAiCompatiblePluginManifest：OpenAI 兼容内置模型协议插件清单。
+ *
+ * 来源：系统内置模型协议插件交付要求。
+ * 含义：供中心服务启动时注册插件身份和不可卸载来源。
+ * 格式：插件 SDK 标准清单。
+ * 默认值：系统内置、全局范围、无额外权限。
+ * 约束：ID 必须与供应商配置 protocolPluginId 保持一致。
+ */
+export const openAiCompatiblePluginManifest: PluginManifest = {
+  id: "builtin-model-openai-compatible",
+  name: "OpenAI 兼容",
+  version: "0.1.0",
+  source: "system-builtin",
+  scope: "global",
+  permissions: [],
+};
+
+/**
+ * openAiCompatibleModelProtocolPlugin：OpenAI 兼容协议插件注册描述。
+ *
+ * 来源：中心服务模型协议插件注册表。
+ * 含义：描述供应商页可选协议、可用模式和默认能力。
+ * 格式：JSON 可序列化对象。
+ * 默认值：默认模式为 chat-completions。
+ * 约束：转换函数只做协议适配，认证和网络请求仍由中心服务处理。
+ */
+export const openAiCompatibleModelProtocolPlugin = {
+  pluginId: openAiCompatiblePluginManifest.id,
+  pluginName: openAiCompatiblePluginManifest.name,
+  protocolModes: [
+    {
+      mode: "chat-completions",
+      label: "Chat Completions",
+      description: "适用于 OpenAI 兼容 /v1/chat/completions 协议。",
+    },
+    {
+      mode: "responses",
+      label: "Responses",
+      description: "适用于 OpenAI 兼容 /v1/responses 协议。",
+    },
+  ],
+  defaultProtocolMode: "chat-completions",
+  defaultCapabilities: {
+    supportsVision: true,
+    supportsToolCalling: true,
+    supportsJsonOutput: true,
+    supportsReasoningEffort: true,
+    providesCacheUsage: true,
+    supportsModelList: true,
+    supportsStreaming: true,
+  },
+} as const;
 
 /**
  * OpenAICompatibleRequest：OpenAI 兼容请求载荷。

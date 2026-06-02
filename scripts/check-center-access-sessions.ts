@@ -218,6 +218,51 @@ async function main(): Promise<void> {
     }>>();
     assert(detail.success, "会话详情接口没有成功");
     assert(detail.data?.messages[0]?.contentMarkdown === "检查消息", "会话详情未返回已发送消息");
+
+    const deleteResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/delete",
+      payload: {
+        sessionId: session.data?.sessionId,
+      },
+    });
+    const deleted = deleteResponse.json<ApiResponse<{
+      sessionId: string;
+      deleted: boolean;
+    }>>();
+    assert(deleted.success, "会话删除接口没有成功");
+    assert(deleted.data?.deleted === true, "会话删除接口没有返回成功状态");
+    assert(deleted.data?.sessionId === session.data?.sessionId, "会话删除接口返回的会话 ID 不正确");
+
+    const deletedDetailResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/detail",
+      payload: {
+        sessionId: session.data?.sessionId,
+      },
+    });
+    const deletedDetail = deletedDetailResponse.json<ApiResponse<null>>();
+    assert(deletedDetail.success === false, "已删除会话不应继续返回详情");
+    assert(deletedDetail.error?.code === "SESSION_NOT_FOUND", "已删除会话详情错误码不正确");
+
+    const listAfterDeleteResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/list",
+      payload: {
+        sessionType: "project",
+        projectId: "project-check",
+      },
+    });
+    const listAfterDelete = listAfterDeleteResponse.json<ApiResponse<{
+      sessions: Array<{
+        sessionId: string;
+      }>;
+    }>>();
+    assert(listAfterDelete.success, "删除后会话列表接口没有成功");
+    assert(
+      listAfterDelete.data?.sessions.some((item) => item.sessionId === session.data?.sessionId) === false,
+      "已删除会话不应继续出现在项目会话列表中",
+    );
     assert(detail.data?.turns[0]?.turnId === sent.data?.turnId, "会话详情未返回已创建轮次");
     assert(detail.data?.tasks[0]?.taskId === sent.data?.taskId, "会话详情未返回已创建任务");
 

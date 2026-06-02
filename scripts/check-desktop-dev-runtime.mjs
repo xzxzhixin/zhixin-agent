@@ -57,9 +57,48 @@ const desktopMainSource = readFileSync(
   desktopMainPath,
   "utf-8",
 );
+// centerConfigPath: 中心服务配置读取源码，必须能识别开发期前端 dev server。
+const centerConfigPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "config.ts",
+);
+// centerServicePath: 中心服务 HTTP 托管源码，必须能把开发期页面请求导向 Vite。
+const centerServicePath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "service.ts",
+);
+// centerTypesPath: 中心服务启动配置类型，必须注释开发期前端 dev server 字段。
+const centerTypesPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "types.ts",
+);
 // desktopPreloadSource: Electron 可直接加载的 CommonJS preload 源码文本。
 const desktopPreloadSource = readFileSync(
   desktopPreloadPath,
+  "utf-8",
+);
+// centerConfigSource: 中心服务配置读取源码文本。
+const centerConfigSource = readFileSync(
+  centerConfigPath,
+  "utf-8",
+);
+// centerServiceSource: 中心服务 HTTP 托管源码文本。
+const centerServiceSource = readFileSync(
+  centerServicePath,
+  "utf-8",
+);
+// centerTypesSource: 中心服务启动配置类型源码文本。
+const centerTypesSource = readFileSync(
+  centerTypesPath,
   "utf-8",
 );
 
@@ -95,6 +134,33 @@ if (desktopMainSource.includes("loadFile(")) {
 
 if (!desktopMainSource.includes("ZHIXIN_FRONTEND_DIST")) {
   console.error("桌面壳启动中心服务时必须传入 ZHIXIN_FRONTEND_DIST，让中心服务托管前端资源。");
+  process.exitCode = 1;
+}
+
+if (!desktopMainSource.includes("ZHIXIN_FRONTEND_DEV_URL: frontendDevUrl ?? \"\"")) {
+  console.error("桌面壳开发期启动中心服务时必须继续传入 ZHIXIN_FRONTEND_DEV_URL，让 8866 页面清晰复用 5173 HMR。");
+  process.exitCode = 1;
+}
+
+if (!centerTypesSource.includes("frontendDevServerUrl")) {
+  console.error("中心服务启动配置必须声明 frontendDevServerUrl，说明开发期前端 dev server 来源和约束。");
+  process.exitCode = 1;
+}
+
+if (!centerConfigSource.includes("ZHIXIN_FRONTEND_DEV_URL")) {
+  console.error("中心服务配置读取必须支持 ZHIXIN_FRONTEND_DEV_URL。");
+  process.exitCode = 1;
+}
+
+if (!centerConfigSource.includes("normalizeFrontendDevServerUrl")) {
+  console.error("中心服务必须校验开发期前端 dev server URL，不能把任意外部地址当作跳转目标。");
+  process.exitCode = 1;
+}
+
+if (!centerServiceSource.includes("frontendDevServerUrl")
+    || !centerServiceSource.includes("reply.redirect")
+    || !centerServiceSource.includes("resolveFrontendDevServerRedirectUrl")) {
+  console.error("中心服务开发期非 API 页面请求必须重定向到 Vite dev server，避免 8866 长期托管旧 dist 页面。");
   process.exitCode = 1;
 }
 

@@ -3,6 +3,56 @@ import type {
   ModelRequest,
   ModelUsage,
 } from "@zhixin/model-protocol";
+import type {PluginManifest} from "@zhixin/plugin-sdk";
+
+/**
+ * anthropicMessagesPluginManifest：Anthropic Messages 内置模型协议插件清单。
+ *
+ * 来源：系统内置模型协议插件交付要求。
+ * 含义：供中心服务启动时注册插件身份和不可卸载来源。
+ * 格式：插件 SDK 标准清单。
+ * 默认值：系统内置、全局范围、无额外权限。
+ * 约束：ID 必须与供应商配置 protocolPluginId 保持一致。
+ */
+export const anthropicMessagesPluginManifest: PluginManifest = {
+  id: "builtin-model-anthropic-messages",
+  name: "Anthropic Messages",
+  version: "0.1.0",
+  source: "system-builtin",
+  scope: "global",
+  permissions: [],
+};
+
+/**
+ * anthropicMessagesModelProtocolPlugin：Anthropic Messages 协议插件注册描述。
+ *
+ * 来源：中心服务模型协议插件注册表。
+ * 含义：描述供应商页可选协议、可用模式和默认能力。
+ * 格式：JSON 可序列化对象。
+ * 默认值：默认模式为 messages。
+ * 约束：转换函数只做协议适配，认证和网络请求仍由中心服务处理。
+ */
+export const anthropicMessagesModelProtocolPlugin = {
+  pluginId: anthropicMessagesPluginManifest.id,
+  pluginName: anthropicMessagesPluginManifest.name,
+  protocolModes: [
+    {
+      mode: "messages",
+      label: "Messages",
+      description: "适用于 Anthropic /v1/messages 协议。",
+    },
+  ],
+  defaultProtocolMode: "messages",
+  defaultCapabilities: {
+    supportsVision: true,
+    supportsToolCalling: true,
+    supportsJsonOutput: true,
+    supportsReasoningEffort: true,
+    providesCacheUsage: true,
+    supportsModelList: false,
+    supportsStreaming: true,
+  },
+} as const;
 
 /**
  * AnthropicMessagesRequest：Anthropic Messages 请求载荷。

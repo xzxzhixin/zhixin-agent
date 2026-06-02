@@ -177,6 +177,10 @@ export default defineConfig({
     },
   },
   server: {
+    // port：开发期桌面壳和浏览器测试共同使用的固定前端端口。
+    port: 5173,
+    // strictPort：端口被占用时直接失败，避免 Vite 退避后桌面加载地址和测试 URL 不一致。
+    strictPort: true,
     watch: {
       ignored: [
         "**/center-data/**",

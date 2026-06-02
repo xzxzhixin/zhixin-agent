@@ -6,10 +6,15 @@ import type {
   ConversationTurn,
   EventRecord,
   ProjectRecord,
+  SessionUpdatedPayload,
   SessionType,
   TaskRecord,
   WebSocketEnvelope,
 } from "@zhixin/shared";
+
+export type {
+  SessionUpdatedPayload,
+};
 
 /**
  * 中心服务客户端配置。
@@ -127,6 +132,27 @@ export interface SessionDetailResult {
 }
 
 /**
+ * DeleteSessionResult：会话删除结果。
+ *
+ * 来源：`POST /api/session/delete`。
+ * 含义：中心服务确认指定会话已从当前会话事实表删除。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：deleted 为 true 时前端必须刷新列表和当前选中会话，不能只做本地移除。
+ */
+export interface DeleteSessionResult {
+  /**
+   * sessionId: 已删除会话 ID。
+   */
+  sessionId: string;
+
+  /**
+   * deleted: 是否删除成功。
+   */
+  deleted: boolean;
+}
+
+/**
  * TemporaryAttachmentResult：临时附件创建结果。
  *
  * 来源：`POST /api/file/temp/create`。
@@ -192,6 +218,46 @@ export interface ProviderCapabilityDeclaration {
   supportsModelList: boolean;
   /** supportsStreaming: 是否支持流式输出。 */
   supportsStreaming: boolean;
+}
+
+/**
+ * ProviderProtocolModeView：模型协议插件模式展示结构。
+ *
+ * 来源：`POST /api/provider/protocol-plugin/list`。
+ * 含义：描述某个模型协议插件支持的供应商协议模式。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：mode 是保存到供应商配置的稳定协议值。
+ */
+export interface ProviderProtocolModeView {
+  /** mode: 协议模式稳定值。 */
+  mode: string;
+  /** label: 协议模式展示名。 */
+  label: string;
+  /** description: 协议模式说明。 */
+  description: string;
+}
+
+/**
+ * ProviderProtocolPluginView：模型协议插件展示结构。
+ *
+ * 来源：中心服务已注册模型协议插件列表。
+ * 含义：供应商页协议插件下拉的数据源。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：pluginId 必须与供应商配置 protocolPluginId 一致。
+ */
+export interface ProviderProtocolPluginView {
+  /** pluginId: 模型协议插件 ID。 */
+  pluginId: string;
+  /** pluginName: 模型协议插件显示名。 */
+  pluginName: string;
+  /** protocolModes: 该插件支持的协议模式列表。 */
+  protocolModes: ProviderProtocolModeView[];
+  /** defaultProtocolMode: 新建供应商时推荐默认模式。 */
+  defaultProtocolMode: string;
+  /** defaultCapabilities: 该协议插件推荐默认能力声明。 */
+  defaultCapabilities: ProviderCapabilityDeclaration;
 }
 
 /**
@@ -297,6 +363,8 @@ export interface ProxyConfigView {
   enabled: boolean;
   /** hasAuth: 是否配置认证。 */
   hasAuth: boolean;
+  /** note: 代理备注。 */
+  note: string;
   /** updatedAt: 更新时间。 */
   updatedAt: string;
 }
@@ -468,6 +536,28 @@ export interface AgentConfigView {
 }
 
 /**
+ * AgentActionResult：智能体管理动作结果。
+ *
+ * 来源：`POST /api/agent/create`、`POST /api/agent/update`、`POST /api/agent/disable`、`POST /api/agent/delete`。
+ * 含义：展示长期智能体管理动作的统一结果。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：前端必须依赖中心服务返回值刷新列表，不得本地猜测删除或停用结果。
+ */
+export interface AgentActionResult {
+  /** agentId: 受影响的智能体 ID。 */
+  agentId: string;
+  /** updated: 是否更新成功。 */
+  updated?: boolean;
+  /** deleted: 是否删除成功。 */
+  deleted?: boolean;
+  /** enabled: 删除或停用后的启用状态。 */
+  enabled?: boolean;
+  /** archiveMemory: 删除或停用时是否归档专属记忆。 */
+  archiveMemory?: boolean;
+}
+
+/**
  * CenterApiClient：中心服务 REST 客户端。
  *
  * 用途：让前端、桌面壳和 IDE 插件通过统一方法访问中心服务。
@@ -575,6 +665,18 @@ export class CenterApiClient {
   }
 
   /**
+   * deleteSession：删除指定会话。
+   *
+   * @param payload 会话 ID。
+   * @returns 删除结果。
+   */
+  deleteSession(payload: {
+    sessionId: string;
+  }): Promise<DeleteSessionResult> {
+    return this.post("/api/session/delete", payload);
+  }
+
+  /**
    * sendMessage：发送用户消息。
    *
    * @param payload 会话 ID 和 Markdown 内容。
@@ -584,6 +686,8 @@ export class CenterApiClient {
     sessionId: string;
     contentMarkdown: string;
   }): Promise<{
+    /** sessionId: 中心服务确认的当前会话 ID。 */
+    sessionId: string;
     messageId: string;
     turnId: string;
     taskId: string;
@@ -683,6 +787,17 @@ export class CenterApiClient {
   }
 
   /**
+   * listProviderProtocolPlugins：查询中心服务已注册模型协议插件。
+   *
+   * @returns 模型协议插件列表。
+   */
+  listProviderProtocolPlugins(): Promise<{
+    plugins: ProviderProtocolPluginView[];
+  }> {
+    return this.post("/api/provider/protocol-plugin/list", {});
+  }
+
+  /**
    * createProvider：新增供应商配置。
    *
    * @param payload 供应商配置表单。
@@ -728,6 +843,69 @@ export class CenterApiClient {
     defaultModel?: string;
   }> {
     return this.post("/api/provider/update", payload);
+  }
+
+  /**
+   * createAgent：创建长期智能体。
+   *
+   * @param payload 长期智能体字段。
+   * @returns 创建结果。
+   */
+  createAgent(payload: {
+    name: string;
+    roleDescription: string;
+    capabilityBoundary: string;
+    defaultProviderId?: string | null;
+    defaultModel?: string | null;
+    reasoningEffort?: string | null;
+  }): Promise<AgentActionResult> {
+    return this.post("/api/agent/create", payload);
+  }
+
+  /**
+   * updateAgent：更新长期智能体。
+   *
+   * @param payload 智能体更新字段。
+   * @returns 更新结果。
+   */
+  updateAgent(payload: {
+    agentId: string;
+    name?: string;
+    roleDescription?: string;
+    capabilityBoundary?: string;
+    defaultProviderId?: string | null;
+    defaultModel?: string | null;
+    reasoningEffort?: string | null;
+  }): Promise<AgentActionResult> {
+    return this.post("/api/agent/update", payload);
+  }
+
+  /**
+   * disableAgent：停用长期智能体。
+   *
+   * @param payload 智能体 ID 和影响确认。
+   * @returns 停用结果。
+   */
+  disableAgent(payload: {
+    agentId: string;
+    archiveMemory: boolean;
+    impactAccepted: boolean;
+  }): Promise<AgentActionResult> {
+    return this.post("/api/agent/disable", payload);
+  }
+
+  /**
+   * deleteAgent：删除长期智能体。
+   *
+   * @param payload 智能体 ID 和影响确认。
+   * @returns 删除结果。
+   */
+  deleteAgent(payload: {
+    agentId: string;
+    archiveMemory: boolean;
+    impactAccepted: boolean;
+  }): Promise<AgentActionResult> {
+    return this.post("/api/agent/delete", payload);
   }
 
   /**
@@ -806,6 +984,7 @@ export class CenterApiClient {
     port: number;
     username: string;
     password: string;
+    clearAuth: boolean;
     enabled: boolean;
     note: string;
   }): Promise<{
