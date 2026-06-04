@@ -29,65 +29,34 @@ import AgentStatusDialog from "@views/Chat/dialogs/AgentStatusDialog.vue";
 import EditDetailDialog from "@views/Chat/dialogs/EditDetailDialog.vue";
 import ProjectCapabilityDialog from "@views/Chat/dialogs/ProjectCapabilityDialog.vue";
 import {
-  createProcessMessageRow,
+  createMessageTimelineNodes,
+  formatContextUsageTooltip,
   formatContextWindowLimit,
   formatDisplayTime,
   formatDurationMs,
-  formatOptionalElapsed,
-  formatTaskElapsed,
   formatTaskStatus,
   formatTurnTimeFooter,
   projectTooltipContent,
   resolveTaskStatusMeta,
-  sessionTooltipContent as buildSessionTooltipContent,
   type NavigationStatusMeta,
-  type ProcessMessageRow,
+  type ThinkingProcessRow,
+  type ProcessMessageGroupRow,
 } from "@views/Chat/chat-view-helpers";
+import {
+  executionModeOptions,
+  reasoningEffortOptions,
+} from "@views/Chat/chat-view-options";
 import type {
   ConversationMessage,
   ConversationSession,
   ConversationTurn,
   ProjectRecord,
 } from "@zhixin/shared";
+import {
+  useChatConversation,
+} from "./useChatConversation";
 import "./style.css";
-/**
- * ComposerEntryKind：输入框三段入口。
- *
- * 来源：本轮输入框产品需求。
- * 含义：控制任务、智能体状态和编辑详情小弹框内容。
- * 格式：固定字符串枚举。
- * 默认值：task。
- * 约束：只影响本地 UI 弹框，不改变中心服务发送协议。
- */
-type ComposerEntryKind =
-    | "task"
-    | "agentStatus"
-    | "edit";
-
-/**
- * SelectOption：输入区下拉选项。
- *
- * 来源：执行模式和推理深度控件。
- * 含义：同时保存协议值、中文标签和说明，避免用户看到裸英文枚举。
- * 格式：固定字符串对象。
- * 默认值：无。
- * 约束：选项只服务当前输入框 UI，中心服务仍是审批和执行事实源。
- */
-interface SelectOption {
-  /**
-   * value: 协议值。
-   */
-  value: string;
-  /**
-   * label: 中文标签。
-   */
-  label: string;
-  /**
-   * description: 选项解释。
-   */
-  description: string;
-}
-
+type ComposerEntryKind = "task" | "agentStatus" | "edit";
 /**
  * AgentStatusTreeRow：智能体状态树扁平展示行。
  *
@@ -98,18 +67,15 @@ interface SelectOption {
  * 约束：只转换单一临时约定，不兼容候选字段。
  */
 interface AgentStatusTreeRow {
-  /**
-   * node: 智能体树节点。
-   */
+  /** node: 智能体树节点。 */
   node: AgentStatusTreeNode;
-  /**
-   * level: 当前节点层级，根节点为 0。
-   */
+  /** level: 当前节点层级，根节点为 0。 */
   level: number;
 }
-
 // appStore：主界面读取运行时、会话、消息、任务和桌面能力状态。
 const appStore = useAppStore();
+// chatConversation：普通对话、项目对话和智能体对话弹框共用的完整对话组合能力。
+const chatConversation = useChatConversation(appStore);
 // activeComposerEntry：输入框三段入口当前弹框内容。
 const activeComposerEntry = ref<ComposerEntryKind>("task");
 // composerMiniDialogVisible：输入框三段入口小弹框显隐。
@@ -122,8 +88,14 @@ const agentConversationDraft = ref("");
 const selectedComposerEditFilePath = ref("");
 // projectCapabilityDialogVisible：项目能力详情弹框显隐，只属于当前客户端 UI 状态。
 const projectCapabilityDialogVisible = ref(false);
+// composerFocused：输入框整体聚焦状态，只影响浏览器当前视觉，不写入中心服务事实源。
+const composerFocused = ref(false);
 // messages：当前会话消息列表。
-const messages = computed(() => appStore.sessionDetail?.messages ?? []);
+const messages = chatConversation.messages;
+// messageTimelineNodes：对话时间线只从用户消息生成，不伪造发送内容。
+const messageTimelineNodes = computed(() => {
+  return createMessageTimelineNodes(messages.value);
+});
 // normalSessions：普通会话列表，来源于中心服务 sessionType 字段。
 const normalSessions = computed(() => appStore.sessions.filter((session) => session.sessionType === "normal"));
 // activeSessionTitle：顶部标题优先展示真实会话；没有真实会话时展示本地待发送草稿标题。
@@ -138,10 +110,6 @@ const activeDraftProjectName = computed(() => {
   });
   return project?.displayName ?? appStore.pendingSessionDraft.projectId;
 });
-// agentStatusEvents：智能体状态来源于中心服务事件日志，不在右栏展示中心服务配置摘要。
-const agentStatusEvents = computed(() => appStore.events.filter((event) => {
-  return event.eventType.includes("agent");
-}).slice(-6));
 // agentStatusTreeRows：把智能体状态树压平为带层级的状态树行。
 const agentStatusTreeRows = computed<AgentStatusTreeRow[]>(() => {
   return flattenAgentTreeRows(
@@ -149,24 +117,13 @@ const agentStatusTreeRows = computed<AgentStatusTreeRow[]>(() => {
     0,
   );
 });
-// processMessageRows：把事件流展示为过程消息，让思考和流式输出在整轮完成前可见。
-const processMessageRows = computed<ProcessMessageRow[]>(() => {
-  return appStore.events.filter((event) => {
-    return [
-      "thinking.delta",
-      "thinking.completed",
-      "model.stream.delta",
-      "model.stream.completed",
-      "tool.command.started",
-      "tool.command.completed",
-      "tool.plugin.unavailable",
-      "tool.mcp.unavailable",
-      "tool.skill.unavailable",
-      "tool.call.failed",
-    ].includes(event.eventType);
-  }).map((event) => {
-    return createProcessMessageRow(event);
-  });
+// thinkingProcessRows：同一轮思考事件合并为单个思考块，避免分散卡片打断消息流。
+const thinkingProcessRows = computed<ThinkingProcessRow[]>(() => {
+  return chatConversation.thinkingProcessRows.value;
+});
+// processMessageRows：把非思考事件流展示为过程消息，让流式输出在整轮完成前可见。
+const processMessageRows = computed<ProcessMessageGroupRow[]>(() => {
+  return chatConversation.processMessageRows.value;
 });
 // selectedAgentConversationMessages：智能体对话列表复用当前会话消息，后续独立 API 明确后可替换来源。
 const selectedAgentConversationMessages = computed(() => {
@@ -180,12 +137,12 @@ const selectedAgentConversationMessages = computed(() => {
 });
 // taskProgressText：任务入口外部数字，语义为已完成任务数/总任务数；没有真实任务时按明确空态展示 0/0。
 const taskProgressText = computed(() => {
-  const total = appStore.activeTasks.length;
+  const total = chatConversation.activeTasks.value.length;
   if (total === 0) {
     return "0/0";
   }
 
-  const completed = appStore.activeTasks.filter((task) => {
+  const completed = chatConversation.activeTasks.value.filter((task) => {
     return task.status === "completed";
   }).length;
   return `${completed}/${total}`;
@@ -211,57 +168,7 @@ const agentStatusProgressText = computed(() => {
 });
 // activeTaskPanelRows：输入框“任务”入口展示当前任务，没有任务时给出当前会话内空闲说明。
 const activeTaskPanelRows = computed(() => {
-  if (appStore.activeTasks.length > 0) {
-    return appStore.activeTasks.map((task) => {
-      const taskSteps = appStore.sessionDetail?.taskSteps.filter((step) => {
-        return step.taskId === task.taskId;
-      }) ?? [];
-      const failedStep = taskSteps.find((step) => {
-        return step.status === "failed";
-      });
-      return {
-        id: task.taskId,
-        title: task.title,
-        status: formatTaskStatus(task.status),
-        summary: resolveTaskStatusMeta(task.status).title,
-        elapsed: formatTaskElapsed(
-          task.createdAt,
-          task.updatedAt,
-        ),
-        traceId: resolveTaskTraceId(task.taskId),
-        traceIdUnavailableReason: resolveTaskTraceIdUnavailableReason(task.taskId),
-        failureReason: failedStep?.summary ?? null,
-        steps: taskSteps.map((step) => {
-          // stepTraceIdLabel：传给任务详情弹框的“步骤排查 ID”来源，弹框内按同名字段展示。
-          const stepTraceIdLabel = resolveTaskTraceId(task.taskId);
-          return {
-            id: step.stepId,
-            title: step.title,
-            status: formatTaskStatus(step.status),
-            elapsed: formatOptionalElapsed(
-              step.startedAt,
-              step.endedAt,
-            ),
-            summary: step.summary ?? "步骤仍在处理中。",
-            traceId: stepTraceIdLabel,
-          };
-        }),
-      };
-    });
-  }
-  return [
-    {
-      id: "composer-task-idle",
-      title: "当前对话暂无编排任务",
-      status: "空闲",
-      summary: "发送消息后，本入口展示本轮任务、阶段和当前对话内排队状态。",
-      elapsed: "无耗时",
-      traceId: "无",
-      traceIdUnavailableReason: "TRACE_ID_PENDING：当前还没有中心服务事件写入排查 ID。",
-      failureReason: null,
-      steps: [],
-    },
-  ];
+  return chatConversation.taskPanelRows.value;
 });
 // activeComposerEditFile：输入框“编辑”入口展示当前选中文件；没有真实编辑事件时返回 null 并显示空态。
 const activeComposerEditFile = computed(() => {
@@ -312,16 +219,23 @@ const composerContextUsageText = computed(() => {
   const percent = Math.round((usedTokens / limitTokens) * 100);
   return `${percent}% / ${formatContextWindowLimit(limitTokens)}`;
 });
-// composerContextSourceText：展示真实 tokenizer 来源，避免用户误以为是字符数估算。
-const composerContextSourceText = computed(() => {
-  if (!appStore.composerSettings.contextTokenizerName) {
-    return "统计来源待中心服务返回";
-  }
-
-  const sourceLabel = appStore.composerSettings.contextTokenizerSource === "external"
-    ? "外部 tokenizer"
-    : "内置 tokenizer";
-  return `${sourceLabel} · ${appStore.composerSettings.contextTokenizerName}`;
+// context-usage-tooltip：展示真实 token 统计明细，但隐藏 tokenizer 实现名称。
+const contextUsageTooltip = computed(() => {
+  const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
+    ? appStore.composerSettings.contextUsedTokens
+    : 0;
+  const limitTokens = appStore.composerSelectedModelContextWindowTokens;
+  return formatContextUsageTooltip({
+    usedTokens,
+    limitTokens,
+    percentText: composerContextUsageText.value,
+    modelId: appStore.composerSettings.selectedModel,
+    referenceCount: appStore.draft.references.length,
+    attachmentCount: appStore.draft.attachments.length,
+    source: appStore.composerSettings.contextTokenizerSource
+      ? "中心服务 token 统计"
+      : "中心服务 token 统计待返回",
+  });
 });
 // projectCapabilityDialogRows：项目能力详情弹框直接使用 store 中的结构化能力项，避免硬编码伪造启用状态。
 const projectCapabilityDialogRows = computed(() => {
@@ -336,48 +250,6 @@ const projectCapabilityDialogRows = computed(() => {
     ...summary.skills,
   ];
 });
-// executionModeOptions：执行模式完整下拉，来源于需求中的三种执行模式。
-const executionModeOptions: SelectOption[] = [
-  {
-    value: "suggest",
-    label: "建议模式",
-    description: "每一步副作用操作都需要用户确认，适合需要逐步审阅的对话。",
-  },
-  {
-    value: "auto_edit",
-    label: "自动编辑",
-    description: "低风险读取或编辑流程可自动执行，高风险操作仍需用户确认。",
-  },
-  {
-    value: "full_auto",
-    label: "全自动",
-    description: "在权限和沙箱范围内自动执行，写文件和命令会立即生效。",
-  },
-];
-// reasoningEffortOptions：推理深度内置下拉；动态供应商推理深度接入前先提供明确中文解释。
-const reasoningEffortOptions: SelectOption[] = [
-  {
-    value: "low",
-    label: "低推理",
-    description: "更快响应，适合简单问题",
-  },
-  {
-    value: "medium",
-    label: "中推理",
-    description: "默认平衡速度和质量",
-  },
-  {
-    value: "high",
-    label: "高推理",
-    description: "更充分分析复杂任务",
-  },
-  {
-    value: "xhigh",
-    label: "超高推理",
-    description: "最充分分析，耗时更长",
-  },
-];
-
 /**
  * flattenAgentTreeRows：把子智能体树转换为渲染行。
  *
@@ -447,7 +319,7 @@ async function sendAgentConversationDraft(): Promise<void> {
   // 当前中心服务没有独立智能体会话 API，所以这里明确基于现有会话消息接口发送；消息前缀保留目标智能体，后续协议明确后替换为专用 API。
   appStore.draft.text = `@${selectedAgentStatusNode.value.name} ${messageText}\n\n（仍通过当前会话发送）`;
   agentConversationDraft.value = "";
-  await appStore.sendDraft();
+  await chatConversation.sendDraftForConversation();
 }
 /**
  * sendAgentGuidanceDraft：向当前智能体发送引导内容。
@@ -464,10 +336,9 @@ async function sendAgentGuidanceDraft(): Promise<void> {
     return;
   }
 
-  // 引导仍归属当前对话当前轮次；中心服务独立引导 API 明确前用单一前缀表达引导语义。
-  appStore.draft.text = `引导 @${selectedAgentStatusNode.value.name}：${messageText}`;
+  appStore.draft.text = messageText;
   agentConversationDraft.value = "";
-  await appStore.sendDraft();
+  await chatConversation.sendGuidanceForConversation(selectedAgentStatusNode.value);
 }
 /**
  * selectComposerEditFile：切换输入框“编辑”入口当前 diff 文件。
@@ -478,6 +349,41 @@ async function sendAgentGuidanceDraft(): Promise<void> {
 function selectComposerEditFile(file: ComposerEditFile): void {
   selectedComposerEditFilePath.value = file.filePath;
 }
+
+/**
+ * scrollToMessageAnchor：按用户消息 ID 定位到消息 DOM。
+ *
+ * @param messageId 用户消息 ID。
+ * @returns 没有返回值。
+ */
+function scrollToMessageAnchor(messageId: string): void {
+  const anchor = document.querySelector(`[data-message-anchor="${messageId}"]`);
+  if (!anchor) {
+    return;
+  }
+  // scrollIntoView: 滚动仍发生在消息列表主滚动容器内，避免制造页面级滚动。
+  anchor.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
+  // timeline-target：短暂定位反馈只改当前 DOM 状态，不写中心服务事实源。
+  anchor.classList.remove("timeline-target");
+  window.requestAnimationFrame(() => {
+    anchor.classList.add("timeline-target");
+    window.setTimeout(() => anchor.classList.remove("timeline-target"), 1800);
+  });
+}
+
+/**
+ * setComposerFocused：记录输入框整体焦点状态。
+ *
+ * @param focused 是否聚焦。
+ * @returns 没有返回值。
+ */
+function setComposerFocused(focused: boolean): void {
+  composerFocused.value = focused;
+}
+
 /**
  * formatConnectionState：把连接状态协议值转成中文。
  *
@@ -494,34 +400,6 @@ function formatConnectionState(state: string): string {
 
   return labels[state] ?? "未知状态";
 }
-/**
- * resolveTaskTraceId：读取任务最近事件的排查 ID。
- *
- * @param taskId 任务 ID。
- * @returns traceId 或“无”。
- */
-function resolveTaskTraceId(taskId: string): string {
-  const taskEvent = [...appStore.events].reverse().find((event) => {
-    return event.taskId === taskId;
-  });
-  return taskEvent?.traceId ?? "等待中心服务事件";
-}
-
-/**
- * resolveTaskTraceIdUnavailableReason：说明任务排查 ID 不可用原因。
- *
- * @param taskId 任务 ID。
- * @returns traceId 已存在时返回空字符串，否则返回固定原因。
- */
-function resolveTaskTraceIdUnavailableReason(taskId: string): string {
-  const taskEvent = [...appStore.events].reverse().find((event) => {
-    return event.taskId === taskId;
-  });
-  return taskEvent?.traceId
-    ? ""
-    : "TRACE_ID_PENDING：该任务仍在等待中心服务写入事件排查 ID。";
-}
-
 /**
  * sessionTooltipContent：生成对话行 tooltip。
  *
@@ -1173,7 +1051,9 @@ onBeforeUnmount(() => {
               :rows="agentStatusTreeRows"
               :selected-node="selectedAgentStatusNode"
               :messages="selectedAgentConversationMessages"
+              :tasks="activeTaskPanelRows"
               :draft="agentConversationDraft"
+              :current-turn-notice="chatConversation.currentTurnNotice.value"
               :render-markdown="appStore.renderMarkdown"
               @select-node="selectAgentStatusNode"
               @update:draft="agentConversationDraft = $event"
@@ -1191,7 +1071,49 @@ onBeforeUnmount(() => {
               @request-delete-conversation="requestDeleteActiveConversation"
           />
 
-          <section class="message-list">
+          <section class="conversation-body">
+            <aside
+                v-if="messageTimelineNodes.length > 0"
+                class="conversation-timeline"
+            >
+              <el-tooltip
+                  v-for="node in messageTimelineNodes"
+                  :key="node.messageId"
+                  placement="right"
+                  :content="`${node.preview}\n${node.sentAt}`"
+              >
+                <button
+                    class="timeline-node"
+                    type="button"
+                    @click="scrollToMessageAnchor(node.messageId)"
+                >
+                  <span class="timeline-dot"></span>
+                  <span class="timeline-label">{{ node.label }}</span>
+                </button>
+              </el-tooltip>
+            </aside>
+            <section class="message-list">
+            <article
+                v-for="row in thinkingProcessRows"
+                :key="row.rowId"
+                class="message-row process thinking"
+            >
+              <details
+                  class="thinking-block"
+                  :open="row.defaultOpen"
+              >
+                <summary>{{ row.title }} · 阶段状态：{{ row.statusLabel }} · {{ row.traceId }}</summary>
+                <div class="thinking-segments">
+                  <p
+                      v-for="segment in row.segments"
+                      :key="segment.eventId"
+                  >
+                    <strong>{{ segment.statusLabel }}</strong>
+                    <span>{{ segment.summary }}</span>
+                  </p>
+                </div>
+              </details>
+            </article>
             <article
                 v-for="row in processMessageRows"
                 :key="row.rowId"
@@ -1201,25 +1123,22 @@ onBeforeUnmount(() => {
                 row.kind,
               ]"
             >
-              <details
-                  v-if="row.kind === 'thinking'"
-                  class="thinking-block"
-                  :open="row.event.eventType === 'thinking.delta'"
-              >
-                <summary>{{ row.title }} · 阶段状态：{{ row.event.status === "running" ? "生成中" : "完成" }} · {{ row.event.traceId }}</summary>
-                <div class="markdown-body">
-                  {{ row.summary || "无思考内容：中心服务未返回可展示的思考片段。" }}
-                </div>
-              </details>
-              <section
-                  v-else
-                  class="process-card"
-              >
+              <section class="process-card">
                 <header>
                   <strong>{{ row.title }}</strong>
-                  <small>阶段状态：{{ row.event.status === "running" ? "生成中" : "完成" }} · {{ row.event.traceId }}</small>
+                  <small>阶段状态：{{ row.statusLabel }} · {{ row.traceId }}</small>
                 </header>
                 <p>{{ row.summary }}</p>
+                <div class="process-log-list">
+                  <p
+                      v-for="log in row.logs"
+                      :key="log.eventId"
+                  >
+                    <strong>{{ log.statusLabel }}</strong>
+                    <span>{{ log.occurredAt }}</span>
+                    <code>{{ log.text }}</code>
+                  </p>
+                </div>
               </section>
             </article>
             <article
@@ -1229,6 +1148,7 @@ onBeforeUnmount(() => {
                 'message-row',
                 message.role,
               ]"
+                :data-message-anchor="message.role === 'user' ? message.messageId : undefined"
             >
               <div
                   class="markdown-body"
@@ -1257,6 +1177,7 @@ onBeforeUnmount(() => {
                 v-if="messages.length === 0"
                 description="暂无消息"
             />
+            </section>
           </section>
 
           <footer class="composer">
@@ -1266,7 +1187,10 @@ onBeforeUnmount(() => {
             >
               当前轮次已耗时 {{ activeTurnElapsedText }}
             </div>
-            <section class="composer-shell">
+            <section
+                class="composer-shell"
+                :class="{ 'is-focused': composerFocused }"
+            >
               <section class="composer-entry-tabs">
                 <button
                     class="composer-entry-tab"
@@ -1343,7 +1267,9 @@ onBeforeUnmount(() => {
                     placeholder="输入消息，Enter 发送，@ 引用项目上下文"
                     @paste="appStore.handleComposerPaste"
                     @input="appStore.updateProjectReferenceQuery"
-                    @keyup.enter.exact.prevent="appStore.sendDraft"
+                    @focus="setComposerFocused(true)"
+                    @blur="setComposerFocused(false)"
+                    @keyup.enter.exact.prevent="chatConversation.sendDraftForConversation"
                 />
               </section>
 
@@ -1355,9 +1281,14 @@ onBeforeUnmount(() => {
                   >
                     附件
                   </el-button>
-                  <span class="composer-context-usage">
-                    上下文 {{ composerContextUsageText }} · {{ composerContextSourceText }}
-                  </span>
+                  <el-tooltip
+                      placement="top"
+                      :content="contextUsageTooltip"
+                  >
+                    <span class="composer-context-usage context-usage-tooltip">
+                      上下文 {{ composerContextUsageText }}
+                    </span>
+                  </el-tooltip>
                 </div>
                 <div class="composer-controls">
                   <el-select
@@ -1413,7 +1344,7 @@ onBeforeUnmount(() => {
                   <el-button
                       class="composer-send"
                       type="primary"
-                      @click="appStore.sendDraft"
+                      @click="chatConversation.sendDraftForConversation"
                   >
                     发送
                   </el-button>
@@ -1425,6 +1356,7 @@ onBeforeUnmount(() => {
               >
                 <span>连接：{{ formatConnectionState(appStore.connectionState) }}</span>
                 <span>任务：{{ activeTaskPanelRows[0].status }}</span>
+                <span>{{ chatConversation.currentTurnNotice.value }}</span>
                 <span>智能体状态：{{ agentStatusTreeRows.length > 0 ? `${agentStatusTreeRows.length} 个` : "暂无智能体状态" }}</span>
               </section>
             </section>
@@ -1443,7 +1375,7 @@ onBeforeUnmount(() => {
             当前对话内排队中：连续发送或提交引导时，本区域只展示当前会话内任务等待关系，不会阻塞其他对话框。
           </p>
           <el-empty
-              v-if="appStore.activeTasks.length === 0"
+              v-if="chatConversation.activeTasks.value.length === 0"
               description="暂无任务"
           />
           <el-scrollbar
@@ -1451,7 +1383,7 @@ onBeforeUnmount(() => {
               class="status-list"
           >
             <article
-                v-for="task in appStore.activeTasks"
+                v-for="task in chatConversation.activeTasks.value"
                 :key="task.taskId"
                 class="status-item"
             >
@@ -1462,7 +1394,7 @@ onBeforeUnmount(() => {
 
           <h2>智能体状态</h2>
           <el-empty
-              v-if="agentStatusEvents.length === 0"
+              v-if="agentStatusTreeRows.length === 0"
               description="暂无智能体状态"
           />
           <el-scrollbar
@@ -1470,12 +1402,13 @@ onBeforeUnmount(() => {
               class="status-list"
           >
             <article
-                v-for="event in agentStatusEvents"
-                :key="event.eventId"
+                v-for="row in agentStatusTreeRows"
+                :key="row.node.agentId"
                 class="status-item status-item-column"
             >
-              <strong>{{ event.summary }}</strong>
-              <span>{{ event.eventType }}</span>
+              <strong>{{ row.node.name }}</strong>
+              <span>{{ row.node.nodeKind }} · {{ row.node.status }}</span>
+              <small>{{ row.node.taskSummary }}</small>
             </article>
           </el-scrollbar>
         </aside>

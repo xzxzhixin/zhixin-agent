@@ -343,7 +343,7 @@ export function createDefaultAgentStatusTree(): AgentStatusTreeNode[] {
  *
  * @param agents 中心服务已固化的智能体列表。
  * @param runtimeTree 当前运行期智能体状态树，第二级子智能体来源于后续运行事件。
- * @returns 输入区弹框展示的长期智能体两级状态树。
+ * @returns 输入区弹框展示的主智能体、长期智能体和子智能体两级状态树。
  */
 export function mergeAgentStatusTree(
     agents: AgentConfigView[],
@@ -362,22 +362,23 @@ export function mergeAgentStatusTree(
         );
     }
 
-    // longTermAgents: 本弹框只展示长期智能体，主智能体不进入该状态树。
-    const longTermAgents = agents.filter((agent) => {
-        return agent.agentId !== "main";
+    // visibleAgents: 当前窗口一级节点包含主智能体和长期智能体，子智能体仍只通过 children 展示。
+    const visibleAgents = agents.filter((agent) => {
+        return agent.agentId.trim().length > 0;
     });
 
-    if (longTermAgents.length === 0) {
-        // 中心服务没有真实长期智能体时保留默认可测试树；仍只返回长期智能体根节点，不展示主智能体。
+    if (visibleAgents.length === 0) {
+        // fallbackRuntimeTree: 中心服务尚未返回智能体列表时只使用当前运行期树；这是一套单一临时约定，便于浏览器端验证两级树。
         return runtimeTree.filter((node) => {
-            return node.nodeKind === "长期智能体";
+            return node.nodeKind === "主智能体" || node.nodeKind === "长期智能体";
         });
     }
 
-    return longTermAgents.map((agent) => {
+    return visibleAgents.map((agent) => {
         const fallbackNode = runtimeTree.find((node) => {
             return node.agentId === agent.agentId;
         });
+        const isMainAgent = agent.agentId === "main";
         return {
             agentId: agent.agentId,
             parentAgentId: "",
@@ -385,7 +386,7 @@ export function mergeAgentStatusTree(
             status: agent.enabled ? (fallbackNode?.status ?? "空闲") : "已停用",
             taskSummary: fallbackNode?.taskSummary ?? "当前没有执行任务。",
             conversationHint: fallbackNode?.conversationHint ?? `${agent.name} 的对话查看、引导和发送暂时仍通过当前会话消息接口完成；长期智能体删除后会保留历史会话。`,
-            nodeKind: "长期智能体",
+            nodeKind: isMainAgent ? "主智能体" : "长期智能体",
             children: childrenByParent.get(agent.agentId) ?? [],
         };
     });

@@ -22,6 +22,10 @@ interface TaskPanelRow {
   traceIdUnavailableReason: string;
   /** failureReason: 失败任务的明确原因；非失败为 null。 */
   failureReason: string | null;
+  /** scopeHint: 当前任务状态的作用域说明。 */
+  scopeHint: string;
+  /** currentTurnNotice: 当前对话当前轮次的排队、引导或确认提示。 */
+  currentTurnNotice: string;
   /** steps: 当前任务编排步骤列表。 */
   steps: Array<{
     /** id: 步骤 ID。 */
@@ -73,6 +77,8 @@ const emit = defineEmits<{
           <span>{{ task.status }}</span>
         </header>
         <small>{{ task.summary }}</small>
+        <small>{{ task.scopeHint }}</small>
+        <small>{{ task.currentTurnNotice }}</small>
         <small>耗时：{{ task.elapsed }} · 排查 ID：{{ task.traceId }}</small>
         <small v-if="task.traceIdUnavailableReason">{{ task.traceIdUnavailableReason }}</small>
         <small v-if="task.failureReason">失败原因：{{ task.failureReason }}</small>

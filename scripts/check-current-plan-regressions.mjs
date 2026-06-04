@@ -1,5 +1,5 @@
 /**
- * 本轮 P01-P12 静态回归检查。
+ * 本轮 P01-P11 静态回归检查。
  *
  * 用途：约束固定命令接口、主对话引导、审计摘要、tokenizer、Drizzle 数据层和智能体树等本轮改动不回退。
  * 关键逻辑：只读取授权范围内文件，不执行 TypeScript 编译器检查。
@@ -232,11 +232,11 @@ if (!scriptText.includes("tsc --noEmit") || !scriptText.includes("vue-tsc")) {
 }
 
 if (failures.length > 0) {
-  console.error("本轮 P01-P12 静态回归检查失败：");
+  console.error("本轮 P01-P11 静态回归检查失败：");
   for (const failure of failures) {
     console.error(`- ${failure}`);
   }
   process.exit(1);
 }
 
-console.log("本轮 P01-P12 静态回归检查通过。");
+console.log("本轮 P01-P11 静态回归检查通过。");

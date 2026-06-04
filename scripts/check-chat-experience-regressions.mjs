@@ -1,0 +1,277 @@
+/**
+ * 本轮浏览器对话体验静态回归检查。
+ *
+ * 用途：覆盖 P01-P09 的时间线、输入框焦点、思考聚合、流式首包、tokenizer 展示和上下文 tooltip 约束。
+ * 关键逻辑：只读取源码和脚本文本，不运行 TypeScript 编译器，不触碰桌面端或插件端。
+ */
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import {
+  join,
+} from "node:path";
+
+// root: 当前项目根目录。
+const root = process.cwd();
+// failures: 收集全部失败项，便于一次输出。
+const failures = [];
+
+/**
+ * readText：读取项目内 UTF-8 文本。
+ *
+ * @param {string} relativePath 项目相对路径。
+ * @returns {string} 文件内容；缺失时返回空字符串。
+ */
+function readText(relativePath) {
+  const absolutePath = join(
+    root,
+    relativePath,
+  );
+  if (!existsSync(absolutePath)) {
+    failures.push(`${relativePath}: 文件不存在。`);
+    return "";
+  }
+  return readFileSync(
+    absolutePath,
+    "utf-8",
+  );
+}
+
+/**
+ * listFiles：递归列出目录中的文件。
+ *
+ * @param {string} relativeDirectory 项目相对目录。
+ * @returns {string[]} 项目相对文件路径数组。
+ */
+function listFiles(relativeDirectory) {
+  const absoluteDirectory = join(
+    root,
+    relativeDirectory,
+  );
+  if (!existsSync(absoluteDirectory)) {
+    return [];
+  }
+  return readdirSync(absoluteDirectory).flatMap((name) => {
+    const relativePath = join(
+      relativeDirectory,
+      name,
+    );
+    const absolutePath = join(
+      root,
+      relativePath,
+    );
+    const stats = statSync(absolutePath);
+    if (stats.isDirectory()) {
+      if (name === "node_modules" || name === "dist") {
+        return [];
+      }
+      return listFiles(relativePath);
+    }
+    return [
+      relativePath,
+    ];
+  });
+}
+
+/**
+ * assertIncludes：断言文本包含指定信号。
+ *
+ * @param {string} text 待检查文本。
+ * @param {string} signal 必须出现的信号。
+ * @param {string} message 失败说明。
+ */
+function assertIncludes(
+    text,
+    signal,
+    message,
+) {
+  if (!text.includes(signal)) {
+    failures.push(message);
+  }
+}
+
+/**
+ * assertNotIncludes：断言文本不包含指定信号。
+ *
+ * @param {string} text 待检查文本。
+ * @param {string} signal 禁止出现的信号。
+ * @param {string} message 失败说明。
+ */
+function assertNotIncludes(
+    text,
+    signal,
+    message,
+) {
+  if (text.includes(signal)) {
+    failures.push(message);
+  }
+}
+
+// chatPage: 对话页路由入口源码。
+const chatPage = readText("apps/frontend/src/views/Chat/RouterIndex.vue");
+// chatHelpers: 对话页辅助函数源码。
+const chatHelpers = readText("apps/frontend/src/views/Chat/chat-view-helpers.ts");
+// conversationActions: 对话发送和实时同步 action 源码。
+const conversationActions = readText("apps/frontend/src/stores/app-conversation-actions.ts");
+// managementActions: 输入区上下文统计 action 源码。
+const managementActions = readText("apps/frontend/src/stores/app-management-actions.ts");
+// chatStyle: 对话页专属样式源码。
+const chatStyle = readText("apps/frontend/src/views/Chat/style.css");
+// noTypeCompilerScript: 禁止 TS 编译器质量门槛检查脚本。
+const noTypeCompilerScript = readText("scripts/check-no-type-compiler.mjs");
+
+assertIncludes(
+  chatPage,
+  "messageTimelineNodes",
+  "Chat 页面必须生成用户消息时间线节点。",
+);
+assertIncludes(
+  chatPage,
+  "data-message-anchor",
+  "用户消息必须建立稳定 DOM 锚点用于时间线定位。",
+);
+assertIncludes(
+  chatPage,
+  "scrollToMessageAnchor",
+  "时间线点击必须滚动定位到对应用户消息。",
+);
+assertIncludes(
+  chatPage,
+  "timeline-target",
+  "时间线点击目标用户消息必须有明确定位反馈类。",
+);
+assertIncludes(
+  chatPage,
+  "classList.add(\"timeline-target\")",
+  "时间线定位必须给目标消息添加可见高亮状态。",
+);
+assertIncludes(
+  chatPage,
+  "classList.remove(\"timeline-target\")",
+  "时间线定位反馈必须自动消退，避免长期误导用户。",
+);
+assertIncludes(
+  chatPage,
+  "conversation-timeline",
+  "Chat 页面必须渲染对话时间线容器。",
+);
+assertIncludes(
+  chatPage,
+  "context-usage-tooltip",
+  "上下文占用摘要必须提供 tooltip。",
+);
+assertIncludes(
+  chatPage,
+  "composerFocused",
+  "输入框聚焦态必须作用于输入框整体容器。",
+);
+assertIncludes(
+  chatHelpers,
+  "createMergedThinkingRows",
+  "思考事件必须通过 helper 合并为按轮次归并的思考块。",
+);
+assertIncludes(
+  chatHelpers,
+  "resolveProcessEventStatus",
+  "过程事件状态必须通过 eventType 推导函数统一计算，不能读取不存在的顶层 status。",
+);
+assertIncludes(
+  chatHelpers,
+  "EventRecord 共享协议没有顶层 status",
+  "状态推导函数必须用中文注释说明不能读取顶层 event.status 的协议原因。",
+);
+assertIncludes(
+  chatHelpers,
+  "ThinkingProcessRow",
+  "思考聚合行必须有明确类型。",
+);
+assertIncludes(
+  chatPage,
+  "row.statusLabel",
+  "普通流式过程卡片必须消费 helper 推导后的状态文案。",
+);
+assertIncludes(
+  chatHelpers,
+  "createMessageTimelineNodes",
+  "时间线节点必须由 helper 从用户消息生成，避免页面内猜测字段。",
+);
+assertIncludes(
+  conversationActions,
+  "applySentMessageOptimisticState",
+  "发送消息后必须立即写入用户消息、轮次、任务和初始过程事件。",
+);
+assertIncludes(
+  conversationActions,
+  "model.stream.delta",
+  "发送链路必须有流式首包可见的事件类型。",
+);
+assertIncludes(
+  managementActions,
+  "countComposerContextTokens",
+  "上下文 tooltip 数据必须来自中心服务 tokenizer 统计接口。",
+);
+assertIncludes(
+  chatStyle,
+  ".composer-shell.is-focused",
+  "输入框聚焦样式必须作用于 composer 外层容器。",
+);
+assertIncludes(
+  chatStyle,
+  ".conversation-timeline",
+  "时间线必须有专属布局样式，避免遮挡主滚动区和输入区。",
+);
+assertIncludes(
+  chatStyle,
+  ".message-row.user.timeline-target",
+  "目标用户消息必须有可见高亮样式。",
+);
+assertNotIncludes(
+  chatPage,
+  "内置 tokenizer",
+  "页面不得展示 tokenizer 实现名称。",
+);
+assertNotIncludes(
+  chatPage,
+  "内置字节分段 tokenizer",
+  "页面不得展示 tokenizer 实现细节。",
+);
+assertNotIncludes(
+  chatHelpers,
+  "event.status",
+  "Chat helper 不得使用不存在的 EventRecord 顶层 status 判断过程状态。",
+);
+assertNotIncludes(
+  chatPage,
+  "row.event.status",
+  "Chat 页面不得使用不存在的 EventRecord 顶层 status 判断过程状态。",
+);
+
+for (const file of listFiles("scripts")) {
+  const scriptText = readText(file);
+  if (scriptText.includes("tsc --noEmit") || scriptText.includes("vue-tsc")) {
+    if (
+      !file.endsWith("check-no-type-compiler.mjs")
+      && !file.endsWith("check-current-plan-regressions.mjs")
+      && !file.endsWith("check-chat-experience-regressions.mjs")
+    ) {
+      failures.push(`${file}: 静态回归脚本不得新增 TypeScript 编译器质量门槛。`);
+    }
+  }
+}
+
+if (!noTypeCompilerScript.includes("tsc --noEmit") || !noTypeCompilerScript.includes("vue-tsc")) {
+  failures.push("scripts/check-no-type-compiler.mjs: 必须继续覆盖禁止 TypeScript 编译器质量门槛。");
+}
+
+if (failures.length > 0) {
+  console.error("本轮浏览器对话体验静态回归检查失败：");
+  for (const failure of failures) {
+    console.error(`- ${failure}`);
+  }
+  process.exit(1);
+}
+
+console.log("本轮浏览器对话体验静态回归检查通过。");

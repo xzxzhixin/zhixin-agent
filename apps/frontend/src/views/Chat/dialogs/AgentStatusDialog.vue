@@ -31,6 +31,27 @@ interface AgentConversationMessage {
   contentMarkdown: string;
 }
 
+/**
+ * AgentConversationTask：智能体对话内复用的任务行。
+ *
+ * 来源：外层完整对话组合能力。
+ * 含义：让智能体对话弹框使用同一套任务事实源，而不是固定占位文案。
+ */
+interface AgentConversationTask {
+  /** id: 任务行唯一 ID。 */
+  id: string;
+  /** title: 任务标题。 */
+  title: string;
+  /** status: 任务状态中文文案。 */
+  status: string;
+  /** summary: 任务摘要。 */
+  summary: string;
+  /** scopeHint: 当前任务状态作用域说明。 */
+  scopeHint: string;
+  /** currentTurnNotice: 当前轮次提示。 */
+  currentTurnNotice: string;
+}
+
 const props = defineProps<{
   /** modelValue: 弹框显隐状态，由 MainView 控制。 */
   modelValue: boolean;
@@ -40,8 +61,12 @@ const props = defineProps<{
   selectedNode: AgentStatusTreeNode | null;
   /** messages: 当前智能体对话列表；暂时复用当前会话消息。 */
   messages: AgentConversationMessage[];
+  /** tasks: 当前对话任务行，来源于统一完整对话组合能力。 */
+  tasks: AgentConversationTask[];
   /** draft: 智能体对话输入草稿。 */
   draft: string;
+  /** currentTurnNotice: 当前对话当前轮次排队、引导或确认提示。 */
+  currentTurnNotice: string;
   /** renderMarkdown: Markdown 渲染函数，沿用 store 的统一渲染能力。 */
   renderMarkdown: (markdown: string) => string;
 }>();
@@ -132,7 +157,7 @@ const treeNodes = props.rows.filter((row) => {
         </el-tree>
         <el-empty
             v-if="props.rows.length === 0"
-            description="暂无长期智能体；主智能体不在该状态树中展示。"
+            description="暂无智能体状态；主智能体、长期智能体和子智能体会按中心服务状态同步到这里。"
         />
       </aside>
       <section
@@ -145,6 +170,9 @@ const treeNodes = props.rows.filter((row) => {
         </header>
         <p class="panel-muted">
           {{ props.selectedNode.conversationHint }} 当前中心服务没有独立智能体会话 API，查看和发送仍通过当前会话发送。
+        </p>
+        <p class="panel-muted">
+          {{ props.currentTurnNotice }}
         </p>
         <div class="agent-conversation-list">
           <article
@@ -178,13 +206,13 @@ const treeNodes = props.rows.filter((row) => {
                 class="composer-entry-tab"
                 type="button"
             >
-              任务 0/0
+              任务 {{ props.tasks.filter((task) => task.status === "已完成").length }}/{{ props.tasks.length }}
             </button>
             <button
                 class="composer-entry-tab"
                 type="button"
             >
-              智能体状态 1/1
+              智能体状态 {{ props.selectedNode.status }}
             </button>
             <button
                 class="composer-entry-tab"
@@ -192,6 +220,18 @@ const treeNodes = props.rows.filter((row) => {
             >
               编辑
             </button>
+          </div>
+          <div class="agent-task-brief-list">
+            <article
+                v-for="task in props.tasks"
+                :key="`${props.selectedNode.agentId}-${task.id}`"
+            >
+              <strong>{{ task.title }}</strong>
+              <span>{{ task.status }}</span>
+              <small>{{ task.summary }}</small>
+              <small>{{ task.scopeHint }}</small>
+              <small>{{ task.currentTurnNotice }}</small>
+            </article>
           </div>
           <div class="agent-composer-control-grid">
             <el-select
@@ -409,5 +449,39 @@ const treeNodes = props.rows.filter((row) => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.agent-task-brief-list {
+  display: flex;
+  max-height: 120px;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.agent-task-brief-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--zhixin-border);
+  border-radius: 7px;
+  background: var(--zhixin-soft-bg);
+}
+
+.agent-task-brief-list strong,
+.agent-task-brief-list span,
+.agent-task-brief-list small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-task-brief-list small {
+  grid-column: 1 / -1;
+  color: var(--zhixin-text-soft);
+  font-size: 12px;
 }
 </style>

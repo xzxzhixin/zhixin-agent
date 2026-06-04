@@ -153,6 +153,22 @@ export function runCommandTool(
         },
     );
     const outputSummary = (result.stdout || result.stderr || "").trim();
+    events.append({
+        eventType: "tool.command.output",
+        scopeType: "tool",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "running",
+        title: "命令工具输出",
+        summary: outputSummary || "命令没有输出。",
+        payload: {
+            toolKind: "command",
+            command,
+            outputChunk: outputSummary || "命令没有输出。",
+        },
+    });
     const status = result.status === 0 ? "completed" : "failed";
     const event = events.append({
         eventType: status === "completed" ? "tool.command.completed" : "tool.call.failed",

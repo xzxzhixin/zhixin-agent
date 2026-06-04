@@ -61,6 +61,11 @@ export function createConversationActions() {
                 sessionId,
                 contentMarkdown,
             });
+            this.applySentMessageOptimisticState(
+                sessionId,
+                contentMarkdown,
+                sent,
+            );
             await this.commitDraftAttachments(
                 sessionId,
                 sent.messageId,
@@ -70,6 +75,97 @@ export function createConversationActions() {
             await this.loadActiveSessionDetail();
             await this.refreshEvents();
             void this.updateComposerContextUsage();
+        },
+
+        /**
+         * applySentMessageOptimisticState：发送成功后立即补入浏览器可见的首包状态。
+         *
+         * @param sessionId 当前会话 ID。
+         * @param contentMarkdown 用户发送正文。
+         * @param sent 中心服务返回的消息、轮次和任务身份。
+         * @returns 没有返回值。
+         */
+        applySentMessageOptimisticState(
+            sessionId: string,
+            contentMarkdown: string,
+            sent: {
+                messageId: string;
+                turnId: string;
+                taskId: string;
+            },
+        ): void {
+            if (!this.sessionDetail || this.sessionDetail.session.sessionId !== sessionId) {
+                return;
+            }
+
+            // now: 只作为浏览器首包占位时间；随后 loadActiveSessionDetail 会用中心服务事实覆盖。
+            const now = new Date().toISOString();
+            if (!this.sessionDetail.messages.some((message) => message.messageId === sent.messageId)) {
+                this.sessionDetail.messages.push({
+                    messageId: sent.messageId,
+                    sessionId,
+                    turnId: sent.turnId,
+                    role: "user",
+                    contentMarkdown,
+                    createdAt: now,
+                });
+            }
+            if (!this.sessionDetail.turns.some((turn) => turn.turnId === sent.turnId)) {
+                this.sessionDetail.turns.push({
+                    turnId: sent.turnId,
+                    sessionId,
+                    turnNumber: this.sessionDetail.turns.length + 1,
+                    userMessageId: sent.messageId,
+                    status: "running",
+                    startedAt: now,
+                    endedAt: null,
+                    durationMs: null,
+                });
+            }
+            if (!this.sessionDetail.tasks.some((task) => task.taskId === sent.taskId)) {
+                this.sessionDetail.tasks.push({
+                    taskId: sent.taskId,
+                    turnId: sent.turnId,
+                    sessionId,
+                    status: "running",
+                    title: "正在生成回复",
+                    createdAt: now,
+                    updatedAt: now,
+                });
+            }
+            const optimisticEvents: EventRecord[] = [
+                {
+                    eventId: `optimistic-thinking-${sent.turnId}`,
+                    eventType: "thinking.delta",
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    sequence: -2,
+                    occurredAt: now,
+                    summary: "已收到用户消息，正在准备上下文和模型输出。",
+                    payload: {
+                        thinkingText: "正在准备上下文、任务状态和流式输出。",
+                    },
+                    traceId: "浏览器首包占位",
+                },
+                {
+                    eventId: `optimistic-stream-${sent.turnId}`,
+                    eventType: "model.stream.delta",
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    sequence: -1,
+                    occurredAt: now,
+                    summary: "模型输出准备中。",
+                    payload: {
+                        deltaText: "模型输出准备中。",
+                    },
+                    traceId: "浏览器首包占位",
+                },
+            ];
+            for (const event of optimisticEvents) {
+                if (!this.events.some((existing) => existing.eventId === event.eventId)) {
+                    this.events.push(event);
+                }
+            }
         },
 
         /**
@@ -112,6 +208,14 @@ export function createConversationActions() {
                     if (message.type === "event.appended") {
                         this.events.push(message.payload as EventRecord);
                         void this.refreshActiveConversationState();
+                    }
+                    if (message.type === "agent.state.changed") {
+                        this.applyAgentRuntimeState(message.payload as {
+                            agentId: string;
+                            status: string;
+                            currentTaskId: string | null;
+                            updatedAt: string;
+                        });
                     }
                     if (message.type === "session.updated") {
                         void this.handleSessionUpdated(message.payload as SessionUpdatedPayload);
@@ -166,6 +270,65 @@ export function createConversationActions() {
                     sizeBytes: attachment.sizeBytes,
                 });
             }
+        },
+
+        /**
+         * applyAgentRuntimeState：合并中心服务推送的智能体运行状态。
+         *
+         * @param payload WebSocket `agent.state.changed` 载荷。
+         * @returns 没有返回值。
+         */
+        applyAgentRuntimeState(payload: {
+            agentId: string;
+            status: string;
+            currentTaskId: string | null;
+            updatedAt: string;
+        }): void {
+            const statusLabel = this.formatAgentRuntimeStatus(payload.status);
+            this.mainAgentStatusTree = this.mainAgentStatusTree.map((node) => {
+                if (node.agentId === payload.agentId) {
+                    return {
+                        ...node,
+                        status: statusLabel,
+                        taskSummary: payload.currentTaskId
+                            ? `当前任务：${payload.currentTaskId}`
+                            : "当前没有执行任务。",
+                    };
+                }
+                return {
+                    ...node,
+                    children: node.children.map((child) => {
+                        if (child.agentId !== payload.agentId) {
+                            return child;
+                        }
+                        return {
+                            ...child,
+                            status: statusLabel,
+                            taskSummary: payload.currentTaskId
+                                ? `当前任务：${payload.currentTaskId}`
+                                : "当前没有执行任务。",
+                        };
+                    }),
+                };
+            });
+        },
+
+        /**
+         * formatAgentRuntimeStatus：把中心服务智能体状态协议转成中文。
+         *
+         * @param status 中心服务 AgentRuntimeStatus。
+         * @returns 中文状态。
+         */
+        formatAgentRuntimeStatus(status: string): string {
+            const labels: Record<string, string> = {
+                idle: "空闲",
+                working: "工作中",
+                queued: "排队中",
+                waiting_user: "等待用户",
+                ended: "已结束",
+                failed: "失败",
+            };
+            return labels[status] ?? "未知状态";
         },
     };
 }

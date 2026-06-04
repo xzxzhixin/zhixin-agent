@@ -1,4 +1,5 @@
 import type {
+    ConversationMessage,
     ConversationSession,
     ConversationTurn,
     EventRecord,
@@ -26,6 +27,25 @@ export interface NavigationStatusMeta {
 }
 
 /**
+ * ProcessEventStatus：过程事件在浏览器端展示用的阶段状态。
+ */
+export type ProcessEventStatus =
+    | "running"
+    | "completed"
+    | "failed"
+    | "unknown";
+
+/**
+ * ProcessEventStatusMeta：过程事件状态推导结果。
+ */
+export interface ProcessEventStatusMeta {
+    /** status: 归一化阶段状态，来源于事件类型和载荷内明确字段。 */
+    status: ProcessEventStatus;
+    /** label: 阶段状态中文文案。 */
+    label: string;
+}
+
+/**
  * ProcessMessageRow：对话事件流过程消息。
  */
 export interface ProcessMessageRow {
@@ -42,6 +62,179 @@ export interface ProcessMessageRow {
     title: string;
     /** summary: 展示摘要。 */
     summary: string;
+    /** statusLabel: 由事件类型推导出的阶段状态中文文案。 */
+    statusLabel: string;
+}
+
+/**
+ * ProcessMessageGroupRow：同一过程聚合后的过程卡片。
+ */
+export interface ProcessMessageGroupRow {
+    /** rowId: 过程卡片唯一 ID。 */
+    rowId: string;
+    /** kind: 过程类型。 */
+    kind:
+        | "stream"
+        | "tool";
+    /** title: 展示标题。 */
+    title: string;
+    /** statusLabel: 当前聚合过程状态。 */
+    statusLabel: string;
+    /** traceId: 最近事件排查 ID。 */
+    traceId: string;
+    /** summary: 聚合摘要。 */
+    summary: string;
+    /** logs: 同一过程内按 sequence 排列的日志。 */
+    logs: Array<{
+        /** eventId: 事件 ID。 */
+        eventId: string;
+        /** statusLabel: 当前片段状态中文文案。 */
+        statusLabel: string;
+        /** text: 日志或过程输出。 */
+        text: string;
+        /** occurredAt: 统一格式时间。 */
+        occurredAt: string;
+    }>;
+}
+
+/**
+ * ThinkingProcessRow：按轮次合并后的思考过程行。
+ */
+export interface ThinkingProcessRow {
+    /** rowId: 合并行唯一 ID，优先使用 turnId。 */
+    rowId: string;
+    /** turnId: 所属轮次 ID，来自中心服务事件；无轮次时为 null。 */
+    turnId: string | null;
+    /** taskId: 所属任务 ID，来自中心服务事件；无任务时为 null。 */
+    taskId: string | null;
+    /** title: 思考块标题。 */
+    title: string;
+    /** statusLabel: 当前阶段状态中文说明。 */
+    statusLabel: string;
+    /** defaultOpen: 是否默认展开，只影响浏览器当前 UI。 */
+    defaultOpen: boolean;
+    /** traceId: 最近事件排查 ID。 */
+    traceId: string;
+    /** segments: 思考阶段片段数组。 */
+    segments: Array<{
+        /** eventId: 片段事件 ID。 */
+        eventId: string;
+        /** statusLabel: 片段状态中文说明。 */
+        statusLabel: string;
+        /** summary: 片段摘要。 */
+        summary: string;
+    }>;
+}
+
+/**
+ * MessageTimelineNode：用户消息时间线节点。
+ */
+export interface MessageTimelineNode {
+    /** messageId: 用户消息 ID，作为 DOM 锚点唯一来源。 */
+    messageId: string;
+    /** label: 节点短标签。 */
+    label: string;
+    /** preview: 用户发送内容摘要。 */
+    preview: string;
+    /** sentAt: 统一格式发送时间。 */
+    sentAt: string;
+}
+
+/**
+ * resolveProcessEventStatus：推导中心服务过程事件的展示状态。
+ *
+ * 关键逻辑：EventRecord 共享协议没有顶层 status 字段，真实详情接口只保证
+ * eventType 和 payload，因此浏览器端不能读取事件顶层状态，否则历史事件会被误判为完成。
+ *
+ * @param event 中心服务事件。
+ * @returns 过程事件展示状态和中文文案。
+ */
+export function resolveProcessEventStatus(event: EventRecord): ProcessEventStatusMeta {
+    if (isFailedEventType(event.eventType)) {
+        return {
+            status: "failed",
+            label: "失败",
+        };
+    }
+
+    if (event.eventType.endsWith(".delta") || event.eventType.endsWith(".started")) {
+        return {
+            status: "running",
+            label: "生成中",
+        };
+    }
+
+    if (event.eventType.endsWith(".completed")) {
+        return {
+            status: "completed",
+            label: "已完成",
+        };
+    }
+
+    const payloadStatus = readPayloadStatus(event);
+    if (payloadStatus !== null) {
+        return payloadStatus;
+    }
+
+    return {
+        status: "unknown",
+        label: "处理中",
+    };
+}
+
+/**
+ * readPayloadStatus：读取载荷中明确声明的阶段状态。
+ *
+ * @param event 中心服务事件。
+ * @returns 可识别状态；无明确字段时返回 null。
+ */
+function readPayloadStatus(event: EventRecord): ProcessEventStatusMeta | null {
+    if (typeof event.payload !== "object" || event.payload === null) {
+        return null;
+    }
+
+    const payload = event.payload as Record<string, unknown>;
+    const rawStatus = typeof payload.status === "string"
+        ? payload.status
+        : typeof payload.phaseStatus === "string"
+            ? payload.phaseStatus
+            : "";
+
+    if (rawStatus === "running" || rawStatus === "streaming" || rawStatus === "thinking") {
+        return {
+            status: "running",
+            label: "生成中",
+        };
+    }
+
+    if (rawStatus === "completed" || rawStatus === "success" || rawStatus === "done") {
+        return {
+            status: "completed",
+            label: "已完成",
+        };
+    }
+
+    if (rawStatus === "failed" || rawStatus === "error") {
+        return {
+            status: "failed",
+            label: "失败",
+        };
+    }
+
+    return null;
+}
+
+/**
+ * isFailedEventType：识别失败类事件类型。
+ *
+ * @param eventType 中心服务事件类型。
+ * @returns 是否属于失败事件。
+ */
+function isFailedEventType(eventType: string): boolean {
+    return eventType.endsWith(".failed")
+        || eventType.endsWith(".error")
+        || eventType.includes(".failed.")
+        || eventType.includes(".error.");
 }
 
 /**
@@ -51,13 +244,17 @@ export interface ProcessMessageRow {
  * @returns 过程消息行。
  */
 export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
+    const statusMeta = resolveProcessEventStatus(event);
     if (event.eventType.startsWith("thinking.")) {
         return {
             rowId: event.eventId,
             kind: "thinking",
             event,
-            title: event.eventType === "thinking.completed" ? "思考完成 · 阶段状态：完成" : "思考中 · 阶段状态：生成中",
+            title: statusMeta.status === "completed"
+                ? "思考完成"
+                : "思考中",
             summary: event.summary || "无思考内容：中心服务未返回可展示的思考片段。",
+            statusLabel: statusMeta.label,
         };
     }
 
@@ -66,11 +263,14 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
             rowId: event.eventId,
             kind: "stream",
             event,
-            title: event.eventType === "model.stream.completed" ? "流式输出完成 · 阶段状态：完成" : "流式输出中 · 阶段状态：生成中",
+            title: statusMeta.status === "completed"
+                ? "流式输出完成"
+                : "流式输出中",
             summary: readEventText(
                 event,
                 "deltaText",
             ) || event.summary,
+            statusLabel: statusMeta.label,
         };
     }
 
@@ -80,7 +280,159 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
         event,
         title: event.eventType,
         summary: event.summary,
+        statusLabel: statusMeta.label,
     };
+}
+
+/**
+ * createGroupedProcessRows：把流式、命令、MCP 和工具过程按同一任务与工具类型聚合。
+ *
+ * @param events 中心服务事件数组。
+ * @returns 聚合后的过程卡片数组。
+ */
+export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageGroupRow[] {
+    const processEvents = events.filter((event) => {
+        return [
+            "model.stream.delta",
+            "model.stream.completed",
+            "tool.command.started",
+            "tool.command.output",
+            "tool.command.completed",
+            "tool.plugin.unavailable",
+            "tool.mcp.unavailable",
+            "tool.skill.unavailable",
+            "tool.call.failed",
+        ].includes(event.eventType);
+    });
+    const groups = new Map<string, EventRecord[]>();
+    for (const event of processEvents) {
+        const key = resolveProcessGroupKey(event);
+        groups.set(
+            key,
+            [
+                ...(groups.get(key) ?? []),
+                event,
+            ],
+        );
+    }
+
+    return Array.from(groups.entries()).map(([
+        groupKey,
+        groupEvents,
+    ]) => {
+        const sortedEvents = [...groupEvents].sort((left, right) => {
+            return left.sequence - right.sequence;
+        });
+        const latestEvent = sortedEvents[sortedEvents.length - 1];
+        const statusEntries = sortedEvents.map((event) => {
+            return {
+                event,
+                statusMeta: resolveProcessEventStatus(event),
+            };
+        });
+        const hasFailed = statusEntries.some((entry) => {
+            return entry.statusMeta.status === "failed";
+        });
+        const hasCompleted = statusEntries.some((entry) => {
+            return entry.statusMeta.status === "completed";
+        });
+        const isRunning = statusEntries.some((entry) => {
+            return entry.statusMeta.status === "running";
+        }) && !hasCompleted && !hasFailed;
+        const kind = latestEvent.eventType.startsWith("model.stream.")
+            ? "stream"
+            : "tool";
+        const title = resolveProcessGroupTitle(latestEvent);
+        return {
+            rowId: `process-${groupKey}`,
+            kind,
+            title,
+            statusLabel: hasFailed
+                ? "失败"
+                : isRunning
+                    ? "执行中"
+                    : "已完成",
+            traceId: latestEvent.traceId,
+            summary: latestEvent.summary,
+            logs: statusEntries.map((entry) => {
+                return {
+                    eventId: entry.event.eventId,
+                    statusLabel: entry.statusMeta.label,
+                    text: resolveProcessLogText(entry.event),
+                    occurredAt: formatDisplayTime(entry.event.occurredAt),
+                };
+            }),
+        };
+    });
+}
+
+/**
+ * resolveProcessGroupKey：解析同一过程聚合键。
+ *
+ * @param event 中心服务事件。
+ * @returns 聚合键。
+ */
+function resolveProcessGroupKey(event: EventRecord): string {
+    const payload = typeof event.payload === "object" && event.payload !== null
+        ? event.payload as Record<string, unknown>
+        : {};
+    const toolKind = typeof payload.toolKind === "string"
+        ? payload.toolKind
+        : event.eventType.startsWith("model.stream.")
+            ? "model-stream"
+            : "tool";
+    return [
+        event.turnId ?? "no-turn",
+        event.taskId ?? "no-task",
+        toolKind,
+    ].join(":");
+}
+
+/**
+ * resolveProcessGroupTitle：生成过程卡片标题。
+ *
+ * @param event 同组最新事件。
+ * @returns 用户可见标题。
+ */
+function resolveProcessGroupTitle(event: EventRecord): string {
+    if (event.eventType.startsWith("model.stream.")) {
+        return "模型流式输出";
+    }
+    if (event.eventType.startsWith("tool.command.")) {
+        return "命令工具调用";
+    }
+    if (event.eventType.startsWith("tool.mcp.")) {
+        return "MCP 调用过程";
+    }
+    if (event.eventType.startsWith("tool.plugin.")) {
+        return "插件调用过程";
+    }
+    if (event.eventType.startsWith("tool.skill.")) {
+        return "skill 调用过程";
+    }
+    return "工具调用过程";
+}
+
+/**
+ * resolveProcessLogText：读取过程日志正文。
+ *
+ * @param event 中心服务事件。
+ * @returns 日志正文。
+ */
+function resolveProcessLogText(event: EventRecord): string {
+    return readEventText(
+        event,
+        "outputSummary",
+    ) || readEventText(
+        event,
+        "outputChunk",
+    ) || readEventText(
+        event,
+        "deltaText",
+    ) || readEventText(
+        event,
+        "failureReason",
+    ) || event.summary;
 }
 
 /**
@@ -99,6 +451,135 @@ export function readEventText(
     }
     const value = (event.payload as Record<string, unknown>)[key];
     return typeof value === "string" ? value : "";
+}
+
+/**
+ * createMergedThinkingRows：把同一轮思考事件合并成单个展示块。
+ *
+ * @param events 中心服务事件数组。
+ * @returns 按轮次或任务合并后的思考块数组。
+ */
+export function createMergedThinkingRows(events: EventRecord[]): ThinkingProcessRow[] {
+    const groups = new Map<string, EventRecord[]>();
+    for (const event of events) {
+        if (!event.eventType.startsWith("thinking.")) {
+            continue;
+        }
+        // groupKey: 优先使用 turnId，避免同一轮多个思考片段分散展示；无 turnId 时退到 taskId 或事件 ID。
+        const groupKey = event.turnId ?? event.taskId ?? event.eventId;
+        groups.set(
+            groupKey,
+            [
+                ...(groups.get(groupKey) ?? []),
+                event,
+            ],
+        );
+    }
+
+    return Array.from(groups.entries()).map(([
+        groupKey,
+        groupEvents,
+    ]) => {
+        const sortedEvents = [...groupEvents].sort((a, b) => {
+            return a.sequence - b.sequence;
+        });
+        const latestEvent = sortedEvents[sortedEvents.length - 1];
+        const statusEntries = sortedEvents.map((event) => {
+            return {
+                event,
+                statusMeta: resolveProcessEventStatus(event),
+            };
+        });
+        const isRunning = statusEntries.some((entry) => {
+            return entry.statusMeta.status === "running";
+        }) && !statusEntries.some((entry) => {
+            return entry.statusMeta.status === "completed";
+        });
+        const hasFailed = statusEntries.some((entry) => {
+            return entry.statusMeta.status === "failed";
+        });
+        return {
+            rowId: `thinking-${groupKey}`,
+            turnId: latestEvent.turnId,
+            taskId: latestEvent.taskId,
+            title: isRunning
+                ? "思考中"
+                : "思考过程",
+            statusLabel: hasFailed
+                ? "失败"
+                : isRunning
+                    ? "生成中"
+                    : "已完成",
+            defaultOpen: isRunning,
+            traceId: latestEvent.traceId,
+            segments: statusEntries.map((entry) => {
+                return {
+                    eventId: entry.event.eventId,
+                    statusLabel: entry.statusMeta.label,
+                    summary: readEventText(
+                        entry.event,
+                        "thinkingText",
+                    ) || entry.event.summary || "无思考内容：中心服务未返回可展示的思考片段。",
+                };
+            }),
+        };
+    });
+}
+
+/**
+ * createMessageTimelineNodes：从用户消息生成对话时间线节点。
+ *
+ * @param messages 当前会话消息列表。
+ * @returns 用户消息时间线节点数组。
+ */
+export function createMessageTimelineNodes(messages: ConversationMessage[]): MessageTimelineNode[] {
+    return messages.filter((message) => {
+        return message.role === "user";
+    }).map((message, index) => {
+        const preview = message.contentMarkdown.replace(/\s+/gu, " ").trim();
+        return {
+            messageId: message.messageId,
+            label: `#${index + 1}`,
+            preview: preview.length > 80
+                ? `${preview.slice(0, 80)}...`
+                : preview || "空消息",
+            sentAt: formatDisplayTime(message.createdAt),
+        };
+    });
+}
+
+/**
+ * formatContextUsageTooltip：生成上下文占用 tooltip。
+ *
+ * @param input 上下文统计展示输入。
+ * @returns 用户可理解的多行 tooltip 文案。
+ */
+export function formatContextUsageTooltip(input: {
+    usedTokens: number;
+    limitTokens: number;
+    percentText: string;
+    modelId: string;
+    referenceCount: number;
+    attachmentCount: number;
+    source: string;
+}): string {
+    const limitText = input.limitTokens > 0
+        ? `${input.limitTokens} token`
+        : "未配置窗口上限";
+    const modelText = input.modelId.trim().length > 0
+        ? input.modelId
+        : "未选择模型";
+    const sourceText = input.source.trim().length > 0
+        ? input.source
+        : "中心服务 tokenizer 统计待返回";
+    return [
+        `已用：${input.usedTokens} token`,
+        `窗口上限：${limitText}`,
+        `占用比例：${input.percentText}`,
+        `模型：${modelText}`,
+        `输入范围：当前会话消息、草稿、项目引用 ${input.referenceCount} 项、附件 ${input.attachmentCount} 项`,
+        `统计来源：${sourceText}`,
+    ].join("\n");
 }
 
 /**
