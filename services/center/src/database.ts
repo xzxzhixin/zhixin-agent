@@ -3,6 +3,10 @@ import {dirname, join} from "node:path";
 
 import Database from "better-sqlite3";
 
+import {
+    createDrizzleDatabase,
+    type CenterDrizzleDatabase,
+} from "./data-access/database-adapter.js";
 import {CORE_SQLITE_TABLES, type AppliedMigration, type CenterServiceConfig} from "./types.js";
 
 export class CenterDatabase {
@@ -20,6 +24,11 @@ export class CenterDatabase {
      * db: better-sqlite3 同步连接，只在中心服务主进程内使用。
      */
     private db: Database.Database | null = null;
+
+    /**
+     * drizzleDb: 基于同一个 better-sqlite3 连接创建的 Drizzle 适配器。
+     */
+    private drizzleDb: CenterDrizzleDatabase | null = null;
 
     /**
      * constructor：保存配置并生成数据库路径。
@@ -43,6 +52,7 @@ export class CenterDatabase {
         });
         // db: better-sqlite3 连接只保存在当前类，避免 Worker 直接访问。
         this.db = new Database(this.databasePath);
+        this.drizzleDb = createDrizzleDatabase(this.db);
         this.db.pragma("journal_mode = WAL");
         this.db.pragma("foreign_keys = ON");
         this.runMigrations();
@@ -80,6 +90,19 @@ export class CenterDatabase {
     }
 
     /**
+     * drizzleConnection：获取 Drizzle 数据访问适配器。
+     *
+     * @returns Drizzle 数据库实例。
+     */
+    drizzleConnection(): CenterDrizzleDatabase {
+        if (!this.drizzleDb) {
+            throw new Error("中心服务 Drizzle 数据库尚未初始化");
+        }
+
+        return this.drizzleDb;
+    }
+
+    /**
      * close：关闭 SQLite 连接。
      *
      * @returns 关闭后没有返回值。
@@ -91,6 +114,7 @@ export class CenterDatabase {
 
         this.db.close();
         this.db = null;
+        this.drizzleDb = null;
     }
 
     /**

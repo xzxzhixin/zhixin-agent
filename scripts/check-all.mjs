@@ -25,6 +25,12 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-current-plan-regressions.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-stage1-protocols.mjs",
     ],
   ],

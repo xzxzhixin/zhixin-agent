@@ -219,24 +219,53 @@ onMounted(() => {
         </div>
         </el-form>
       </el-dialog>
-      <section class="management-list">
-        <article
-            v-for="config in appStore.globalMcpConfigs"
-            :key="config.configId"
-            class="management-item"
+      <el-table
+          :data="appStore.globalMcpConfigs"
+          class="management-table"
+          empty-text="暂无全局 MCP 配置"
+      >
+        <el-table-column
+            label="配置文件"
+            min-width="260"
         >
-          <div>
-            <strong>{{ config.name }}</strong>
-            <span>{{ config.scope }} · {{ config.enabled ? "启用" : "停用" }}</span>
+          <template #default="{ row: config }">
+            <strong>{{ config.relativePath }}</strong>
             <small>项目级配置由项目对话详情展示，不在全局页混入。</small>
-          </div>
-          <div class="management-actions">
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="作用域"
+            width="110"
+            prop="scope"
+        />
+        <el-table-column
+            label="服务数量"
+            width="120"
+        >
+          <template #default="{ row: config }">
+            {{ Object.keys(config.mcpServers).length }}
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="更新时间"
+            min-width="180"
+        >
+          <template #default="{ row: config }">
+            {{ formatDisplayTime(config.updatedAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+            fixed="right"
+            label="操作"
+            width="110"
+        >
+          <template #default="{ row: config }">
             <el-button @click="appStore.editMcpConfig(config)">
               编辑
             </el-button>
-          </div>
-        </article>
-      </section>
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
   </section>
 </template>

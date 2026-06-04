@@ -17,6 +17,7 @@ import {
 } from "./helpers.js";
 import {broadcastEvents} from "./realtime.js";
 import {registerCenterSyncRoute} from "./sync-route.js";
+import {createDataAccess} from "./data-access/index.js";
 import {
     CORE_SQLITE_TABLES,
     type AccessAuthorizeResponse,
@@ -109,7 +110,7 @@ import {
     setAgentRuntimeState,
     startWorkerTask,
 } from "./workflow-domain.js";
-import {registerToolRoutes} from "./tool-routes.js";
+import {countComposerContextTokens} from "./tokenizer-domain.js";
 import {
     commitAttachment,
     createTemporaryAttachment,
@@ -276,35 +277,15 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         }
 
         const now = new Date().toISOString();
-        database.connection()
-            .prepare(`
-                INSERT INTO projects (id,
-                                      display_name,
-                                      alias,
-                                      latest_path,
-                                      created_at,
-                                      updated_at)
-                VALUES (?, ?, NULL, ?, ?, ?) ON CONFLICT(id) DO
-                UPDATE SET
-                    display_name = excluded.display_name,
-                    latest_path = excluded.latest_path,
-                    updated_at = excluded.updated_at
-            `)
-            .run(
-                body.projectId,
-                displayName,
-                latestPath,
-                now,
-                now,
-            );
-
-        return createSuccessResponse<ProjectRecord>({
+        const project = createDataAccess(database).sessions.upsertProject({
             projectId: body.projectId,
             displayName,
-            alias: null,
             latestPath,
-            createdAt: now,
-            updatedAt: now,
+            now,
+        });
+
+        return createSuccessResponse<ProjectRecord>({
+            ...project,
         });
     });
 
@@ -356,33 +337,16 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
 
         const sessionId = randomUUID();
         const now = new Date().toISOString();
-        database.connection()
-            .prepare(`
-                INSERT INTO sessions (id,
-                                      session_type,
-                                      project_id,
-                                      title,
-                                      created_at,
-                                      updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `)
-            .run(
-                sessionId,
-                body.sessionType,
-                body.projectId ?? null,
-                body.title,
-                now,
-                now,
-            );
-
-        return createSuccessResponse<ConversationSession>({
+        const session = createDataAccess(database).sessions.createSession({
             sessionId,
             sessionType: body.sessionType,
             projectId: body.projectId ?? null,
             title: body.title,
-            createdAt: now,
-            updatedAt: now,
-            lastUserMessagePreview: null,
+            now,
+        });
+
+        return createSuccessResponse<ConversationSession>({
+            ...session,
         });
     });
 
@@ -750,6 +714,37 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         );
 
         return createSuccessResponse(runtimeState);
+    });
+
+    app.post("/api/tokenizer/count", async (request) => {
+        const body = request.body as {
+            sessionId?: string | null;
+            draftText?: string;
+            referenceSummaries?: string[];
+            attachmentSummaries?: string[];
+            modelId?: string;
+            windowLimitTokens?: number;
+        };
+
+        if (!Array.isArray(body.referenceSummaries) || !Array.isArray(body.attachmentSummaries)) {
+            return createErrorResponse(
+                "TOKENIZER_COUNT_INVALID",
+                "tokenizer 统计缺少引用或附件摘要数组",
+                "上下文统计信息不完整。",
+            );
+        }
+
+        return createSuccessResponse(countComposerContextTokens(
+            database,
+            {
+                sessionId: body.sessionId ?? null,
+                draftText: body.draftText ?? "",
+                referenceSummaries: body.referenceSummaries,
+                attachmentSummaries: body.attachmentSummaries,
+                modelId: body.modelId ?? "",
+                windowLimitTokens: body.windowLimitTokens ?? 0,
+            },
+        ));
     });
 
     app.post("/api/memory/write", async (request) => {
@@ -1153,7 +1148,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     });
 
     app.post("/api/extension/call-list", async () => createSuccessResponse({
-        records: database.connection().prepare("SELECT * FROM extension_call_records ORDER BY created_at ASC").all(),
+        records: createDataAccess(database).extensions.listExtensionCallRecords(),
     }));
 
     app.post("/api/mcp/save", async (request) => {
@@ -1484,11 +1479,6 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         }
 
         return createSuccessResponse(commitAttachment(database, events, config.centerDirectory, body));
-    });
-
-    registerToolRoutes({
-        app,
-        events,
     });
 
     registerCenterSyncRoute({

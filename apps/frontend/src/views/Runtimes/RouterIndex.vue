@@ -248,27 +248,65 @@ onMounted(() => {
         </div>
         </el-form>
       </el-dialog>
-      <section class="management-list">
-        <article
-            v-for="runtime in appStore.runtimes"
-            :key="runtime.runtimeId"
-            class="management-item"
+      <el-table
+          :data="appStore.runtimes"
+          class="management-table"
+          empty-text="暂无运行环境"
+      >
+        <el-table-column
+            label="环境"
+            min-width="180"
         >
-          <div>
+          <template #default="{ row: runtime }">
             <strong>{{ runtime.runtimeName }}</strong>
-            <span>{{ runtime.runtimeType }} · {{ runtime.version }}</span>
-            <small>{{ runtime.executablePath }}</small>
-          </div>
-          <div class="management-actions">
-            <el-button @click="openEditRuntimeDialog(runtime)">
-              修改
-            </el-button>
-            <el-button @click="appStore.setDefaultRuntime">
-              设置默认
-            </el-button>
-          </div>
-        </article>
-      </section>
+            <small>{{ runtime.runtimeId }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="类型与版本"
+            min-width="180"
+        >
+          <template #default="{ row: runtime }">
+            <span>{{ runtime.runtimeType }}</span>
+            <small>{{ runtime.version }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="可执行文件"
+            min-width="320"
+        >
+          <template #default="{ row: runtime }">
+            <span>{{ runtime.executablePath }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="状态"
+            min-width="160"
+        >
+          <template #default="{ row: runtime }">
+            <el-tag :type="runtime.enabled ? 'success' : 'info'">
+              {{ runtime.enabled ? "启用" : "停用" }}
+            </el-tag>
+            <small v-if="runtime.isDefault">默认环境</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            fixed="right"
+            label="操作"
+            min-width="180"
+        >
+          <template #default="{ row: runtime }">
+            <div class="management-table-actions">
+              <el-button @click="openEditRuntimeDialog(runtime)">
+                修改
+              </el-button>
+              <el-button @click="appStore.setDefaultRuntime(runtime)">
+                设置默认
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
   </section>
 </template>

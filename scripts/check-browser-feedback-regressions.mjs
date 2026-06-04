@@ -121,10 +121,10 @@ for (const signal of [
 }
 
 for (const signal of [
-  "请通过命令工具输出 Node.js 版本",
-  "this.draft.text",
-  "await this.sendDraft()",
-  "runNodeVersionCommandTool",
+  "planCommandToolForUserText",
+  "runCommandTool",
+  "tool.command.started",
+  "tool.command.completed",
 ]) {
   assertIncludes(
     conversationActions + sessionDomain + toolRuntime,
@@ -147,9 +147,9 @@ for (const signal of [
 }
 
 for (const signal of [
-  "主对话引导",
-  "提交引导",
-  "待引导状态",
+  "submitGuidanceForQueuedMessage",
+  "isQueuedMessage",
+  "queued-message-actions",
   "当前对话内排队中",
 ]) {
   assertIncludes(

@@ -65,26 +65,68 @@ export function appendToolVisibilityEvents(
 }
 
 /**
- * runNodeVersionCommandTool：通过中心服务执行 Node.js 版本命令。
+ * CommandToolRequest：通用命令工具请求。
+ *
+ * 来源：Agent 工具规划结果。
+ * 含义：中心服务按明确命令执行，并把过程写入事件日志。
+ * 格式：可执行路径、参数和输入摘要。
+ * 默认值：无。
+ * 约束：只能由对话编排触发，浏览器端不直接调用。
+ */
+export interface CommandToolRequest {
+    /** executablePath: 可执行文件路径或命令名。 */
+    executablePath: string;
+    /** args: 命令参数数组。 */
+    args: string[];
+    /** inputSummary: 命令用途摘要。 */
+    inputSummary: string;
+}
+
+/**
+ * CommandToolResult：通用命令工具结果。
+ *
+ * 来源：中心服务命令运行器。
+ * 含义：供过程卡片展示命令、状态、输出、失败原因和排查 ID。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：完整输出后续进入命令审计模块，当前只返回摘要。
+ */
+export interface CommandToolResult {
+    /** toolKind: 固定命令工具类型。 */
+    toolKind: "command";
+    /** command: 展示用命令摘要。 */
+    command: string;
+    /** status: 命令状态。 */
+    status: "completed" | "failed";
+    /** outputSummary: 命令输出摘要。 */
+    outputSummary: string;
+    /** failureReason: 失败原因，成功时为 null。 */
+    failureReason: string | null;
+    /** traceId: 完成或失败事件排查 ID。 */
+    traceId: string;
+}
+
+/**
+ * runCommandTool：通过中心服务执行通用命令。
  *
  * @param events 事件日志仓储。
  * @param sessionId 会话 ID。
  * @param taskId 任务 ID。
  * @param turnId 轮次 ID。
+ * @param request 命令请求。
  * @returns 命令输出摘要。
  */
-export function runNodeVersionCommandTool(
+export function runCommandTool(
     events: CenterEventStore,
     sessionId: string,
     taskId: string,
     turnId: string,
-): {
-    toolKind: "command";
-    command: string;
-    status: "completed" | "failed";
-    outputSummary: string;
-} {
-    const command = `${process.execPath} -v`;
+    request: CommandToolRequest,
+): CommandToolResult {
+    const command = [
+        request.executablePath,
+        ...request.args,
+    ].join(" ");
     events.append({
         eventType: "tool.command.started",
         scopeType: "tool",
@@ -94,19 +136,17 @@ export function runNodeVersionCommandTool(
         taskId,
         status: "running",
         title: "命令工具开始",
-        summary: "中心服务准备执行 Node.js 版本检查命令。",
+        summary: request.inputSummary,
         payload: {
             toolKind: "command",
             command,
-            inputSummary: "输出当前中心服务 Node.js 版本。",
+            inputSummary: request.inputSummary,
         },
     });
 
     const result = spawnSync(
-        process.execPath,
-        [
-            "-v",
-        ],
+        request.executablePath,
+        request.args,
         {
             encoding: "utf-8",
             windowsHide: true,
@@ -114,7 +154,7 @@ export function runNodeVersionCommandTool(
     );
     const outputSummary = (result.stdout || result.stderr || "").trim();
     const status = result.status === 0 ? "completed" : "failed";
-    events.append({
+    const event = events.append({
         eventType: status === "completed" ? "tool.command.completed" : "tool.call.failed",
         scopeType: "tool",
         scopeId: taskId,
@@ -129,6 +169,7 @@ export function runNodeVersionCommandTool(
             command,
             outputSummary,
             exitCode: result.status,
+            failureReason: status === "completed" ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
         },
     });
 
@@ -137,5 +178,7 @@ export function runNodeVersionCommandTool(
         command,
         status,
         outputSummary,
+        failureReason: status === "completed" ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
+        traceId: event.traceId,
     };
 }

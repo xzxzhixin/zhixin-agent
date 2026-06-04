@@ -1,6 +1,7 @@
 import type {FastifyInstance} from "fastify";
 
 import type {CenterDatabase} from "./database.js";
+import {createDataAccess} from "./data-access/index.js";
 import {createSuccessResponse} from "./helpers.js";
 import {
     aggregateUsageRecords,
@@ -69,6 +70,6 @@ export function registerUsageRoutes(
     });
 
     app.post("/api/audit/task-steps", async () => createSuccessResponse({
-        taskSteps: database.connection().prepare("SELECT * FROM task_steps ORDER BY started_at ASC").all(),
+        taskSteps: createDataAccess(database).usage.listTaskStepsForAudit(),
     }));
 }

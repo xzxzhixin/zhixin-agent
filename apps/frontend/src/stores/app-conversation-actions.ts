@@ -69,6 +69,7 @@ export function createConversationActions() {
             await this.loadNavigationData();
             await this.loadActiveSessionDetail();
             await this.refreshEvents();
+            void this.updateComposerContextUsage();
         },
 
         /**
@@ -83,17 +84,6 @@ export function createConversationActions() {
                 afterSequence: 0,
             });
             this.events = result.events;
-        },
-
-        /**
-         * runNodeVersionToolForActiveTurn：触发中心服务命令工具输出 Node.js 版本。
-         *
-         * @returns 通过当前对话发送工具请求后没有返回值。
-         */
-        async runNodeVersionToolForActiveTurn(): Promise<void> {
-            // 固定接口只能证明 API 可用，不能证明命令工具被对话编排触发；这里按验收要求写入草稿并复用 sendDraft 的会话创建和发送闭环。
-            this.draft.text = "请通过命令工具输出 Node.js 版本";
-            await this.sendDraft();
         },
 
         /**

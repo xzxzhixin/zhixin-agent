@@ -123,6 +123,129 @@ export type ExecutionMode =
   | "full_auto";
 
 /**
+ * Tokenizer 输入片段类型。
+ *
+ * 来源：上下文 token 统计协议。
+ * 含义：标识 token 统计覆盖的上下文来源。
+ * 格式：固定字符串枚举。
+ * 默认值：无。
+ * 约束：不能用字符数或字符串长度替代该协议口径。
+ */
+export type TokenizerInputSegmentKind =
+  | "system"
+  | "developer"
+  | "history"
+  | "current-message"
+  | "tool-description"
+  | "reference"
+  | "attachment"
+  | "runtime-context";
+
+/**
+ * Tokenizer 输入片段。
+ *
+ * 来源：中心服务实际送入模型的上下文包。
+ * 含义：保存一段待统计文本及其业务来源。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：sourceId 必须指向明确消息、附件、引用或内置上下文 ID。
+ */
+export interface TokenizerInputSegment {
+  /** segmentKind: 片段类型。 */
+  segmentKind: TokenizerInputSegmentKind;
+  /** sourceId: 片段来源 ID。 */
+  sourceId: string;
+  /** content: 参与 token 统计的实际文本。 */
+  content: string;
+}
+
+/**
+ * Tokenizer 统计请求。
+ *
+ * 来源：前端输入区和中心服务模型调用链路。
+ * 含义：描述模型、输入范围、窗口上限和实际上下文片段。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：windowLimitTokens 为 token 数，不是 K 字符或字符数。
+ */
+export interface TokenizerCountRequest {
+  /** modelId: 模型标识。 */
+  modelId: string;
+  /** inputRange: 统计范围。 */
+  inputRange: "composer-window" | "model-request";
+  /** windowLimitTokens: 模型窗口上限，单位 token。 */
+  windowLimitTokens: number;
+  /** segments: 实际纳入统计的上下文片段。 */
+  segments: TokenizerInputSegment[];
+}
+
+/**
+ * Tokenizer 错误结构。
+ *
+ * 来源：中心服务 tokenizer 适配器。
+ * 含义：记录 tokenizer 匹配或统计失败原因。
+ * 格式：统一错误码和中文消息。
+ * 默认值：正常统计时为 null。
+ * 约束：不能包含 API Key、代理密码等敏感明文。
+ */
+export interface TokenizerError {
+  /** code: tokenizer 错误码。 */
+  code: string;
+  /** message: 可展示错误消息。 */
+  message: string;
+}
+
+/**
+ * Tokenizer 统计响应。
+ *
+ * 来源：中心服务 tokenizer 模块。
+ * 含义：返回统计来源、模型、输入范围、已用 token 和窗口上限。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：usedTokens 必须来自 tokenizer 适配器，不允许使用字符串长度估算。
+ */
+export interface TokenizerCountResponse {
+  /** tokenizerId: tokenizer 适配器 ID。 */
+  tokenizerId: string;
+  /** tokenizerName: tokenizer 用户可见名称。 */
+  tokenizerName: string;
+  /** source: tokenizer 来源。 */
+  source: "built-in" | "external";
+  /** modelId: 当前统计匹配的模型标识。 */
+  modelId: string;
+  /** inputRange: 当前统计范围。 */
+  inputRange: "composer-window" | "model-request";
+  /** usedTokens: 已使用 token 数。 */
+  usedTokens: number;
+  /** windowLimitTokens: 模型窗口上限，单位 token。 */
+  windowLimitTokens: number;
+  /** includedSegmentKinds: 本次统计覆盖的片段类型。 */
+  includedSegmentKinds: TokenizerInputSegmentKind[];
+  /** error: tokenizer 错误；成功时为 null。 */
+  error: TokenizerError | null;
+}
+
+/**
+ * Tokenizer 适配器接口。
+ *
+ * 来源：中心服务 tokenizer 模块与外部 tokenizer 扩展边界。
+ * 含义：约束内置和外部 tokenizer 的统一统计能力。
+ * 格式：TypeScript 接口。
+ * 默认值：无。
+ * 约束：适配器不得自行访问客户端敏感信息。
+ */
+export interface TokenizerAdapter {
+  /** tokenizerId: 适配器 ID。 */
+  tokenizerId: string;
+  /** tokenizerName: 适配器名称。 */
+  tokenizerName: string;
+  /** source: 适配器来源。 */
+  source: "built-in" | "external";
+  /** count: 执行 token 统计。 */
+  count: (request: TokenizerCountRequest) => TokenizerCountResponse;
+}
+
+/**
  * API 错误结构。
  *
  * 来源：中心服务 REST API 统一响应规范。

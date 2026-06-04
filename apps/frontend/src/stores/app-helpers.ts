@@ -2,7 +2,6 @@ import type {
     AgentConfigView,
     ProviderConfigView,
     ProviderModelListView,
-    SessionDetailResult,
     UsageFilters,
 } from "@zhixin/api-client";
 import type {
@@ -555,33 +554,6 @@ export function buildProviderModelRefreshDraft(
             ? splitLines(draft.refreshReasoningText)
             : savedOptions?.reasoningEfforts ?? [],
     };
-}
-
-/**
- * estimateComposerContextUsedTokens：估算当前窗口已用上下文。
- *
- * @param sessionDetail 当前会话详情。
- * @param draft 当前输入草稿。
- * @returns 估算 token 数。
- */
-export function estimateComposerContextUsedTokens(
-    sessionDetail: SessionDetailResult | null,
-    draft: ComposerDraftModel,
-): number {
-    // plainTextLength: 当前阶段中心服务未返回真实 tokenizer 统计，使用单一临时估算约定，后续替换为服务端上下文统计。
-    const plainTextLength = [
-        ...(sessionDetail?.messages ?? []).map((message) => {
-            return message.contentMarkdown;
-        }),
-        draft.text,
-        ...draft.references.map((reference) => {
-            return reference.displayName;
-        }),
-        ...draft.attachments.map((attachment) => {
-            return attachment.fileName;
-        }),
-    ].join("\n").length;
-    return Math.ceil(plainTextLength / 4);
 }
 
 /**

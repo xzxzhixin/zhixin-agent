@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import {
-  onBeforeUnmount,
-  onMounted,
   ref,
   watch,
 } from "vue";
@@ -22,8 +20,6 @@ const router = useRouter();
 const bootstrapped = ref(false);
 // authorizationSyncing：授权路由同步互斥标记，避免快速 hash 切换时多个 replace 并发覆盖结果。
 const authorizationSyncing = ref(false);
-// routeRenderVersion：原生 hash 变化时递增，覆盖外部直接改 hash 后 Vue Router slot 复用旧主体的边界。
-const routeRenderVersion = ref(0);
 
 /**
  * syncAuthorizationRoute：同步当前授权模式和顶层路由主体。
@@ -72,28 +68,6 @@ watch(
   },
 );
 
-/**
- * refreshRouteRenderVersion：记录原生 hashchange 事件。
- *
- * @returns 更新渲染版本后没有返回值。
- */
-function refreshRouteRenderVersion(): void {
-  routeRenderVersion.value += 1;
-}
-
-onMounted(() => {
-  window.addEventListener(
-    "hashchange",
-    refreshRouteRenderVersion,
-  );
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener(
-    "hashchange",
-    refreshRouteRenderVersion,
-  );
-});
 </script>
 
 <template>
@@ -102,14 +76,14 @@ onBeforeUnmount(() => {
   >
     <section
         class="app-route-host"
-        :key="`${matchedRoute.fullPath}:${routeRenderVersion}`"
+        :key="matchedRoute.fullPath"
         :data-route-path="matchedRoute.fullPath"
     >
       <!-- matchedRoute.fullPath：顶层主体重建事实源，由 Vue Router 单一路由状态驱动，避免原生地址监听额外残留实例。 -->
       <component
           :is="Component"
           v-if="Component"
-          :key="`${matchedRoute.fullPath}:${routeRenderVersion}`"
+          :key="matchedRoute.fullPath"
       />
     </section>
   </RouterView>

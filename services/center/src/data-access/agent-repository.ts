@@ -292,4 +292,36 @@ export class AgentRepository {
             .prepare("SELECT id AS agentId, name, enabled, role_description AS roleDescription, capability_boundary AS capabilityBoundary, default_provider_id AS defaultProviderId, default_model AS defaultModel, reasoning_effort AS reasoningEffort, memory_index_path AS memoryIndexPath, created_by AS createdBy, definition_path AS definitionPath, updated_at AS updatedAt FROM agents_index ORDER BY updated_at DESC")
             .all() as AgentIndexRow[];
     }
+
+    /**
+     * insertMemoryIndex：写入智能体记忆索引。
+     *
+     * @param input 记忆索引字段。
+     * @returns 没有返回值。
+     */
+    insertMemoryIndex(input: {
+        memoryId: string;
+        agentId: string;
+        keywords: string;
+        summary: string;
+        sourceSessionId: string | null;
+        sourceTurnId: string | null;
+        attachmentRefsJson: string;
+        memoryPath: string;
+        createdAt: string;
+    }): void {
+        this.database.connection()
+            .prepare("INSERT INTO memory_index (id, agent_id, keywords, summary, source_session_id, source_turn_id, attachment_refs_json, memory_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run(
+                input.memoryId,
+                input.agentId,
+                input.keywords,
+                input.summary,
+                input.sourceSessionId,
+                input.sourceTurnId,
+                input.attachmentRefsJson,
+                input.memoryPath,
+                input.createdAt,
+            );
+    }
 }

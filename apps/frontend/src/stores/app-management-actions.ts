@@ -15,7 +15,6 @@ import {
     createProxyDraft,
     createRuntimeDraft,
     createSkillDraft,
-    estimateComposerContextUsedTokens,
     findInvalidModelContextWindowLine,
     formatModelContextWindowsForDraft,
     formatJsonText,
@@ -438,11 +437,22 @@ export function createManagementActions() {
          *
          * @returns 没有返回值。
          */
-        updateComposerContextUsage(): void {
-            this.composerSettings.contextUsedTokens = estimateComposerContextUsedTokens(
-                this.sessionDetail,
-                this.draft,
-            );
+        async updateComposerContextUsage(): Promise<void> {
+            const result = await this.api().countComposerContextTokens({
+                sessionId: this.activeSessionId,
+                draftText: this.draft.text,
+                referenceSummaries: this.draft.references.map((reference) => {
+                    return reference.displayName;
+                }),
+                attachmentSummaries: this.draft.attachments.map((attachment) => {
+                    return attachment.fileName;
+                }),
+                modelId: this.composerSettings.selectedModel,
+                windowLimitTokens: this.composerSelectedModelContextWindowTokens,
+            });
+            this.composerSettings.contextUsedTokens = result.usedTokens;
+            this.composerSettings.contextTokenizerName = result.tokenizerName;
+            this.composerSettings.contextTokenizerSource = result.source;
         },
 
         /**

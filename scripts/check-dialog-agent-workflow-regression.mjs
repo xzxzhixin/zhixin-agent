@@ -59,6 +59,8 @@ const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const apiClient = readProjectFile("packages/api-client/src/index.ts");
 const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
 const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
+const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
 
 for (const signal of [
   ".el-dialog",
@@ -106,18 +108,17 @@ for (const signal of [
 }
 
 for (const signal of [
-  "runNodeVersionToolForActiveTurn",
-  "runNodeVersionCommandTool",
-  "Node 版本",
-  "/api/tool/command/node-version",
+  "planCommandToolForUserText",
+  "runCommandTool",
+  "CommandToolRequest",
   "tool.command.started",
   "tool.command.completed",
   "tool.plugin.unavailable",
   "tool.mcp.unavailable",
   "tool.skill.unavailable",
 ]) {
-    assertIncludes(
-    chatPage + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain,
+  assertIncludes(
+    chatPage + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + toolRuntime,
     signal,
     `自动工具可见闭环缺少：${signal}`,
   );
@@ -128,6 +129,7 @@ for (const signal of [
   "agent.agentId !== \"main\"",
   "node.nodeKind === \"长期智能体\"",
   "发送引导",
+  "el-tree",
   "@guide",
   "sendAgentGuidanceDraft",
 ]) {

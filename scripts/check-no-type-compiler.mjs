@@ -1,7 +1,7 @@
 /**
  * TypeScript 编译器质量门槛检查。
  *
- * 用途：确认项目没有把 tsc 或 vue-tsc 作为包脚本强制入口。
+ * 用途：确认项目没有把 tsc、tsc --noEmit 或 vue-tsc 作为包脚本强制入口。
  * 关键逻辑：新版架构要求开发运行和打包由 Vite、tsx、Electron、Fastify 等工具处理，不能把 TypeScript 编译器作为质量门槛。
  * 参数：无。
  * 返回值：检查通过时正常退出；发现违规脚本时返回非零退出码。

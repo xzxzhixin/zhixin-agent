@@ -122,8 +122,6 @@ const agentConversationDraft = ref("");
 const selectedComposerEditFilePath = ref("");
 // projectCapabilityDialogVisible：项目能力详情弹框显隐，只属于当前客户端 UI 状态。
 const projectCapabilityDialogVisible = ref(false);
-// guidanceDraftVisible：主对话引导模式是否已打开，只影响输入区引导文案和提交按钮。
-const guidanceDraftVisible = ref(false);
 // messages：当前会话消息列表。
 const messages = computed(() => appStore.sessionDetail?.messages ?? []);
 // normalSessions：普通会话列表，来源于中心服务 sessionType 字段。
@@ -144,8 +142,6 @@ const activeDraftProjectName = computed(() => {
 const agentStatusEvents = computed(() => appStore.events.filter((event) => {
   return event.eventType.includes("agent");
 }).slice(-6));
-// auditSummaryEvents：右栏审计摘要展示最近事件，帮助用户追踪任务、工具和协作过程。
-const auditSummaryEvents = computed(() => appStore.events.slice(-8).reverse());
 // agentStatusTreeRows：把智能体状态树压平为带层级的状态树行。
 const agentStatusTreeRows = computed<AgentStatusTreeRow[]>(() => {
   return flattenAgentTreeRows(
@@ -315,6 +311,17 @@ const composerContextUsageText = computed(() => {
     : 0;
   const percent = Math.round((usedTokens / limitTokens) * 100);
   return `${percent}% / ${formatContextWindowLimit(limitTokens)}`;
+});
+// composerContextSourceText：展示真实 tokenizer 来源，避免用户误以为是字符数估算。
+const composerContextSourceText = computed(() => {
+  if (!appStore.composerSettings.contextTokenizerName) {
+    return "统计来源待中心服务返回";
+  }
+
+  const sourceLabel = appStore.composerSettings.contextTokenizerSource === "external"
+    ? "外部 tokenizer"
+    : "内置 tokenizer";
+  return `${sourceLabel} · ${appStore.composerSettings.contextTokenizerName}`;
 });
 // projectCapabilityDialogRows：项目能力详情弹框直接使用 store 中的结构化能力项，避免硬编码伪造启用状态。
 const projectCapabilityDialogRows = computed(() => {
@@ -671,18 +678,25 @@ function openProjectCapabilityDialog(): void {
 }
 
 /**
- * submitMainGuidanceDraft：提交主对话引导内容。
+ * isQueuedMessage：判断消息所属轮次是否正在等待用户引导。
  *
+ * @param message 当前消息。
+ * @returns 属于等待用户轮次时返回 true。
+ */
+function isQueuedMessage(message: ConversationMessage): boolean {
+  const turn = findTurnForMessage(message);
+  return turn?.status === "waiting_user";
+}
+
+/**
+ * submitGuidanceForQueuedMessage：把排队消息作为当前轮次引导提交。
+ *
+ * @param message 排队消息。
  * @returns 没有返回值。
  */
-function submitMainGuidanceDraft(): void {
-  const text = appStore.draft.text.trim();
-  if (text.length === 0) {
-    appStore.draft.text = "主对话引导：请补充当前轮次需要优先遵守的约束。";
-  } else if (!text.startsWith("主对话引导：")) {
-    appStore.draft.text = `主对话引导：${text}`;
-  }
-  guidanceDraftVisible.value = true;
+function submitGuidanceForQueuedMessage(message: ConversationMessage): void {
+  // guidanceText: 引导仅绑定该排队消息和当前轮次，不恢复独立输入区入口。
+  appStore.draft.text = `针对排队消息补充引导：${message.contentMarkdown}`;
   void appStore.sendDraft();
 }
 
@@ -1218,8 +1232,20 @@ onBeforeUnmount(() => {
             >
               <div
                   class="markdown-body"
-                  v-html="appStore.renderMarkdown(message.contentMarkdown)"
+                v-html="appStore.renderMarkdown(message.contentMarkdown)"
               />
+              <div
+                  v-if="isQueuedMessage(message)"
+                  class="queued-message-actions"
+              >
+                <el-button
+                    size="small"
+                    type="primary"
+                    @click="submitGuidanceForQueuedMessage(message)"
+                >
+                  引导
+                </el-button>
+              </div>
               <footer
                   v-if="shouldShowTurnTimeFooter(message, messageIndex) && findTurnForMessage(message)"
                   class="turn-time-footer"
@@ -1309,12 +1335,6 @@ onBeforeUnmount(() => {
               </div>
 
               <section class="composer-input-row">
-                <div
-                    v-if="guidanceDraftVisible"
-                    class="guidance-status-chip"
-                >
-                  待引导状态：主对话引导将在当前对话当前轮次内提交；当前对话内排队中仅表示等待上一项处理。
-                </div>
                 <el-input
                     v-model="appStore.draft.text"
                     class="composer-textarea"
@@ -1332,34 +1352,11 @@ onBeforeUnmount(() => {
                   <el-button
                       class="composer-tool-button"
                       size="small"
-                      :type="guidanceDraftVisible ? 'primary' : 'default'"
-                      @click="guidanceDraftVisible = !guidanceDraftVisible"
-                  >
-                    主对话引导
-                  </el-button>
-                  <el-button
-                      v-if="guidanceDraftVisible"
-                      class="composer-tool-button"
-                      size="small"
-                      @click="submitMainGuidanceDraft"
-                  >
-                    提交引导
-                  </el-button>
-                  <el-button
-                      class="composer-tool-button"
-                      size="small"
                   >
                     附件
                   </el-button>
-                  <el-button
-                      class="composer-tool-button"
-                      size="small"
-                      @click="appStore.runNodeVersionToolForActiveTurn"
-                  >
-                    Node 版本
-                  </el-button>
                   <span class="composer-context-usage">
-                    上下文 {{ composerContextUsageText }}
+                    上下文 {{ composerContextUsageText }} · {{ composerContextSourceText }}
                   </span>
                 </div>
                 <div class="composer-controls">
@@ -1479,18 +1476,6 @@ onBeforeUnmount(() => {
             >
               <strong>{{ event.summary }}</strong>
               <span>{{ event.eventType }}</span>
-            </article>
-          </el-scrollbar>
-
-          <h2>审计摘要</h2>
-          <el-scrollbar class="status-list">
-            <article
-                v-for="event in auditSummaryEvents"
-                :key="event.eventId"
-                class="status-item status-item-column"
-            >
-              <strong>{{ event.eventType }}</strong>
-              <span>{{ event.summary }}</span>
             </article>
           </el-scrollbar>
         </aside>

@@ -64,6 +64,41 @@ const emit = defineEmits<{
   /** guide: 用户点击引导后由 MainView 按当前轮次引导语义发送。 */
   guide: [];
 }>();
+
+/**
+ * treeProps：Element Plus 树字段映射。
+ *
+ * 来源：AgentStatusTreeNode 协议。
+ * 含义：让 el-tree 按 name 和 children 渲染两级结构。
+ */
+const treeProps = {
+  /** label: 节点显示名字段。 */
+  label: "name",
+  /** children: 子智能体节点字段。 */
+  children: "children",
+};
+
+/**
+ * defaultExpandedKeys：默认展开长期智能体节点。
+ *
+ * 来源：本轮验收要求“测试长期智能体”默认展开。
+ */
+const defaultExpandedKeys = props.rows.filter((row) => {
+  return row.level === 0;
+}).map((row) => {
+  return row.node.agentId;
+});
+
+/**
+ * treeNodes：从扁平行恢复树根节点。
+ *
+ * 来源：MainView 传入的长期智能体行。
+ */
+const treeNodes = props.rows.filter((row) => {
+  return row.level === 0;
+}).map((row) => {
+  return row.node;
+});
 </script>
 
 <template>
@@ -76,18 +111,25 @@ const emit = defineEmits<{
   >
     <section class="composer-mini-dialog-body agent-status-dialog-grid">
       <aside class="agent-status-tree">
-        <button
-            v-for="row in props.rows"
-            :key="row.node.agentId"
-            class="composer-agent-node"
-            type="button"
-            :class="{ active: props.selectedNode?.agentId === row.node.agentId }"
-            :style="{ paddingLeft: `${10 + row.level * 18}px` }"
-            @click="emit('select-node', row.node)"
+        <el-tree
+            class="agent-status-el-tree"
+            :data="treeNodes"
+            node-key="agentId"
+            :props="treeProps"
+            :default-expanded-keys="defaultExpandedKeys"
+            highlight-current
+            @node-click="emit('select-node', $event)"
         >
-          <span>{{ row.node.name }}</span>
-          <small>{{ row.node.nodeKind }} · {{ row.node.status }}</small>
-        </button>
+          <template #default="{ data }">
+            <span
+                class="composer-agent-node"
+                :class="{ active: props.selectedNode?.agentId === data.agentId }"
+            >
+              <span>{{ data.name }}</span>
+              <small>{{ data.nodeKind }} · {{ data.status }}</small>
+            </span>
+          </template>
+        </el-tree>
         <el-empty
             v-if="props.rows.length === 0"
             description="暂无长期智能体；主智能体不在该状态树中展示。"
@@ -130,6 +172,63 @@ const emit = defineEmits<{
             placeholder="向当前智能体发送消息"
             @update:model-value="emit('update:draft', $event)"
         />
+        <section class="agent-composer-full-controls">
+          <div class="composer-entry-tabs">
+            <button
+                class="composer-entry-tab"
+                type="button"
+            >
+              任务 0/0
+            </button>
+            <button
+                class="composer-entry-tab"
+                type="button"
+            >
+              智能体状态 1/1
+            </button>
+            <button
+                class="composer-entry-tab"
+                type="button"
+            >
+              编辑
+            </button>
+          </div>
+          <div class="agent-composer-control-grid">
+            <el-select
+                model-value="当前模型"
+                size="small"
+                disabled
+            >
+              <el-option
+                  label="沿用外部输入区模型"
+                  value="当前模型"
+              />
+            </el-select>
+            <el-select
+                model-value="medium"
+                size="small"
+                disabled
+            >
+              <el-option
+                  label="中推理"
+                  value="medium"
+              />
+            </el-select>
+            <el-select
+                model-value="full_auto"
+                size="small"
+                disabled
+            >
+              <el-option
+                  label="全自动"
+                  value="full_auto"
+              />
+            </el-select>
+          </div>
+          <p class="panel-muted">
+            引用、附件、模型、推理深度、执行模式、上下文统计、任务、智能体状态和编辑入口沿用外部完整输入框能力；当前弹框发送会进入当前会话。
+          </p>
+        </section>
         <div class="child-agent-dialog-actions">
           <el-button
               :disabled="props.draft.trim().length === 0"
@@ -180,6 +279,10 @@ const emit = defineEmits<{
   gap: 6px;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.agent-status-el-tree {
+  --el-tree-node-hover-bg-color: var(--zhixin-hover-bg);
 }
 
 .composer-agent-node {
@@ -279,5 +382,32 @@ const emit = defineEmits<{
 .child-agent-dialog-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.agent-composer-full-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer-entry-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-entry-tab {
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--zhixin-border);
+  border-radius: 8px;
+  background: var(--zhixin-soft-bg);
+  color: var(--zhixin-text);
+}
+
+.agent-composer-control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 </style>

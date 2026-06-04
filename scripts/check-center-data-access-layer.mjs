@@ -1,114 +1,185 @@
 /**
  * 中心服务数据访问层边界检查。
  *
- * 用途：确认 Node 端 SQLite 访问已从领域代码收敛到轻量 repository，作为不引入 ORM 依赖的 MyBatisPlus 平替边界。
- * 关键逻辑：静态检查智能体领域不再直接散落 agents_index SQL，repository 只复用 CenterDatabase 连接。
+ * 用途：阻止 SQL、表定义和 SQLite 持久化查询继续散落在路由、领域服务和 Worker 编排中。
+ * 关键逻辑：只允许迁移文件、数据库初始化、Drizzle schema、数据库适配器和 data-access 目录承载 SQL。
  * 参数：无。
- * 返回值：检查通过时退出码为 0；发现边界回退时退出码为 1。
+ * 返回值：检查通过时退出码为 0；发现越界 SQL 时退出码为 1。
  */
 import {
+  readdirSync,
   readFileSync,
 } from "node:fs";
 import {
   join,
+  relative,
 } from "node:path";
 
 /**
- * readProjectFile：读取项目文件。
+ * walkFiles：递归收集指定目录下的 TypeScript 文件。
+ *
+ * @param {string} directory 需要扫描的目录。
+ * @returns {string[]} 文件绝对路径数组。
+ */
+function walkFiles(directory) {
+  const output = [];
+  for (const entry of readdirSync(directory, {
+    withFileTypes: true,
+  })) {
+    const fullPath = join(
+      directory,
+      entry.name,
+    );
+    if (entry.isDirectory()) {
+      output.push(...walkFiles(fullPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(".ts")) {
+      output.push(fullPath);
+    }
+  }
+  return output;
+}
+
+/**
+ * toPosixPath：把 Windows 路径转换为脚本内部统一路径。
+ *
+ * @param {string} path 文件路径。
+ * @returns {string} 使用 / 分隔的路径。
+ */
+function toPosixPath(path) {
+  return path.replace(/\\/gu, "/");
+}
+
+/**
+ * isAllowedSqlFile：判断文件是否允许包含 SQL。
  *
  * @param {string} pathInProject 仓库相对路径。
- * @returns {string} 文件文本。
+ * @returns {boolean} 允许返回 true。
  */
-function readProjectFile(pathInProject) {
-  return readFileSync(
-    join(
-      process.cwd(),
-      pathInProject,
-    ),
+function isAllowedSqlFile(pathInProject) {
+  const normalized = toPosixPath(pathInProject);
+  return normalized.startsWith("services/center/src/data-access/")
+    || normalized === "services/center/src/database.ts";
+}
+
+/**
+ * findSqlSignals：提取越界 SQL 信号。
+ *
+ * @param {string} source 文件源码。
+ * @returns {string[]} 命中的信号名称。
+ */
+function findSqlSignals(source) {
+  const signals = [];
+  const checks = [
+    [
+      "prepare(",
+      /\.prepare\s*\(/u,
+    ],
+    [
+      "exec(",
+      /\.exec\s*\(/u,
+    ],
+    [
+      "transaction(",
+      /\.transaction\s*\(/u,
+    ],
+    [
+      "SELECT",
+      /\bSELECT\b/u,
+    ],
+    [
+      "INSERT",
+      /\bINSERT\s+(?:OR\s+REPLACE\s+)?INTO\b/u,
+    ],
+    [
+      "UPDATE",
+      /\bUPDATE\b/u,
+    ],
+    [
+      "DELETE",
+      /\bDELETE\s+FROM\b/u,
+    ],
+    [
+      "CREATE TABLE",
+      /\bCREATE\s+TABLE\b/u,
+    ],
+    [
+      "ALTER TABLE",
+      /\bALTER\s+TABLE\b/u,
+    ],
+    [
+      "sqliteTable",
+      /\bsqliteTable\s*\(/u,
+    ],
+    [
+      "better-sqlite3",
+      /better-sqlite3/u,
+    ],
+  ];
+
+  for (const [
+    label,
+    pattern,
+  ] of checks) {
+    if (pattern.test(source)) {
+      signals.push(label);
+    }
+  }
+
+  return signals;
+}
+
+// sourceRoot: 中心服务源码根目录，只扫描当前服务实现。
+const sourceRoot = join(
+  process.cwd(),
+  "services/center/src",
+);
+// violations: 越界 SQL 清单，用于给程序员收口迁移。
+const violations = [];
+
+for (const filePath of walkFiles(sourceRoot)) {
+  const pathInProject = toPosixPath(relative(
+    process.cwd(),
+    filePath,
+  ));
+  const source = readFileSync(
+    filePath,
     "utf-8",
   );
+  const signals = findSqlSignals(source);
+  if (signals.length === 0 || isAllowedSqlFile(pathInProject)) {
+    continue;
+  }
+  violations.push({
+    pathInProject,
+    signals,
+  });
 }
 
-// repositorySource: 智能体数据访问层源码，必须是 SQLite SQL 的主要承载位置。
-const repositorySource = readProjectFile("services/center/src/data-access/agent-repository.ts");
-const sessionRepositorySource = readProjectFile("services/center/src/data-access/session-repository.ts");
-// agentDomainSource: 智能体领域源码，只允许通过 AgentRepository 访问 agents_index 高频查询。
-const agentDomainSource = readProjectFile("services/center/src/agent-domain.ts");
-// sessionDomainSource: 会话领域源码，应通过 SessionRepository 承载会话、任务和事件复杂查询。
-const sessionDomainSource = readProjectFile("services/center/src/session-domain.ts");
+if (violations.length > 0) {
+  console.error("中心服务 SQL 只能出现在 database.ts 和 services/center/src/data-access 内。");
+  for (const violation of violations) {
+    console.error(`- ${violation.pathInProject}: ${violation.signals.join(", ")}`);
+  }
+  process.exitCode = 1;
+}
 
-const requiredRepositorySignals = [
-  "export class AgentRepository",
-  "private readonly database: CenterDatabase",
-  "insertAgent(",
-  "upsertAgent(",
-  "findAgentById(",
-  "updateAgent(",
-  "disableAgent(",
-  "deleteAgentIndexes(",
-  "listAgents()",
-  "agents_index",
-];
-
-for (const signal of requiredRepositorySignals) {
-  if (!repositorySource.includes(signal)) {
-    console.error(`智能体数据访问层缺少边界信号：${signal}`);
+// repositoryIndex: 数据访问层需要有统一出口，避免业务文件直接拼相对 repository 路径后继续失控。
+const repositoryIndexPath = join(
+  process.cwd(),
+  "services/center/src/data-access/index.ts",
+);
+try {
+  const repositoryIndex = readFileSync(
+    repositoryIndexPath,
+    "utf-8",
+  );
+  if (!repositoryIndex.includes("createDataAccess")) {
+    console.error("数据访问层缺少 createDataAccess 统一工厂。");
     process.exitCode = 1;
   }
-}
-
-if (repositorySource.includes("new Database(")
-    || repositorySource.includes("better-sqlite3")) {
-  console.error("数据访问层不能创建新的 SQLite 连接，必须复用 CenterDatabase 持有的唯一连接。");
-  process.exitCode = 1;
-}
-
-if (!agentDomainSource.includes("new AgentRepository(database)")) {
-  console.error("智能体领域必须通过 AgentRepository 访问 agents_index。");
-  process.exitCode = 1;
-}
-
-const directAgentSqlPattern = /database\.connection\(\)[\s\S]{0,120}\.prepare\("[^"]*agents_index/u;
-if (directAgentSqlPattern.test(agentDomainSource)) {
-  console.error("智能体领域不能继续直接散落 agents_index SQL，应收敛到 AgentRepository。");
-  process.exitCode = 1;
-}
-
-const requiredSessionRepositorySignals = [
-  "export class SessionRepository",
-  "private readonly database: CenterDatabase",
-  "findSession(",
-  "listSessions(",
-  "listMessages(",
-  "listTurns(",
-  "listTasks(",
-  "listTaskSteps(",
-  "listEvents(",
-  "FROM sessions",
-  "FROM task_steps",
-  "FROM events",
-];
-
-for (const signal of requiredSessionRepositorySignals) {
-  if (!sessionRepositorySource.includes(signal)) {
-    console.error(`会话数据访问层缺少边界信号：${signal}`);
-    process.exitCode = 1;
-  }
-}
-
-if (sessionRepositorySource.includes("new Database(")
-    || sessionRepositorySource.includes("better-sqlite3")) {
-  console.error("会话数据访问层不能创建新的 SQLite 连接，必须复用 CenterDatabase 持有的唯一连接。");
-  process.exitCode = 1;
-}
-
-if (!sessionDomainSource.includes("new SessionRepository(database)")) {
-  console.error("会话领域必须通过 SessionRepository 访问高频会话、任务和事件查询。");
-  process.exitCode = 1;
-}
-
-const directSessionQueryPattern = /export function (findSession|listSessions|listMessages|listTurns|listTasks|listTaskSteps|listEvents)[\s\S]{0,500}database\.connection\(\)[\s\S]{0,200}\.prepare/u;
-if (directSessionQueryPattern.test(sessionDomainSource)) {
-  console.error("会话领域高频查询函数不能继续直接散落复杂 SQL，应委托 SessionRepository。");
+} catch {
+  console.error("数据访问层缺少统一出口文件 services/center/src/data-access/index.ts。");
   process.exitCode = 1;
 }

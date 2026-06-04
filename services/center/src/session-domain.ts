@@ -29,7 +29,8 @@ import {
 } from "./model-gateway-runtime.js";
 import {
     appendToolVisibilityEvents,
-    runNodeVersionCommandTool,
+    runCommandTool,
+    type CommandToolRequest,
 } from "./tool-runtime.js";
 
 export function upsertSyncClient(
@@ -43,22 +44,12 @@ export function upsertSyncClient(
     const clientId = randomUUID();
     // now: 同步客户端最后访问时间。
     const now = new Date().toISOString();
-    database.connection()
-        .prepare(`
-            INSERT INTO sync_clients (id,
-                                      client_type,
-                                      project_id,
-                                      last_seen_at,
-                                      last_event_sequence)
-            VALUES (?, ?, ?, ?, ?)
-        `)
-        .run(
-            clientId,
-            input.clientType,
-            input.projectId,
-            now,
-            0,
-        );
+    new SessionRepository(database).upsertSyncClient({
+        clientId,
+        clientType: input.clientType,
+        projectId: input.projectId,
+        lastSeenAt: now,
+    });
 
     return clientId;
 }
@@ -129,44 +120,7 @@ export function deleteSession(
     deleted: boolean;
 } {
     // 仅删除当前会话事实表中的索引数据；事件日志作为审计来源保留，附件物理文件由后续清理策略统一处理。
-    const transaction = database.connection().transaction(() => {
-        database.connection()
-            .prepare(`
-                DELETE FROM task_steps
-                WHERE task_id IN (
-                    SELECT id
-                    FROM tasks
-                    WHERE session_id = ?
-                )
-            `)
-            .run(session.sessionId);
-
-        database.connection()
-            .prepare("DELETE FROM tasks WHERE session_id = ?")
-            .run(session.sessionId);
-
-        database.connection()
-            .prepare("DELETE FROM conversation_turns WHERE session_id = ?")
-            .run(session.sessionId);
-
-        database.connection()
-            .prepare("DELETE FROM pending_messages WHERE session_id = ?")
-            .run(session.sessionId);
-
-        database.connection()
-            .prepare("DELETE FROM attachments WHERE session_id = ?")
-            .run(session.sessionId);
-
-        database.connection()
-            .prepare("DELETE FROM messages WHERE session_id = ?")
-            .run(session.sessionId);
-
-        database.connection()
-            .prepare("DELETE FROM sessions WHERE id = ?")
-            .run(session.sessionId);
-    });
-
-    transaction();
+    new SessionRepository(database).deleteSessionFacts(session.sessionId);
 
     events.append({
         eventType: "session.deleted",
@@ -267,32 +221,12 @@ export function createTaskStep(
     // now: 步骤开始时间。
     const now = new Date().toISOString();
 
-    database.connection()
-        .prepare(`
-            INSERT INTO task_steps (id,
-                                    task_id,
-                                    status,
-                                    title,
-                                    started_at,
-                                    ended_at,
-                                    summary)
-            VALUES (?, ?, ?, ?, ?, NULL, NULL)
-        `)
-        .run(
-            stepId,
-            task.taskId,
-            "running",
-            title,
-            now,
-        );
-
-    database.connection()
-        .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?")
-        .run(
-            "running",
-            now,
-            task.taskId,
-        );
+    new SessionRepository(database).createTaskStep({
+        stepId,
+        taskId: task.taskId,
+        title,
+        startedAt: now,
+    });
 
     events.append({
         eventType: "task.step.started",
@@ -339,25 +273,7 @@ export function updateTaskStep(
     status: TaskRecord["status"],
     summary: string | null,
 ): TaskStepRecord | null {
-    const existing = database.connection()
-        .prepare(`
-            SELECT task_steps.id         AS stepId,
-                   task_steps.task_id    AS taskId,
-                   task_steps.status,
-                   task_steps.title,
-                   task_steps.started_at AS startedAt,
-                   task_steps.ended_at   AS endedAt,
-                   task_steps.summary,
-                   tasks.session_id      AS sessionId,
-                   tasks.turn_id         AS turnId
-            FROM task_steps
-                     INNER JOIN tasks ON tasks.id = task_steps.task_id
-            WHERE task_steps.id = ?
-        `)
-        .get(stepId) as (TaskStepRecord & {
-        sessionId: string;
-        turnId: string;
-    }) | undefined;
+    const existing = new SessionRepository(database).findTaskStepWithTask(stepId);
 
     if (!existing) {
         return null;
@@ -367,14 +283,12 @@ export function updateTaskStep(
     const now = new Date().toISOString();
     const endedAt = isFinalTaskStatus(status) ? now : null;
 
-    database.connection()
-        .prepare("UPDATE task_steps SET status = ?, ended_at = ?, summary = ? WHERE id = ?")
-        .run(
-            status,
-            endedAt,
-            summary,
-            stepId,
-        );
+    new SessionRepository(database).updateTaskStep({
+        stepId,
+        status,
+        endedAt,
+        summary,
+    });
 
     events.append({
         eventType: "task.step.updated",
@@ -419,20 +333,7 @@ export function updateTurnStatus(
     turnId: string,
     status: "waiting_user" | "completed" | "failed" | "cancelled",
 ): ConversationTurn | null {
-    const turn = database.connection()
-        .prepare(`
-            SELECT id              AS turnId,
-                   session_id      AS sessionId,
-                   turn_number     AS turnNumber,
-                   user_message_id AS userMessageId,
-                   status,
-                   started_at      AS startedAt,
-                   ended_at        AS endedAt,
-                   duration_ms     AS durationMs
-            FROM conversation_turns
-            WHERE id = ?
-        `)
-        .get(turnId) as ConversationTurn | undefined;
+    const turn = new SessionRepository(database).findTurn(turnId);
 
     if (!turn) {
         return null;
@@ -443,23 +344,19 @@ export function updateTurnStatus(
     const endedAt = status === "waiting_user" ? null : now;
     const durationMs = endedAt ? Math.max(0, new Date(endedAt).getTime() - new Date(turn.startedAt).getTime()) : null;
 
-    database.connection()
-        .prepare("UPDATE conversation_turns SET status = ?, ended_at = ?, duration_ms = ? WHERE id = ?")
-        .run(
-            status,
-            endedAt,
-            durationMs,
-            turnId,
-        );
+    new SessionRepository(database).updateTurnStatus({
+        turnId,
+        status,
+        endedAt,
+        durationMs,
+    });
 
     const taskStatus = mapTurnStatusToTaskStatus(status);
-    database.connection()
-        .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE turn_id = ?")
-        .run(
-            taskStatus,
-            now,
-            turnId,
-        );
+    new SessionRepository(database).updateTaskStatusByTurn(
+        turnId,
+        taskStatus,
+        now,
+    );
 
     events.append({
         eventType: "turn.updated",
@@ -537,84 +434,16 @@ export function createMessageTurnAndTask(
     // taskId: 默认任务身份，后续 Worker 接管后继续更新该任务。
     const taskId = randomUUID();
     // turnNumber: 同一会话内用户发起轮次递增。
-    const turnNumberRow = database.connection()
-        .prepare("SELECT MAX(turn_number) AS maxTurnNumber FROM conversation_turns WHERE session_id = ?")
-        .get(session.sessionId) as {
-        maxTurnNumber: number | null;
-    } | undefined;
-    const turnNumber = (turnNumberRow?.maxTurnNumber ?? 0) + 1;
-
-    const transaction = database.connection().transaction(() => {
-        database.connection()
-            .prepare(`
-                INSERT INTO messages (id,
-                                      session_id,
-                                      turn_id,
-                                      role,
-                                      content_markdown,
-                                      created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `)
-            .run(
-                messageId,
-                session.sessionId,
-                turnId,
-                "user",
-                contentMarkdown,
-                now,
-            );
-
-        database.connection()
-            .prepare(`
-                INSERT INTO conversation_turns (id,
-                                                session_id,
-                                                turn_number,
-                                                user_message_id,
-                                                status,
-                                                started_at,
-                                                ended_at,
-                                                duration_ms)
-                VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
-            `)
-            .run(
-                turnId,
-                session.sessionId,
-                turnNumber,
-                messageId,
-                "running",
-                now,
-            );
-
-        database.connection()
-            .prepare(`
-                INSERT INTO tasks (id,
-                                   turn_id,
-                                   session_id,
-                                   status,
-                                   title,
-                                   created_at,
-                                   updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `)
-            .run(
-                taskId,
-                turnId,
-                session.sessionId,
-                "queued",
-                "等待 Agent 执行",
-                now,
-                now,
-            );
-
-        database.connection()
-            .prepare("UPDATE sessions SET updated_at = ? WHERE id = ?")
-            .run(
-                now,
-                session.sessionId,
-            );
+    const turnNumber = new SessionRepository(database).nextTurnNumber(session.sessionId);
+    new SessionRepository(database).createMessageTurnAndTask({
+        sessionId: session.sessionId,
+        messageId,
+        turnId,
+        taskId,
+        turnNumber,
+        contentMarkdown,
+        now,
     });
-
-    transaction();
 
     events.append({
         eventType: "turn.started",
@@ -692,11 +521,7 @@ export function completeCreatedTurn(
 ): void {
     const assistantMessageId = randomUUID();
     const now = new Date().toISOString();
-    const turn = database.connection()
-        .prepare("SELECT session_id AS sessionId FROM conversation_turns WHERE id = ?")
-        .get(sent.turnId) as {
-        sessionId: string;
-    } | undefined;
+    const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
 
     startWorkerTask(database, events, sent.taskId);
     const thinkingStep = createTaskStep(
@@ -771,13 +596,15 @@ export function completeCreatedTurn(
             sent.taskId,
             sent.turnId,
         );
-        if (userText.includes("Node.js 版本") || userText.includes("node -v")) {
+        const commandPlan = planCommandToolForUserText(userText);
+        if (commandPlan) {
             // 命令工具只能由对话语义触发，避免浏览器按钮绕过任务编排和审计事件链路。
-            runNodeVersionCommandTool(
+            runCommandTool(
                 events,
                 sent.sessionId,
                 sent.taskId,
                 sent.turnId,
+                commandPlan,
             );
         }
         updateTaskStep(
@@ -787,20 +614,17 @@ export function completeCreatedTurn(
             "completed",
             "命令工具、插件、MCP 和 skill 过程已写入可见事件。",
         );
-        database.connection()
-            .prepare("INSERT INTO messages (id, session_id, turn_id, role, content_markdown, created_at) SELECT ?, session_id, id, ?, ?, ? FROM conversation_turns WHERE id = ?")
-            .run(
-                assistantMessageId,
-                "assistant",
-                modelResult.assistantText,
-                now,
-                sent.turnId,
-            );
+        new SessionRepository(database).insertAssistantMessageForTurn({
+            messageId: assistantMessageId,
+            turnId: sent.turnId,
+            contentMarkdown: modelResult.assistantText,
+            createdAt: now,
+        });
         events.append({
             eventType: "message.created",
             scopeType: "message",
             scopeId: assistantMessageId,
-            sessionId: turn?.sessionId ?? null,
+            sessionId: turnSessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             status: "completed",
@@ -822,26 +646,22 @@ export function completeCreatedTurn(
         updateTurnStatus(database, events, sent.turnId, "completed");
     } catch (error) {
         const message = error instanceof Error ? error.message : "UNKNOWN_MODEL_ERROR";
-        database.connection()
-            .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?")
-            .run(
-                "failed",
-                new Date().toISOString(),
-                sent.taskId,
-            );
-        database.connection()
-            .prepare("UPDATE conversation_turns SET status = ?, ended_at = ?, duration_ms = ? WHERE id = ?")
-            .run(
-                "failed",
-                new Date().toISOString(),
-                0,
-                sent.turnId,
-            );
+        new SessionRepository(database).updateTaskStatus(
+            sent.taskId,
+            "failed",
+            new Date().toISOString(),
+        );
+        new SessionRepository(database).updateTurnStatus({
+            turnId: sent.turnId,
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            durationMs: 0,
+        });
         events.append({
             eventType: "model.failed",
             scopeType: "model",
             scopeId: sent.taskId,
-            sessionId: turn?.sessionId ?? null,
+            sessionId: turnSessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             status: "failed",
@@ -857,6 +677,37 @@ export function completeCreatedTurn(
             errorMessage: message,
         });
     }
+}
+
+/**
+ * planCommandToolForUserText：按用户自然语言规划通用命令工具。
+ *
+ * @param userText 用户输入。
+ * @returns 明确命令请求；不需要命令时返回 null。
+ */
+export function planCommandToolForUserText(userText: string): CommandToolRequest | null {
+    const normalized = userText.toLowerCase();
+    if (normalized.includes("node") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
+        return {
+            executablePath: process.execPath,
+            args: [
+                "-v",
+            ],
+            inputSummary: "输出当前中心服务使用的 Node.js 运行环境版本。",
+        };
+    }
+
+    if (normalized.includes("python") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
+        return {
+            executablePath: "python",
+            args: [
+                "--version",
+            ],
+            inputSummary: "输出本机 Python 运行环境版本。",
+        };
+    }
+
+    return null;
 }
 
 /**
@@ -979,25 +830,21 @@ export function updateSessionTitleAfterTurn(
     userText: string,
     assistantText: string,
 ): ConversationSession | null {
-    const turnSession = database.connection()
-        .prepare("SELECT session_id AS sessionId FROM conversation_turns WHERE id = ?")
-        .get(sent.turnId) as {
-        sessionId: string;
-    } | undefined;
-    const session = turnSession ? findSession(database, turnSession.sessionId) : null;
+    const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
+    const session = turnSessionId ? findSession(database, turnSessionId) : null;
     if (!session) {
         events.append({
             eventType: "session.title_summary.failed",
             scopeType: "session",
-            scopeId: turnSession?.sessionId ?? null,
-            sessionId: turnSession?.sessionId ?? null,
+            scopeId: turnSessionId,
+            sessionId: turnSessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             status: "failed",
             title: "会话标题总结失败",
             summary: "标题总结时未找到会话，已保留原标题。",
             payload: {
-                sessionId: turnSession?.sessionId ?? null,
+                sessionId: turnSessionId,
                 reason: "SESSION_NOT_FOUND",
             },
             errorCode: "SESSION_NOT_FOUND",
@@ -1013,13 +860,11 @@ export function updateSessionTitleAfterTurn(
         );
         // now: 会话标题变化属于会话元信息更新，需要刷新列表排序和详情更新时间。
         const now = new Date().toISOString();
-        database.connection()
-            .prepare("UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?")
-            .run(
-                nextTitle,
-                now,
-                session.sessionId,
-            );
+        new SessionRepository(database).updateSessionTitle({
+            sessionId: session.sessionId,
+            title: nextTitle,
+            updatedAt: now,
+        });
         const updatedSession = findSession(database, session.sessionId);
         if (!updatedSession) {
             throw new Error("SESSION_UPDATED_ROW_NOT_FOUND");
@@ -1079,17 +924,13 @@ export function savePendingMessage(
 } {
     const pendingMessageId = randomUUID();
     const now = new Date().toISOString();
-    database.connection()
-        .prepare("INSERT INTO pending_messages (id, session_id, client_id, content_markdown, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(
-            pendingMessageId,
-            sessionId,
-            clientId,
-            contentMarkdown,
-            "waiting_user",
-            now,
-            now,
-        );
+    new SessionRepository(database).savePendingMessage({
+        pendingMessageId,
+        sessionId,
+        clientId,
+        contentMarkdown,
+        now,
+    });
     return {
         pendingMessageId,
         status: "waiting_user",
@@ -1100,9 +941,7 @@ export function listPendingMessages(
     database: CenterDatabase,
     sessionId: string,
 ): unknown[] {
-    return database.connection()
-        .prepare("SELECT id AS pendingMessageId, session_id AS sessionId, client_id AS clientId, content_markdown AS contentMarkdown, status, created_at AS createdAt, updated_at AS updatedAt FROM pending_messages WHERE session_id = ? ORDER BY created_at ASC")
-        .all(sessionId);
+    return new SessionRepository(database).listPendingMessages(sessionId);
 }
 
 /**

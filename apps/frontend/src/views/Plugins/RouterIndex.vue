@@ -202,19 +202,49 @@ onMounted(() => {
         </div>
         </el-form>
       </el-dialog>
-      <section class="management-list">
-        <article
-            v-for="plugin in appStore.globalPlugins"
-            :key="plugin.pluginId"
-            class="management-item"
+      <el-table
+          :data="appStore.globalPlugins"
+          class="management-table"
+          empty-text="暂无全局插件"
+      >
+        <el-table-column
+            label="插件 ID"
+            min-width="220"
         >
-          <div>
+          <template #default="{ row: plugin }">
             <strong>{{ plugin.pluginId }}</strong>
-            <span>{{ plugin.source }} · {{ plugin.scope }}</span>
-            <small>{{ formatDisplayTime(plugin.updatedAt) }}</small>
-          </div>
-        </article>
-      </section>
+            <small>项目级能力只在项目对话中展示。</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="来源"
+            min-width="150"
+            prop="source"
+        />
+        <el-table-column
+            label="作用域"
+            min-width="130"
+            prop="scope"
+        />
+        <el-table-column
+            label="状态"
+            width="110"
+        >
+          <template #default="{ row: plugin }">
+            <el-tag :type="plugin.enabled ? 'success' : 'info'">
+              {{ plugin.enabled ? "启用" : "停用" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="更新时间"
+            min-width="180"
+        >
+          <template #default="{ row: plugin }">
+            {{ formatDisplayTime(plugin.updatedAt) }}
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
   </section>
 </template>

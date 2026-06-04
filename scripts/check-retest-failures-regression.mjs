@@ -25,7 +25,7 @@ const workflowDomainPath = join(
   "services",
   "center",
   "src",
-  "workflow-domain.ts",
+  "model-gateway-runtime.ts",
 );
 // chatPagePath: 对话页路由入口源码。
 const chatPagePath = join(

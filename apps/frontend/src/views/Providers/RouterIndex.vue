@@ -538,47 +538,75 @@ onMounted(() => {
         </div>
         </el-form>
       </el-dialog>
-      <el-empty
-          v-if="appStore.providers.length === 0"
-          description="暂无供应商"
-      />
-      <section
-          v-else
-          class="management-list"
+      <el-table
+          :data="appStore.providers"
+          class="management-table"
+          empty-text="暂无供应商"
       >
-        <article
-            v-for="provider in appStore.providers"
-            :key="provider.providerId"
-            class="management-item"
+        <el-table-column
+            label="供应商"
+            min-width="180"
         >
-          <div>
+          <template #default="{ row: provider }">
             <strong>{{ provider.providerName }}</strong>
-            <span>{{ provider.protocolPluginId }} · {{ provider.protocolMode }}</span>
-            <small>{{ provider.baseUrl }} · API Key：{{ provider.hasApiKey ? "已保存" : "未保存" }}</small>
-          </div>
-          <div class="management-actions">
+            <small>{{ provider.providerId }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="协议"
+            min-width="220"
+        >
+          <template #default="{ row: provider }">
+            <span>{{ provider.protocolPluginId }}</span>
+            <small>{{ provider.protocolMode }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="接口与密钥"
+            min-width="260"
+        >
+          <template #default="{ row: provider }">
+            <span>{{ provider.baseUrl }}</span>
+            <small>API Key：{{ provider.hasApiKey ? "已保存" : "未保存" }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="状态"
+            width="110"
+        >
+          <template #default="{ row: provider }">
             <el-tag :type="provider.enabled ? 'success' : 'info'">
               {{ provider.enabled ? "启用" : "停用" }}
             </el-tag>
-            <el-button @click="openEditProviderDialog(provider)">
-              修改
-            </el-button>
-            <el-button @click="appStore.toggleProvider(provider)">
-              {{ provider.enabled ? "停用" : "启用" }}
-            </el-button>
-            <el-button @click="appStore.refreshProviderModels(provider)">
-              刷新模型/推理深度
-            </el-button>
-            <el-button
-                type="danger"
-                plain
-                @click="appStore.deleteProvider(provider)"
-            >
-              删除
-            </el-button>
-          </div>
-        </article>
-      </section>
+          </template>
+        </el-table-column>
+        <el-table-column
+            fixed="right"
+            label="操作"
+            min-width="330"
+        >
+          <template #default="{ row: provider }">
+            <div class="management-table-actions">
+              <el-button @click="openEditProviderDialog(provider)">
+                修改
+              </el-button>
+              <el-button @click="appStore.toggleProvider(provider)">
+                {{ provider.enabled ? "停用" : "启用" }}
+              </el-button>
+              <el-button @click="appStore.refreshProviderModels(provider)">
+                刷新模型/推理深度
+              </el-button>
+              <el-button
+                  type="danger"
+                  plain
+                  @click="appStore.deleteProvider(provider)"
+              >
+                删除
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
   </section>
 </template>

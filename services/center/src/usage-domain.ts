@@ -6,6 +6,7 @@ import type {ClientType} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
+import {createDataAccess} from "./data-access/index.js";
 import {writeJsonFile} from "./helpers.js";
 
 export interface UsageQueryFilters {
@@ -48,17 +49,7 @@ export interface UsageQueryFilters {
  * @returns 用量原始记录数组。
  */
 export function queryUsageRecords(database: CenterDatabase, filters: UsageQueryFilters): unknown[] {
-    const whereParts: string[] = [];
-    const params: Array<string> = [];
-    appendUsageWhereClause(whereParts, params, filters);
-    const whereSql = whereParts.length > 0
-        ? ` WHERE ${whereParts.join(" AND ")}`
-        : "";
-    return database.connection()
-        .prepare(`SELECT *
-                  FROM usage_records${whereSql}
-                  ORDER BY created_at ASC`)
-        .all(...params);
+    return createDataAccess(database).usage.queryUsageRecords(filters);
 }
 
 /**
@@ -69,101 +60,7 @@ export function queryUsageRecords(database: CenterDatabase, filters: UsageQueryF
  * @returns 聚合统计数组。
  */
 export function aggregateUsageRecords(database: CenterDatabase, filters: UsageQueryFilters): unknown[] {
-    const whereParts: string[] = [];
-    const params: Array<string> = [];
-    appendUsageWhereClause(whereParts, params, filters);
-    const whereSql = whereParts.length > 0
-        ? ` WHERE ${whereParts.join(" AND ")}`
-        : "";
-    const detailedStats = database.connection()
-        .prepare(`
-            SELECT 'model-project-detail'                                      AS summaryType,
-                   provider_id                                                 AS providerId,
-                   model,
-                   project_id                                                  AS projectId,
-                   SUM(COALESCE(input_tokens, 0))                              AS inputTokens,
-                   SUM(COALESCE(output_tokens, 0))                             AS outputTokens,
-                   SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) AS totalTokens,
-                   SUM(COALESCE(cache_hit_tokens, 0))                          AS cacheHitTokens,
-                   SUM(COALESCE(cache_miss_tokens, 0))                         AS cacheMissTokens,
-                   COUNT(*)                                                    AS callCount,
-                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)       AS successCount,
-                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)          AS failureCount,
-                   MIN(created_at)                                             AS startedAt,
-                   MAX(created_at)                                             AS endedAt
-            FROM usage_records${whereSql}
-            GROUP BY provider_id, model, project_id
-            ORDER BY provider_id ASC, model ASC
-        `)
-        .all(...params);
-    const totalStats = database.connection()
-        .prepare(`
-            SELECT 'total-summary'                                             AS summaryType,
-                   NULL                                                        AS providerId,
-                   NULL                                                        AS model,
-                   NULL                                                        AS projectId,
-                   SUM(COALESCE(input_tokens, 0))                              AS inputTokens,
-                   SUM(COALESCE(output_tokens, 0))                             AS outputTokens,
-                   SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) AS totalTokens,
-                   SUM(COALESCE(cache_hit_tokens, 0))                          AS cacheHitTokens,
-                   SUM(COALESCE(cache_miss_tokens, 0))                         AS cacheMissTokens,
-                   COUNT(*)                                                    AS callCount,
-                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)       AS successCount,
-                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)          AS failureCount,
-                   MIN(created_at)                                             AS startedAt,
-                   MAX(created_at)                                             AS endedAt
-            FROM usage_records${whereSql}
-        `)
-        .all(...params);
-    const providerStats = database.connection()
-        .prepare(`
-            SELECT 'provider-summary'                                          AS summaryType,
-                   provider_id                                                 AS providerId,
-                   NULL                                                        AS model,
-                   NULL                                                        AS projectId,
-                   SUM(COALESCE(input_tokens, 0))                              AS inputTokens,
-                   SUM(COALESCE(output_tokens, 0))                             AS outputTokens,
-                   SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) AS totalTokens,
-                   SUM(COALESCE(cache_hit_tokens, 0))                          AS cacheHitTokens,
-                   SUM(COALESCE(cache_miss_tokens, 0))                         AS cacheMissTokens,
-                   COUNT(*)                                                    AS callCount,
-                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)       AS successCount,
-                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)          AS failureCount,
-                   MIN(created_at)                                             AS startedAt,
-                   MAX(created_at)                                             AS endedAt
-            FROM usage_records${whereSql}
-            GROUP BY provider_id
-            ORDER BY provider_id ASC
-        `)
-        .all(...params);
-    const projectStats = database.connection()
-        .prepare(`
-            SELECT 'project-summary'                                           AS summaryType,
-                   NULL                                                        AS providerId,
-                   NULL                                                        AS model,
-                   project_id                                                  AS projectId,
-                   SUM(COALESCE(input_tokens, 0))                              AS inputTokens,
-                   SUM(COALESCE(output_tokens, 0))                             AS outputTokens,
-                   SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) AS totalTokens,
-                   SUM(COALESCE(cache_hit_tokens, 0))                          AS cacheHitTokens,
-                   SUM(COALESCE(cache_miss_tokens, 0))                         AS cacheMissTokens,
-                   COUNT(*)                                                    AS callCount,
-                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)       AS successCount,
-                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)          AS failureCount,
-                   MIN(created_at)                                             AS startedAt,
-                   MAX(created_at)                                             AS endedAt
-            FROM usage_records${whereSql}
-            GROUP BY project_id
-            ORDER BY project_id ASC
-        `)
-        .all(...params);
-
-    return [
-        ...totalStats,
-        ...providerStats,
-        ...projectStats,
-        ...detailedStats,
-    ];
+    return createDataAccess(database).usage.aggregateUsageRecords(filters);
 }
 
 /**
@@ -206,44 +103,7 @@ export function appendUsageWhereClause(
 }
 
 export function refreshUsageDailyStats(database: CenterDatabase): unknown[] {
-    const rows = database.connection()
-        .prepare(`
-            SELECT provider_id                     AS providerId,
-                   model,
-                   project_id                      AS projectId,
-                   substr(created_at, 1, 10)       AS statDate,
-                   SUM(COALESCE(input_tokens, 0))  AS inputTokens,
-                   SUM(COALESCE(output_tokens, 0)) AS outputTokens,
-                   COUNT(*)                        AS callCount
-            FROM usage_records
-            GROUP BY provider_id, model, project_id, substr(created_at, 1, 10)
-        `)
-        .all() as Array<{
-        providerId: string;
-        model: string;
-        projectId: string | null;
-        statDate: string;
-        inputTokens: number;
-        outputTokens: number;
-        callCount: number;
-    }>;
-
-    for (const row of rows) {
-        const id = `${row.statDate}:${row.providerId}:${row.model}:${row.projectId ?? "global"}`;
-        database.connection()
-            .prepare("INSERT OR REPLACE INTO usage_daily_stats (id, stat_date, provider_id, model, project_id, payload_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-            .run(
-                id,
-                row.statDate,
-                row.providerId,
-                row.model,
-                row.projectId,
-                JSON.stringify(row),
-                new Date().toISOString(),
-            );
-    }
-
-    return rows;
+    return createDataAccess(database).usage.refreshUsageDailyStats(new Date().toISOString());
 }
 
 export function saveNotificationConfig(
@@ -347,17 +207,15 @@ export function commitAttachment(
         temporaryAttachmentId: input.temporaryAttachmentId,
         fileName: input.fileName,
     }), "utf-8");
-    database.connection()
-        .prepare("INSERT INTO attachments (id, session_id, message_id, file_name, mime_type, size_bytes, relative_path) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(
-            attachmentId,
-            input.sessionId,
-            input.messageId,
-            input.fileName,
-            input.mimeType,
-            input.sizeBytes,
-            relativePath,
-        );
+    createDataAccess(database).usage.insertAttachment({
+        attachmentId,
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        relativePath,
+    });
     events.append({
         eventType: "attachment.committed",
         scopeType: "attachment",

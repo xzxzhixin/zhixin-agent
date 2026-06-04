@@ -42,7 +42,7 @@ import {
     createMcpDraft, createPluginDraft, createAgentDraft, createProjectCodeSuggestion,
     createProjectFileSuggestion, createProjectFolderSuggestion, createProviderDraft,
     createProxyDraft, createRuntimeDraft, createSkillDraft, createUsageFilters,
-    estimateComposerContextUsedTokens, fallbackProjectsFromSessions, formatReferenceMarkdown,
+    fallbackProjectsFromSessions, formatReferenceMarkdown,
     mergeAgentStatusTree, normalizeOptionalText, parseEnvironmentVariables, readPluginConfig,
     formatJsonText, resolveComposerProjectId,
 } from "./app-helpers";
@@ -267,6 +267,8 @@ export const useAppStore = defineStore("app", {
             selectedProviderId: null,
             selectedModel: "",
             contextUsedTokens: 0,
+            contextTokenizerName: "",
+            contextTokenizerSource: "",
             reasoningEffort: "medium",
         } as ComposerSettings,
 
@@ -1113,7 +1115,7 @@ export const useAppStore = defineStore("app", {
                 await this.loadProjectCapabilitySources();
             }
             this.applyDefaultComposerModelSettings();
-            this.updateComposerContextUsage();
+            void this.updateComposerContextUsage();
         },
 
         ...createConversationActions(),
@@ -1236,6 +1238,7 @@ export const useAppStore = defineStore("app", {
             if (!this.canUseProjectReferences) {
                 this.showProjectReferencePopover = false;
                 this.projectReferenceQuery = "";
+                void this.updateComposerContextUsage();
                 return;
             }
 
@@ -1248,6 +1251,7 @@ export const useAppStore = defineStore("app", {
             this.projectReferenceQuery = this.showProjectReferencePopover
                 ? afterAt
                 : "";
+            void this.updateComposerContextUsage();
         },
 
         /**
@@ -1261,6 +1265,7 @@ export const useAppStore = defineStore("app", {
             this.draft.text = this.removeActiveAtQuery(this.draft.text);
             this.showProjectReferencePopover = false;
             this.projectReferenceQuery = "";
+            void this.updateComposerContextUsage();
         },
 
         /**
@@ -1271,6 +1276,7 @@ export const useAppStore = defineStore("app", {
          */
         removeReference(index: number): void {
             this.draft.references.splice(index, 1);
+            void this.updateComposerContextUsage();
         },
 
         /**
@@ -1281,6 +1287,7 @@ export const useAppStore = defineStore("app", {
          */
         removeAttachment(index: number): void {
             this.draft.attachments.splice(index, 1);
+            void this.updateComposerContextUsage();
         },
 
         /**

@@ -4,6 +4,7 @@ import {dirname, join} from "node:path";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
+import {createDataAccess} from "./data-access/index.js";
 import {writeJsonFile} from "./helpers.js";
 
 export function installPlugin(
@@ -14,16 +15,14 @@ export function installPlugin(
     pluginInstallId: string;
 } {
     const pluginInstallId = String(manifest.id ?? randomUUID());
-    database.connection()
-        .prepare("INSERT OR REPLACE INTO plugin_installs (id, source, scope, enabled, manifest_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(
-            pluginInstallId,
-            String(manifest.source),
-            String(manifest.scope),
-            1,
-            JSON.stringify(manifest),
-            new Date().toISOString(),
-        );
+    createDataAccess(database).extensions.upsertPlugin({
+        pluginInstallId,
+        source: String(manifest.source),
+        scope: String(manifest.scope),
+        enabled: true,
+        manifestJson: JSON.stringify(manifest),
+        updatedAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "plugin.installed",
         scopeType: "plugin",
@@ -53,13 +52,11 @@ export function setPluginEnabled(
     pluginId: string;
     enabled: boolean;
 } {
-    database.connection()
-        .prepare("UPDATE plugin_installs SET enabled = ?, updated_at = ? WHERE id = ?")
-        .run(
-            enabled ? 1 : 0,
-            new Date().toISOString(),
-            pluginId,
-        );
+    createDataAccess(database).extensions.setPluginEnabled(
+        pluginId,
+        enabled,
+        new Date().toISOString(),
+    );
     events.append({
         eventType: enabled ? "plugin.enabled" : "plugin.disabled",
         scopeType: "plugin",
@@ -89,22 +86,16 @@ export function configurePlugin(
     pluginId: string;
     configured: boolean;
 } {
-    const row = database.connection()
-        .prepare("SELECT manifest_json AS manifestJson FROM plugin_installs WHERE id = ?")
-        .get(pluginId) as {
-        manifestJson: string;
-    } | undefined;
-    const manifest = row ? JSON.parse(row.manifestJson) as Record<string, unknown> : {};
-    database.connection()
-        .prepare("UPDATE plugin_installs SET manifest_json = ?, updated_at = ? WHERE id = ?")
-        .run(
-            JSON.stringify({
-                ...manifest,
-                config,
-            }),
-            new Date().toISOString(),
-            pluginId,
-        );
+    const manifestJson = createDataAccess(database).extensions.findPluginManifestJson(pluginId);
+    const manifest = manifestJson ? JSON.parse(manifestJson) as Record<string, unknown> : {};
+    createDataAccess(database).extensions.updatePluginManifestJson(
+        pluginId,
+        JSON.stringify({
+            ...manifest,
+            config,
+        }),
+        new Date().toISOString(),
+    );
     events.append({
         eventType: "plugin.configured",
         scopeType: "plugin",
@@ -131,10 +122,7 @@ export function deletePlugin(
     pluginId: string;
     deleted: boolean;
 } {
-    const result = database.connection()
-        .prepare("DELETE FROM plugin_installs WHERE id = ? AND source <> 'system-builtin'")
-        .run(pluginId);
-    const deleted = result.changes > 0;
+    const deleted = createDataAccess(database).extensions.deleteUserPlugin(pluginId);
     events.append({
         eventType: deleted ? "plugin.deleted" : "plugin.delete.skipped",
         scopeType: "plugin",
@@ -154,16 +142,7 @@ export function deletePlugin(
 }
 
 export function listPlugins(database: CenterDatabase): unknown[] {
-    const rows = database.connection()
-        .prepare("SELECT id AS pluginId, source, scope, enabled, manifest_json AS manifestJson, updated_at AS updatedAt FROM plugin_installs ORDER BY updated_at DESC")
-        .all() as Array<{
-            pluginId: string;
-            source: string;
-            scope: string;
-            enabled: number;
-            manifestJson: string;
-            updatedAt: string;
-        }>;
+    const rows = createDataAccess(database).extensions.listPlugins();
 
     return rows.map((row) => {
         const manifest = JSON.parse(row.manifestJson) as {
@@ -195,18 +174,16 @@ export function recordExtensionCall(
     callId: string;
 } {
     const callId = randomUUID();
-    database.connection()
-        .prepare("INSERT INTO extension_call_records (id, extension_id, session_id, task_id, status, input_summary, output_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(
-            callId,
-            input.extensionId,
-            input.sessionId ?? null,
-            input.taskId ?? null,
-            input.status,
-            input.inputSummary,
-            input.outputSummary ?? null,
-            new Date().toISOString(),
-        );
+    createDataAccess(database).extensions.insertExtensionCall({
+        callId,
+        extensionId: input.extensionId,
+        sessionId: input.sessionId ?? null,
+        taskId: input.taskId ?? null,
+        status: input.status,
+        inputSummary: input.inputSummary,
+        outputSummary: input.outputSummary ?? null,
+        createdAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "extension.called",
         scopeType: "extension",

@@ -7,6 +7,7 @@ import type {ModelRequest, ModelUsage} from "@zhixin/model-protocol";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
+import {createDataAccess} from "./data-access/index.js";
 import {
     readProviderConfig,
     readSecretValue,
@@ -115,10 +116,7 @@ export function invokeProviderModelGateway(
 }
 
 function extractCenterDirectory(database: CenterDatabase): string {
-    const row = database.connection()
-        .prepare("SELECT value FROM meta WHERE key = ?")
-        .get("centerDirectory") as { value?: string } | undefined;
-    return row?.value ?? "";
+    return createDataAccess(database).system.readMetaValue("centerDirectory") ?? "";
 }
 
 function readProviderConfigByPriority(database: CenterDatabase, taskId: string) {

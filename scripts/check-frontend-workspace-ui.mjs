@@ -30,13 +30,13 @@ const workspaceRouteHostPath = join(
   "views",
   "WorkspaceRouteHost.vue",
 );
-// centerServicePath: 中心服务入口源码，用于检查记忆 Markdown 标题协议。
+// centerServicePath: 智能体领域源码，用于检查记忆 Markdown 标题协议。
 const centerServicePath = join(
   process.cwd(),
   "services",
   "center",
   "src",
-  "index.ts",
+  "agent-domain.ts",
 );
 // viteConfigPath: Vite 配置源码，用于检查前端路径别名。
 const viteConfigPath = join(
@@ -156,6 +156,40 @@ const appStorePath = join(
 // appStore: 工作台数据初始化源码，用于防止项目列表旧接口失败阻断会话渲染。
 const appStore = readFileSync(
   appStorePath,
+  "utf-8",
+);
+const appManagementActions = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "stores",
+    "app-management-actions.ts",
+  ),
+  "utf-8",
+);
+const appHelpers = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "stores",
+    "app-helpers.ts",
+  ),
+  "utf-8",
+);
+const chatHelpers = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "chat-view-helpers.ts",
+  ),
   "utf-8",
 );
 // agentStatusDialogPath: 智能体状态弹框组件源码。
@@ -621,7 +655,7 @@ const expectations = [
     "项目列表失败兜底必须记录中文排查信息。",
   ],
   [
-    appStore,
+    appStore + appHelpers + chatHelpers,
     "未登记项目名称",
     "旧中心服务缺少项目登记信息时必须显示明确的未登记名称，不能用项目 ID 冒充主名称。",
   ],
@@ -1070,8 +1104,8 @@ if (!appStore.includes("contextUsedTokens") || !appStore.includes("composerSelec
   process.exitCode = 1;
 }
 
-if (!appStore.includes("estimateComposerContextUsedTokens") || !appStore.includes("updateComposerContextUsage")) {
-  console.error("当前窗口上下文用量不能只保留初始化值，必须随会话和草稿更新。");
+if (!(appStore + appManagementActions).includes("countComposerContextTokens") || !(appStore + appManagementActions).includes("updateComposerContextUsage")) {
+  console.error("当前窗口上下文用量必须通过中心服务 tokenizer 随会话和草稿更新。");
   process.exitCode = 1;
 }
 

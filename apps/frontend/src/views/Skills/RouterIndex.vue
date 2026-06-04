@@ -213,19 +213,39 @@ onMounted(() => {
         </div>
         </el-form>
       </el-dialog>
-      <section class="management-list">
-        <article
-            v-for="skill in appStore.globalSkills"
-            :key="skill.skillName"
-            class="management-item"
+      <el-table
+          :data="appStore.globalSkills"
+          class="management-table"
+          empty-text="暂无全局 skill"
+      >
+        <el-table-column
+            label="skill"
+            min-width="180"
         >
-          <div>
+          <template #default="{ row: skill }">
             <strong>{{ skill.skillName }}</strong>
-            <span>{{ skill.scope }} · {{ skill.enabled ? "启用" : "停用" }}</span>
             <small>项目级 skill 只在项目能力详情中展示。</small>
-          </div>
-        </article>
-      </section>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="作用域"
+            width="110"
+            prop="scope"
+        />
+        <el-table-column
+            label="文件路径"
+            min-width="260"
+            prop="relativePath"
+        />
+        <el-table-column
+            label="内容摘要"
+            min-width="260"
+        >
+          <template #default="{ row: skill }">
+            {{ skill.content.slice(0, 80) }}
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
   </section>
 </template>

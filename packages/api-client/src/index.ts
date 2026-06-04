@@ -10,6 +10,7 @@ import type {
   SessionType,
   TaskRecord,
   TaskStatus,
+  TokenizerCountResponse,
   WebSocketEnvelope,
 } from "@zhixin/shared";
 
@@ -1283,22 +1284,20 @@ export class CenterApiClient {
   }
 
   /**
-   * runNodeVersionCommandTool：通过中心服务执行 Node.js 版本命令工具。
+   * countComposerContextTokens：统计当前输入区真实上下文 token。
    *
-   * @param payload 当前会话、任务和轮次身份。
-   * @returns 命令工具输出摘要。
+   * @param payload 当前会话、草稿、引用、附件和模型窗口。
+   * @returns tokenizer 统计结果。
    */
-  runNodeVersionCommandTool(payload: {
-    sessionId: string;
-    taskId: string;
-    turnId: string;
-  }): Promise<{
-    toolKind: "command";
-    command: string;
-    status: "completed" | "failed";
-    outputSummary: string;
-  }> {
-    return this.post("/api/tool/command/node-version", payload);
+  countComposerContextTokens(payload: {
+    sessionId: string | null;
+    draftText: string;
+    referenceSummaries: string[];
+    attachmentSummaries: string[];
+    modelId: string;
+    windowLimitTokens: number;
+  }): Promise<TokenizerCountResponse> {
+    return this.post("/api/tokenizer/count", payload);
   }
 
   /**

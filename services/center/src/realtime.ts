@@ -1,6 +1,7 @@
 import type {ClientType, ConversationSession, EventRecord, WebSocketEnvelope} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
+import {createDataAccess} from "./data-access/index.js";
 import type {RealtimeClientConnection} from "./types.js";
 
 export function isSyncClientAllowed(
@@ -9,25 +10,12 @@ export function isSyncClientAllowed(
     clientType: ClientType,
     projectId: string | null,
 ): boolean {
-    // row: sync_clients 是授权后的客户端事实来源。
-    const row = database.connection()
-        .prepare("SELECT id, client_type AS clientType, project_id AS projectId FROM sync_clients WHERE id = ?")
-        .get(clientId) as {
-        id: string;
-        clientType: ClientType;
-        projectId: string | null;
-    } | undefined;
-
-    if (!row || row.clientType !== clientType) {
-        return false;
-    }
-
-    if (clientType === "ide-plugin") {
-        // IDE 插件只能订阅当前项目范围；当前阶段允许项目 ID 为空以兼容插件页面初始化。
-        return row.projectId === projectId;
-    }
-
-    return true;
+    // sync_clients 是授权后的客户端事实来源，订阅校验统一交给会话数据访问层。
+    return createDataAccess(database).sessions.isSyncClientAllowed({
+        clientId,
+        clientType,
+        projectId,
+    });
 }
 
 /**

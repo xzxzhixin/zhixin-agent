@@ -538,19 +538,17 @@ export function writeAgentMemory(
         "",
     ].join("\n"), "utf-8");
     const memoryIndexId = randomUUID();
-    database.connection()
-        .prepare("INSERT INTO memory_index (id, agent_id, keywords, summary, source_session_id, source_turn_id, attachment_refs_json, memory_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(
-            memoryIndexId,
-            input.agentId,
-            input.keywords,
-            input.summary,
-            null,
-            null,
-            "[]",
-            relativePath,
-            now.toISOString(),
-        );
+    new AgentRepository(database).insertMemoryIndex({
+        memoryId: memoryIndexId,
+        agentId: input.agentId,
+        keywords: input.keywords,
+        summary: input.summary,
+        sourceSessionId: null,
+        sourceTurnId: null,
+        attachmentRefsJson: "[]",
+        memoryPath: relativePath,
+        createdAt: now.toISOString(),
+    });
     events.append({
         eventType: "memory.write",
         scopeType: "agent",

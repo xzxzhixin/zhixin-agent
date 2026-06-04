@@ -582,8 +582,8 @@ const expectations = [
   ],
   [
     mainView,
-    "审计摘要",
-    "右侧状态栏必须展示事件/审计摘要语义。",
+    "任务状态",
+    "右侧状态栏必须保留任务状态语义。",
   ],
   [
     store,
@@ -809,6 +809,36 @@ for (const pagePath of [
     console.error(`${pagePath} 不能在页面滚动区常驻 management-form，新增或编辑表单必须进入弹框。`);
     process.exitCode = 1;
   }
+}
+
+// tableManagementPagePaths: T10 覆盖的管理页必须继续使用 Element Plus el-table 展示主体信息。
+const tableManagementPagePaths = [
+  "apps/frontend/src/views/Providers/RouterIndex.vue",
+  "apps/frontend/src/views/Proxies/RouterIndex.vue",
+  "apps/frontend/src/views/Runtimes/RouterIndex.vue",
+  "apps/frontend/src/views/Plugins/RouterIndex.vue",
+  "apps/frontend/src/views/Mcp/RouterIndex.vue",
+  "apps/frontend/src/views/Skills/RouterIndex.vue",
+];
+
+for (const pagePath of tableManagementPagePaths) {
+  const pageSource = readFileSync(
+    join(
+      process.cwd(),
+      pagePath,
+    ),
+    "utf-8",
+  );
+  assertIncludes(
+    pageSource,
+    "<el-table",
+    `${pagePath} 的管理信息主体必须使用 Element Plus el-table，不能退化为普通列表或卡片。`,
+  );
+  assertIncludes(
+    pageSource,
+    "<el-table-column",
+    `${pagePath} 的管理表格必须定义 el-table-column 表头。`,
+  );
 }
 
 /**

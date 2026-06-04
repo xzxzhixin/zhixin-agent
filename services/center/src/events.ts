@@ -3,6 +3,7 @@ import {randomUUID} from "node:crypto";
 import type {EventRecord} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
+import {createDataAccess} from "./data-access/index.js";
 
 export class CenterEventStore {
     /**
@@ -32,15 +33,11 @@ export class CenterEventStore {
      */
     nextSequenceForTurn(turnId: string): number {
         // persisted: 先读取数据库最大序号，避免服务重启后从 1 重复。
-        const persisted = this.database.connection()
-            .prepare("SELECT MAX(sequence) AS maxSequence FROM events WHERE turn_id = ?")
-            .get(turnId) as {
-            maxSequence: number | null;
-        } | undefined;
+        const persisted = createDataAccess(this.database).events.getMaxSequenceByTurn(turnId);
         // current: 同时考虑内存缓存和 SQLite 已落库事件。
         const current = Math.max(
             this.sequenceByTurn.get(turnId) ?? 0,
-            persisted?.maxSequence ?? 0,
+            persisted,
         );
         // next: 同一轮次内严格递增。
         const next = current + 1;
@@ -81,61 +78,26 @@ export class CenterEventStore {
         // eventId: 事件持久化身份。
         const eventId = randomUUID();
 
-        this.database.connection()
-            .prepare(`
-                INSERT INTO events (id,
-                                    event_type,
-                                    scope_type,
-                                    scope_id,
-                                    session_id,
-                                    turn_id,
-                                    task_id,
-                                    step_id,
-                                    agent_id,
-                                    project_id,
-                                    client_id,
-                                    sequence,
-                                    status,
-                                    occurred_at,
-                                    title,
-                                    summary,
-                                    payload_json,
-                                    error_code,
-                                    trace_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `)
-            .run(
-                eventId,
-                input.eventType,
-                input.scopeType,
-                input.scopeId,
-                input.sessionId,
-                input.turnId,
-                input.taskId,
-                input.stepId ?? null,
-                input.agentId ?? null,
-                input.projectId ?? null,
-                input.clientId ?? null,
-                sequence,
-                input.status,
-                occurredAt,
-                input.title,
-                input.summary,
-                JSON.stringify(input.payload),
-                input.errorCode ?? null,
-                traceId,
-            );
-
-        return {
+        return createDataAccess(this.database).events.insertEvent({
             eventId,
             eventType: input.eventType,
+            scopeType: input.scopeType,
+            scopeId: input.scopeId,
+            sessionId: input.sessionId,
             turnId: input.turnId,
             taskId: input.taskId,
+            stepId: input.stepId ?? null,
+            agentId: input.agentId ?? null,
+            projectId: input.projectId ?? null,
+            clientId: input.clientId ?? null,
             sequence,
+            status: input.status,
             occurredAt,
+            title: input.title,
             summary: input.summary,
             payload: input.payload,
+            errorCode: input.errorCode ?? null,
             traceId,
-        };
+        });
     }
 }

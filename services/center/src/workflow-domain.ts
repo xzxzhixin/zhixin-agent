@@ -8,11 +8,13 @@ import {writeAgentMemory} from "./agent-domain.js";
 import {broadcastGlobalEvent} from "./realtime.js";
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
+import {createDataAccess} from "./data-access/index.js";
 import {findProject, findSession, createMessageTurnAndTask} from "./session-domain.js";
 import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "./types.js";
 import {writeJsonFile} from "./helpers.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
+import type {CommandToolRequest} from "./tool-runtime.js";
 
 export function collectOneSkill(
     centerDirectory: string,
@@ -46,7 +48,12 @@ export function createTodo(database: CenterDatabase, events: CenterEventStore, t
     todoId: string
 } {
     const todoId = randomUUID();
-    database.connection().prepare("INSERT INTO todos (id, title, completed, due_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(todoId, title, 0, dueAt, new Date().toISOString());
+    createDataAccess(database).workflow.createTodo({
+        todoId,
+        title,
+        dueAt,
+        updatedAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "personal.todo.created",
         scopeType: "personal",
@@ -66,7 +73,13 @@ export function createCalendarEvent(database: CenterDatabase, events: CenterEven
     eventId: string
 } {
     const eventId = randomUUID();
-    database.connection().prepare("INSERT INTO calendar_events (id, title, starts_at, ends_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(eventId, title, startsAt, endsAt, new Date().toISOString());
+    createDataAccess(database).workflow.createCalendarEvent({
+        eventId,
+        title,
+        startsAt,
+        endsAt,
+        updatedAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "personal.calendar.created",
         scopeType: "personal",
@@ -86,7 +99,13 @@ export function createKnowledgeItem(database: CenterDatabase, events: CenterEven
     itemId: string
 } {
     const itemId = randomUUID();
-    database.connection().prepare("INSERT INTO knowledge_items (id, title, summary, source_ref, updated_at) VALUES (?, ?, ?, ?, ?)").run(itemId, title, summary, sourceRef, new Date().toISOString());
+    createDataAccess(database).workflow.createKnowledgeItem({
+        itemId,
+        title,
+        summary,
+        sourceRef,
+        updatedAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "personal.knowledge.created",
         scopeType: "personal",
@@ -106,7 +125,14 @@ export function createNotification(database: CenterDatabase, events: CenterEvent
     notificationId: string
 } {
     const notificationId = randomUUID();
-    database.connection().prepare("INSERT INTO notifications (id, target_client_type, session_id, project_id, title, summary, created_at, requires_user_action) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?)").run(notificationId, targetClientType, title, summary, new Date().toISOString(), requiresUserAction ? 1 : 0);
+    createDataAccess(database).workflow.createNotification({
+        notificationId,
+        targetClientType,
+        title,
+        summary,
+        createdAt: new Date().toISOString(),
+        requiresUserAction,
+    });
     const event = events.append({
         eventType: "notification.created",
         scopeType: "notification",
@@ -257,24 +283,12 @@ export function setAgentRuntimeState(
 } {
     // updatedAt: 服务端状态更新时间，作为多端展示的事实时间。
     const updatedAt = new Date().toISOString();
-    database.connection()
-        .prepare(`
-            INSERT INTO agent_runtime_states (agent_id,
-                                              status,
-                                              current_task_id,
-                                              updated_at)
-            VALUES (?, ?, ?, ?) ON CONFLICT(agent_id) DO
-            UPDATE SET
-                status = excluded.status,
-                current_task_id = excluded.current_task_id,
-                updated_at = excluded.updated_at
-        `)
-        .run(
-            agentId,
-            status,
-            currentTaskId,
-            updatedAt,
-        );
+    createDataAccess(database).workflow.upsertAgentRuntimeState({
+        agentId,
+        status,
+        currentTaskId,
+        updatedAt,
+    });
 
     const event = events.append({
         eventType: "agent.state.changed",
@@ -382,7 +396,19 @@ export function recordUsage(database: CenterDatabase, events: CenterEventStore, 
     status?: string
 }): { usageId: string } {
     const usageId = randomUUID();
-    database.connection().prepare("INSERT INTO usage_records (id, provider_id, model, project_id, session_id, input_tokens, output_tokens, cache_hit_tokens, cache_miss_tokens, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(usageId, input.providerId, input.model, input.projectId ?? null, input.sessionId ?? null, input.inputTokens ?? null, input.outputTokens ?? null, input.cacheHitTokens ?? null, input.cacheMissTokens ?? null, input.status, new Date().toISOString());
+    createDataAccess(database).usage.insertUsageRecord({
+        usageId,
+        providerId: input.providerId,
+        model: input.model,
+        projectId: input.projectId ?? null,
+        sessionId: input.sessionId ?? null,
+        inputTokens: input.inputTokens ?? null,
+        outputTokens: input.outputTokens ?? null,
+        cacheHitTokens: input.cacheHitTokens ?? null,
+        cacheMissTokens: input.cacheMissTokens ?? null,
+        status: input.status,
+        createdAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "usage.recorded",
         scopeType: "usage",
@@ -403,7 +429,11 @@ export function markWorkerTaskFailed(database: CenterDatabase, events: CenterEve
     status: string
 } {
     const now = new Date().toISOString();
-    database.connection().prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run("failed", now, taskId);
+    createDataAccess(database).sessions.updateTaskStatus(
+        taskId,
+        "failed",
+        now,
+    );
     events.append({
         eventType: "task.failed",
         scopeType: "task",
@@ -425,7 +455,11 @@ export function startWorkerTask(database: CenterDatabase, events: CenterEventSto
     heartbeatAt: string
 } {
     const now = new Date().toISOString();
-    database.connection().prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run("running", now, taskId);
+    createDataAccess(database).sessions.updateTaskStatus(
+        taskId,
+        "running",
+        now,
+    );
     events.append({
         eventType: "worker.started",
         scopeType: "worker",
@@ -458,7 +492,11 @@ export function cancelWorkerTask(database: CenterDatabase, events: CenterEventSt
     status: string
 } {
     const now = new Date().toISOString();
-    database.connection().prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run("cancelled", now, taskId);
+    createDataAccess(database).sessions.updateTaskStatus(
+        taskId,
+        "cancelled",
+        now,
+    );
     events.append({
         eventType: "worker.cancelled",
         scopeType: "worker",
@@ -482,9 +520,7 @@ export function buildWorkerContext(database: CenterDatabase, taskId: string): {
     memoryIndex: unknown[];
     permissions: string[];
 } {
-    const task = database.connection().prepare("SELECT id AS taskId, session_id AS sessionId, status, title FROM tasks WHERE id = ?").get(taskId) as {
-        sessionId: string
-    } | undefined;
+    const task = createDataAccess(database).workflow.findTaskContext(taskId);
     const session = task ? findSession(database, task.sessionId) : null;
     const project = session?.projectId ? findProject(database, session.projectId) : null;
     return {
@@ -492,7 +528,7 @@ export function buildWorkerContext(database: CenterDatabase, taskId: string): {
         session,
         project,
         agents: listAgents(database),
-        memoryIndex: database.connection().prepare("SELECT agent_id AS agentId, keywords, summary, memory_path AS memoryPath FROM memory_index ORDER BY created_at DESC").all(),
+        memoryIndex: createDataAccess(database).workflow.listMemoryIndex(),
         permissions: [
             "file.read",
             "file.write",
@@ -754,6 +790,37 @@ export function planToolCalls(events: CenterEventStore, taskId: string, agentId:
 }
 
 /**
+ * planCommandToolForUserText：为 Agent 编排规划通用命令工具。
+ *
+ * @param userText 用户输入。
+ * @returns 明确命令请求；无命令意图时返回 null。
+ */
+export function planCommandToolForUserText(userText: string): CommandToolRequest | null {
+    const normalized = userText.toLowerCase();
+    if (normalized.includes("node") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
+        return {
+            executablePath: process.execPath,
+            args: [
+                "-v",
+            ],
+            inputSummary: "输出当前中心服务使用的 Node.js 运行环境版本。",
+        };
+    }
+
+    if (normalized.includes("python") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
+        return {
+            executablePath: "python",
+            args: [
+                "--version",
+            ],
+            inputSummary: "输出本机 Python 运行环境版本。",
+        };
+    }
+
+    return null;
+}
+
+/**
  * handleWorkerMessage：处理 Worker 回传的任务状态消息。
  *
  * @param database 中心服务数据库。
@@ -774,23 +841,19 @@ export function handleWorkerMessage(
     accepted: boolean;
 } {
     if (type === "task.complete" && taskId) {
-        database.connection()
-            .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?")
-            .run(
-                "completed",
-                new Date().toISOString(),
-                taskId,
-            );
+        createDataAccess(database).sessions.updateTaskStatus(
+            taskId,
+            "completed",
+            new Date().toISOString(),
+        );
     }
 
     if (type === "task.failed" && taskId) {
-        database.connection()
-            .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?")
-            .run(
-                "failed",
-                new Date().toISOString(),
-                taskId,
-            );
+        createDataAccess(database).sessions.updateTaskStatus(
+            taskId,
+            "failed",
+            new Date().toISOString(),
+        );
     }
 
     events.append({
@@ -813,9 +876,7 @@ export function handleWorkerMessage(
 }
 
 export function queryAuditEvents(database: CenterDatabase, eventType: string | null): EventRecord[] {
-    const rows = eventType
-        ? database.connection().prepare("SELECT id AS eventId, event_type AS eventType, turn_id AS turnId, task_id AS taskId, sequence, occurred_at AS occurredAt, summary, payload_json AS payloadJson, trace_id AS traceId FROM events WHERE event_type = ? ORDER BY occurred_at ASC").all(eventType)
-        : database.connection().prepare("SELECT id AS eventId, event_type AS eventType, turn_id AS turnId, task_id AS taskId, sequence, occurred_at AS occurredAt, summary, payload_json AS payloadJson, trace_id AS traceId FROM events ORDER BY occurred_at ASC").all();
+    const rows = createDataAccess(database).sessions.listAuditEvents(eventType);
     return (rows as Array<{
         eventId: string;
         eventType: string;

@@ -540,6 +540,10 @@ export interface ComposerSettings {
     selectedModel: string;
     /** contextUsedTokens: 当前对话窗口已使用上下文数量，单位为 token。 */
     contextUsedTokens: number;
+    /** contextTokenizerName: 当前上下文统计使用的 tokenizer 名称。 */
+    contextTokenizerName: string;
+    /** contextTokenizerSource: tokenizer 来源，来自中心服务统计响应。 */
+    contextTokenizerSource: "built-in" | "external" | "";
     /** reasoningEffort: 推理深度协议值。 */
     reasoningEffort: "low" | "medium" | "high" | "xhigh";
 }

@@ -138,7 +138,7 @@ function extractFunctionBody(
   source,
   functionName,
 ) {
-  const declarationPattern = new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?(?:function\\s+)?${functionName}\\s*\\(`, "u");
+  const declarationPattern = new RegExp(`(?:^|\\n)\\s*(?:export\\s+)?(?:async\\s+)?(?:function\\s+)?${functionName}\\s*\\(`, "u");
   const match = declarationPattern.exec(source);
   const nameIndex = match?.index ?? -1;
   if (nameIndex < 0) {
@@ -176,8 +176,9 @@ const createNormalSessionBody = extractFunctionBody(storeSource, "createNormalSe
 const createProjectConversationBody = extractFunctionBody(storeSource, "createProjectConversationForProject");
 // ensureSessionForSendingBody: 发送前获取真实会话的动作体，不能在消息发送成功前插入左侧历史列表。
 const ensureSessionForSendingBody = extractFunctionBody(storeSource, "ensureSessionForSending");
+const chatHelpersSource = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // formatTurnTimeFooterBody: 轮次末尾时间文案，只允许已结束轮次显示。
-const formatTurnTimeFooterBody = extractFunctionBody(chatPageSource, "formatTurnTimeFooter");
+const formatTurnTimeFooterBody = extractFunctionBody(chatHelpersSource, "formatTurnTimeFooter");
 
 assertIncludes(
   mainViewSource,
@@ -365,9 +366,9 @@ assertIncludes(
   "状态容器必须保存当前窗口已使用上下文数量。",
 );
 assertIncludes(
-  storeSource,
-  "estimateComposerContextUsedTokens",
-  "当前窗口上下文用量不能只保留初始值，必须从当前会话和草稿估算或读取。",
+  combinedStoreSource,
+  "countComposerContextTokens",
+  "当前窗口上下文用量必须通过中心服务 tokenizer 读取。",
 );
 assertIncludes(
   storeSource,

@@ -313,43 +313,76 @@ onMounted(() => {
         </div>
         </el-form>
       </el-dialog>
-      <section class="management-list">
-        <article
-            v-for="proxy in appStore.proxies"
-            :key="proxy.proxyId"
-            class="management-item"
+      <el-table
+          :data="appStore.proxies"
+          class="management-table"
+          empty-text="暂无网络代理"
+      >
+        <el-table-column
+            label="代理"
+            min-width="180"
         >
-          <div>
+          <template #default="{ row: proxy }">
             <strong>{{ proxy.proxyName }}</strong>
+            <small>{{ proxy.proxyId }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="连接"
+            min-width="200"
+        >
+          <template #default="{ row: proxy }">
             <span>{{ proxy.protocol }} · {{ proxy.host }}:{{ proxy.port }}</span>
             <small>{{ proxy.hasAuth ? "已配置认证" : "无认证" }}</small>
-            <small v-if="appStore.defaultProxyId === proxy.proxyId">全局默认代理</small>
-            <small>更新时间：{{ formatDisplayTime(proxy.updatedAt) }}</small>
-            <small v-if="proxy.note">备注：{{ proxy.note }}</small>
-          </div>
-          <div class="management-actions">
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="状态"
+            width="150"
+        >
+          <template #default="{ row: proxy }">
             <el-tag :type="proxy.enabled ? 'success' : 'info'">
               {{ proxy.enabled ? "启用" : "停用" }}
             </el-tag>
-            <el-button @click="openEditProxyDialog(proxy)">
-              修改
-            </el-button>
-            <el-button @click="appStore.toggleProxy(proxy)">
-              {{ proxy.enabled ? "停用" : "启用" }}
-            </el-button>
-            <el-button @click="appStore.setGlobalDefaultProxy(proxy.proxyId)">
-              设为全局默认
-            </el-button>
-            <el-button
-                type="danger"
-                plain
-                @click="appStore.deleteProxy(proxy)"
-            >
-              删除
-            </el-button>
-          </div>
-        </article>
-      </section>
+            <small v-if="appStore.defaultProxyId === proxy.proxyId">全局默认代理</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="备注与时间"
+            min-width="220"
+        >
+          <template #default="{ row: proxy }">
+            <span>{{ proxy.note }}</span>
+            <small>更新时间：{{ formatDisplayTime(proxy.updatedAt) }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            fixed="right"
+            label="操作"
+            min-width="300"
+        >
+          <template #default="{ row: proxy }">
+            <div class="management-table-actions">
+              <el-button @click="openEditProxyDialog(proxy)">
+                修改
+              </el-button>
+              <el-button @click="appStore.toggleProxy(proxy)">
+                {{ proxy.enabled ? "停用" : "启用" }}
+              </el-button>
+              <el-button @click="appStore.setGlobalDefaultProxy(proxy.proxyId)">
+                设为全局默认
+              </el-button>
+              <el-button
+                  type="danger"
+                  plain
+                  @click="appStore.deleteProxy(proxy)"
+              >
+                删除
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
   </section>
 </template>
