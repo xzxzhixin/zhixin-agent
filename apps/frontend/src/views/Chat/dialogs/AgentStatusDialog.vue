@@ -61,15 +61,17 @@ const emit = defineEmits<{
   ];
   /** send: 用户点击发送后由 MainView 调用当前会话发送协议。 */
   send: [];
+  /** guide: 用户点击引导后由 MainView 按当前轮次引导语义发送。 */
+  guide: [];
 }>();
 </script>
 
 <template>
   <el-dialog
       :model-value="props.modelValue"
+      append-to-body
       class="composer-mini-dialog agent-status-dialog"
       title="智能体状态"
-      width="720px"
       @update:model-value="emit('update:modelValue', $event)"
   >
     <section class="composer-mini-dialog-body agent-status-dialog-grid">
@@ -86,6 +88,10 @@ const emit = defineEmits<{
           <span>{{ row.node.name }}</span>
           <small>{{ row.node.nodeKind }} · {{ row.node.status }}</small>
         </button>
+        <el-empty
+            v-if="props.rows.length === 0"
+            description="暂无长期智能体；主智能体不在该状态树中展示。"
+        />
       </aside>
       <section
           v-if="props.selectedNode"
@@ -125,6 +131,12 @@ const emit = defineEmits<{
             @update:model-value="emit('update:draft', $event)"
         />
         <div class="child-agent-dialog-actions">
+          <el-button
+              :disabled="props.draft.trim().length === 0"
+              @click="emit('guide')"
+          >
+            发送引导
+          </el-button>
           <el-button
               type="primary"
               :disabled="props.draft.trim().length === 0"

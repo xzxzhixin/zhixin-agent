@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,8 +20,31 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "mcp";
+// mcpDialogVisible: MCP 配置弹框显隐。
+const mcpDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.mcp ?? "");
+
+/**
+ * openMcpConfigDialog：打开 MCP 配置弹框。
+ *
+ * @returns 没有返回值。
+ */
+function openMcpConfigDialog(): void {
+  mcpDialogVisible.value = true;
+}
+
+/**
+ * saveMcpDialog：保存 MCP 配置并在成功后关闭弹框。
+ *
+ * @returns 保存完成后没有返回值。
+ */
+async function saveMcpDialog(): Promise<void> {
+  await appStore.saveMcpConfig();
+  if (!appStore.managementErrors.mcp) {
+    mcpDialogVisible.value = false;
+  }
+}
 
 /**
  * formatDisplayTime：统一格式化前端展示时间。
@@ -155,12 +179,26 @@ onMounted(() => {
       <el-button @click="appStore.loadMcpConfigs">
         刷新列表
       </el-button>
+      <el-button
+          type="primary"
+          @click="openMcpConfigDialog"
+      >
+        新增配置
+      </el-button>
     </header>
     <section class="page-scroll">
-      <el-form
+      <el-dialog
+          v-model="mcpDialogVisible"
+          append-to-body
+          class="management-config-dialog mcp-config-dialog"
+          title="MCP 配置"
+          width="80vw"
+          destroy-on-close
+      >
+        <el-form
           class="management-form"
           label-position="top"
-      >
+        >
         <p class="field-helper">
           全局 MCP 管理页只展示 appStore.globalMcpConfigs；项目级配置由打开项目目录扫描，只在项目对话的项目能力详情中展示。
         </p>
@@ -174,12 +212,31 @@ onMounted(() => {
         <div class="management-actions">
           <el-button
               type="primary"
-              @click="appStore.saveMcpConfig"
+              @click="saveMcpDialog"
           >
             保存 MCP 配置
           </el-button>
         </div>
-      </el-form>
+        </el-form>
+      </el-dialog>
+      <section class="management-list">
+        <article
+            v-for="config in appStore.globalMcpConfigs"
+            :key="config.configId"
+            class="management-item"
+        >
+          <div>
+            <strong>{{ config.name }}</strong>
+            <span>{{ config.scope }} · {{ config.enabled ? "启用" : "停用" }}</span>
+            <small>项目级配置由项目对话详情展示，不在全局页混入。</small>
+          </div>
+          <div class="management-actions">
+            <el-button @click="appStore.editMcpConfig(config)">
+              编辑
+            </el-button>
+          </div>
+        </article>
+      </section>
     </section>
   </section>
 </template>

@@ -6,6 +6,10 @@ import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import type {MemoryQueueState} from "./types.js";
 import {writeFileSyncUtf8, writeFileSyncUtf8IfMissing, writeJsonFile} from "./helpers.js";
+import {AgentRepository} from "./data-access/agent-repository.js";
+
+// AGENT_DYNAMIC_CAPABILITY_BOUNDARY: 兼容旧 agents_index 字段；真实可用能力由当前会话窗口动态决定，不再由前端编辑。
+const AGENT_DYNAMIC_CAPABILITY_BOUNDARY = "可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。";
 
 export function ensureMainAgent(
     database: CenterDatabase,
@@ -33,48 +37,20 @@ export function ensureMainAgent(
         "系统内置主智能体，不可删除。",
         "",
     ].join("\n"));
-    database.connection()
-        .prepare(`
-            INSERT INTO agents_index (id,
-                                      name,
-                                      enabled,
-                                      role_description,
-                                      capability_boundary,
-                                      default_provider_id,
-                                      default_model,
-                                      reasoning_effort,
-                                      memory_index_path,
-                                      created_by,
-                                      definition_path,
-                                      updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO
-            UPDATE SET
-                name = excluded.name,
-                enabled = excluded.enabled,
-                role_description = excluded.role_description,
-                capability_boundary = excluded.capability_boundary,
-                default_provider_id = excluded.default_provider_id,
-                default_model = excluded.default_model,
-                reasoning_effort = excluded.reasoning_effort,
-                memory_index_path = excluded.memory_index_path,
-                created_by = excluded.created_by,
-                definition_path = excluded.definition_path,
-                updated_at = excluded.updated_at
-        `)
-        .run(
-            agentId,
-            "致心",
-            1,
-            "系统内置主智能体，直接与用户对话并调度其他智能体。",
-            "遵守中心服务权限、执行模式和当前会话能力边界。",
-            null,
-            null,
-            null,
-            "memory/agents/main",
-            "system-builtin",
-            "agents/main.md",
-            new Date().toISOString(),
-        );
+    new AgentRepository(database).upsertAgent({
+        agentId,
+        name: "致心",
+        enabled: true,
+        roleDescription: "系统内置主智能体，直接与用户对话并调度其他智能体。",
+        capabilityBoundary: AGENT_DYNAMIC_CAPABILITY_BOUNDARY,
+        defaultProviderId: null,
+        defaultModel: null,
+        reasoningEffort: null,
+        memoryIndexPath: "memory/agents/main",
+        createdBy: "system-builtin",
+        definitionPath: "agents/main.md",
+        updatedAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "agent.bootstrap",
         scopeType: "agent",
@@ -125,6 +101,8 @@ export function createAgent(
     const agentId = randomUUID();
     const relativePath = `agents/${agentId}.md`;
     const definitionPath = join(centerDirectory, relativePath);
+    // capabilityBoundary: 旧表和旧 Markdown frontmatter 仍有该字段；本轮固定为动态能力说明以保持迁移兼容。
+    const capabilityBoundary = input.capabilityBoundary ?? AGENT_DYNAMIC_CAPABILITY_BOUNDARY;
     mkdirSync(dirname(definitionPath), {
         recursive: true,
     });
@@ -133,7 +111,7 @@ export function createAgent(
         `id: ${agentId}`,
         `name: ${input.name}`,
         `roleDescription: ${input.roleDescription}`,
-        `capabilityBoundary: ${input.capabilityBoundary}`,
+        `capabilityBoundary: ${capabilityBoundary}`,
         `defaultProviderId: ${input.defaultProviderId ?? ""}`,
         `defaultModel: ${input.defaultModel ?? ""}`,
         `reasoningEffort: ${input.reasoningEffort ?? ""}`,
@@ -150,39 +128,23 @@ export function createAgent(
         "",
         "## 能力边界",
         "",
-        input.capabilityBoundary,
+        capabilityBoundary,
         "",
     ].join("\n"), "utf-8");
-    database.connection()
-        .prepare(`
-            INSERT INTO agents_index (id,
-                                      name,
-                                      enabled,
-                                      role_description,
-                                      capability_boundary,
-                                      default_provider_id,
-                                      default_model,
-                                      reasoning_effort,
-                                      memory_index_path,
-                                      created_by,
-                                      definition_path,
-                                      updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `)
-        .run(
-            agentId,
-            input.name,
-            1,
-            input.roleDescription,
-            input.capabilityBoundary,
-            input.defaultProviderId ?? null,
-            input.defaultModel ?? null,
-            input.reasoningEffort ?? null,
-            `memory/agents/${agentId}`,
-            input.createdBy ?? "user",
-            relativePath,
-            new Date().toISOString(),
-        );
+    new AgentRepository(database).insertAgent({
+        agentId,
+        name: input.name ?? "",
+        enabled: true,
+        roleDescription: input.roleDescription ?? "",
+        capabilityBoundary,
+        defaultProviderId: input.defaultProviderId ?? null,
+        defaultModel: input.defaultModel ?? null,
+        reasoningEffort: input.reasoningEffort ?? null,
+        memoryIndexPath: `memory/agents/${agentId}`,
+        createdBy: input.createdBy ?? "user",
+        definitionPath: relativePath,
+        updatedAt: new Date().toISOString(),
+    });
     events.append({
         eventType: "agent.created",
         scopeType: "agent",
@@ -230,18 +192,8 @@ export function updateAgent(
     agentId: string | undefined;
     updated: boolean;
 } {
-    const existing = database.connection()
-        .prepare("SELECT id, name, role_description AS roleDescription, capability_boundary AS capabilityBoundary, default_provider_id AS defaultProviderId, default_model AS defaultModel, reasoning_effort AS reasoningEffort, definition_path AS definitionPath FROM agents_index WHERE id = ?")
-        .get(input.agentId) as {
-        id: string;
-        name: string;
-        roleDescription: string | null;
-        capabilityBoundary: string | null;
-        defaultProviderId: string | null;
-        defaultModel: string | null;
-        reasoningEffort: string | null;
-        definitionPath: string;
-    } | undefined;
+    const repository = new AgentRepository(database);
+    const existing = repository.findAgentById(input.agentId);
 
     if (!existing) {
         return {
@@ -253,27 +205,25 @@ export function updateAgent(
     const next = {
         name: input.name ?? existing.name,
         roleDescription: input.roleDescription ?? existing.roleDescription ?? "",
-        capabilityBoundary: input.capabilityBoundary ?? existing.capabilityBoundary ?? "",
+        capabilityBoundary: input.capabilityBoundary ?? existing.capabilityBoundary ?? AGENT_DYNAMIC_CAPABILITY_BOUNDARY,
         defaultProviderId: input.defaultProviderId ?? existing.defaultProviderId,
         defaultModel: input.defaultModel ?? existing.defaultModel,
         reasoningEffort: input.reasoningEffort ?? existing.reasoningEffort,
     };
     const now = new Date().toISOString();
-    database.connection()
-        .prepare("UPDATE agents_index SET name = ?, role_description = ?, capability_boundary = ?, default_provider_id = ?, default_model = ?, reasoning_effort = ?, updated_at = ? WHERE id = ?")
-        .run(
-            next.name,
-            next.roleDescription,
-            next.capabilityBoundary,
-            next.defaultProviderId,
-            next.defaultModel,
-            next.reasoningEffort,
-            now,
-            input.agentId,
-        );
+    repository.updateAgent({
+        agentId: input.agentId ?? "",
+        name: next.name,
+        roleDescription: next.roleDescription,
+        capabilityBoundary: next.capabilityBoundary,
+        defaultProviderId: next.defaultProviderId,
+        defaultModel: next.defaultModel,
+        reasoningEffort: next.reasoningEffort,
+        updatedAt: now,
+    });
 
     writeFileSyncUtf8(join(centerDirectory, existing.definitionPath), renderAgentDefinition({
-        agentId: existing.id,
+        agentId: existing.agentId,
         name: next.name,
         roleDescription: next.roleDescription,
         capabilityBoundary: next.capabilityBoundary,
@@ -325,12 +275,10 @@ export function disableAgent(
     archiveMemory: boolean;
 } {
     const now = new Date().toISOString();
-    database.connection()
-        .prepare("UPDATE agents_index SET enabled = 0, updated_at = ? WHERE id = ? AND id <> 'main'")
-        .run(
-            now,
-            agentId,
-        );
+    new AgentRepository(database).disableAgent(
+        agentId,
+        now,
+    );
     writeJsonFile(join(centerDirectory, "agents", `${agentId}.delete-impact.json`), {
         agentId,
         archiveMemory,
@@ -387,14 +335,8 @@ export function deleteAgent(
         };
     }
 
-    const connection = database.connection();
-    const existing = connection
-        .prepare("SELECT id AS agentId, name, definition_path AS definitionPath FROM agents_index WHERE id = ?")
-        .get(agentId) as {
-        agentId: string;
-        name: string;
-        definitionPath: string;
-    } | undefined;
+    const repository = new AgentRepository(database);
+    const existing = repository.findAgentById(agentId);
 
     if (!existing) {
         return {
@@ -406,15 +348,7 @@ export function deleteAgent(
 
     const now = new Date().toISOString();
     const archiveStamp = now.replace(/[:.]/gu, "-");
-    connection
-        .prepare("DELETE FROM agent_runtime_states WHERE agent_id = ?")
-        .run(agentId);
-    connection
-        .prepare("DELETE FROM memory_index WHERE agent_id = ?")
-        .run(agentId);
-    connection
-        .prepare("DELETE FROM agents_index WHERE id = ? AND id <> 'main'")
-        .run(agentId);
+    repository.deleteAgentIndexes(agentId);
 
     const definitionPath = join(centerDirectory, existing.definitionPath);
     const memoryPath = join(centerDirectory, "memory", "agents", agentId);
@@ -480,9 +414,7 @@ export function deleteAgent(
  * @returns 智能体列表。
  */
 export function listAgents(database: CenterDatabase): unknown[] {
-    return database.connection()
-        .prepare("SELECT id AS agentId, name, enabled, role_description AS roleDescription, capability_boundary AS capabilityBoundary, default_provider_id AS defaultProviderId, default_model AS defaultModel, reasoning_effort AS reasoningEffort, memory_index_path AS memoryIndexPath, created_by AS createdBy, definition_path AS definitionPath, updated_at AS updatedAt FROM agents_index ORDER BY updated_at DESC")
-        .all();
+    return new AgentRepository(database).listAgents();
 }
 
 /**

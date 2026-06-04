@@ -62,6 +62,7 @@
 - 多属性对象、数组、参数必须拆成多行。
 - Vue 属性每个一行。
 - CSS 声明一行一个。
+- 单个代码文件不允许超过 1500 行；接近或超过限制时必须按职责拆分模块、组件、工具函数或样式文件，不能继续向大文件追加实现。
 - 前端页面入口必须放在 `apps/frontend/src/views/页面/RouterIndex.vue`，并在 `apps/frontend/src/router.ts` 使用 `component: () => import("@views/页面/RouterIndex.vue")` 或等价别名动态导入注册对应 URL；不要在路由文件顶部静态导入页面组件。
 - 前端页面专属弹框必须放在对应 `apps/frontend/src/views/页面/dialogs` 目录；只有跨页面复用弹框才放入领域组件目录或 `packages/ui`。
 - Vue 页面、弹框和局部组件的专属样式优先写在当前 `.vue` 文件的 `<style scoped>` 中；全局 `styles.css` 只放主题变量、第三方基础覆盖、全局滚动条和跨入口根布局，不把单个页面的大段样式集中堆入全局文件。

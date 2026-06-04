@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,8 +20,22 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "skills";
+// skillDialogVisible: skill 安装弹框显隐。
+const skillDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.skills ?? "");
+
+/**
+ * saveSkillDialog：安装 skill 并在成功后关闭弹框。
+ *
+ * @returns 安装完成后没有返回值。
+ */
+async function saveSkillDialog(): Promise<void> {
+  await appStore.installSkill();
+  if (!appStore.managementErrors.skills) {
+    skillDialogVisible.value = false;
+  }
+}
 
 /**
  * formatDisplayTime：统一格式化前端展示时间。
@@ -155,12 +170,26 @@ onMounted(() => {
       <el-button @click="appStore.loadSkills">
         刷新列表
       </el-button>
+      <el-button
+          type="primary"
+          @click="skillDialogVisible = true"
+      >
+        安装 skill
+      </el-button>
     </header>
     <section class="page-scroll">
-      <el-form
+      <el-dialog
+          v-model="skillDialogVisible"
+          append-to-body
+          class="management-config-dialog skill-config-dialog"
+          title="安装 skill"
+          width="80vw"
+          destroy-on-close
+      >
+        <el-form
           class="management-form"
           label-position="top"
-      >
+        >
         <p class="field-helper">
           全局 skill 管理页只展示 appStore.globalSkills；项目级 skill 由打开项目目录扫描，只在项目对话的项目能力详情中展示。
         </p>
@@ -177,12 +206,26 @@ onMounted(() => {
         <div class="management-actions">
           <el-button
               type="primary"
-              @click="appStore.installSkill"
+              @click="saveSkillDialog"
           >
             安装 skill
           </el-button>
         </div>
-      </el-form>
+        </el-form>
+      </el-dialog>
+      <section class="management-list">
+        <article
+            v-for="skill in appStore.globalSkills"
+            :key="skill.skillName"
+            class="management-item"
+        >
+          <div>
+            <strong>{{ skill.skillName }}</strong>
+            <span>{{ skill.scope }} · {{ skill.enabled ? "启用" : "停用" }}</span>
+            <small>项目级 skill 只在项目能力详情中展示。</small>
+          </div>
+        </article>
+      </section>
     </section>
   </section>
 </template>

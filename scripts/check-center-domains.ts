@@ -71,7 +71,6 @@ async function main(): Promise<void> {
       payload: {
         name: "检查智能体",
         roleDescription: "用于领域检查",
-        capabilityBoundary: "只做检查",
       },
     });
     const agent = agentResponse.json<ApiResponse<{
@@ -82,7 +81,7 @@ async function main(): Promise<void> {
 
     const agentDefinition = await readFile(join(centerDirectory, "agents", `${agent.data?.agentId}.md`), "utf-8");
     assert(agentDefinition.includes("roleDescription:"), "智能体定义缺少角色说明 frontmatter");
-    assert(agentDefinition.includes("capabilityBoundary:"), "智能体定义缺少能力边界 frontmatter");
+    assert(agentDefinition.includes("capabilityBoundary: 可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。"), "智能体定义必须使用动态能力兼容说明，前端不再提交能力边界。");
     assert(agentDefinition.includes("memoryIndex:"), "智能体定义缺少记忆索引 frontmatter");
     assert(!agentDefinition.includes("availablePlugins"), "智能体定义不应保存可用插件范围");
     assert(!agentDefinition.includes("availableMcp"), "智能体定义不应保存 MCP 范围");
@@ -100,6 +99,18 @@ async function main(): Promise<void> {
       },
     });
     assert(agentUpdateResponse.json<ApiResponse<unknown>>().success, "长期智能体更新失败");
+
+    const mainAgentUpdateResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/agent/update",
+      payload: {
+        agentId: "main",
+        roleDescription: "主智能体检查角色说明",
+        defaultModel: "main-check-model",
+        reasoningEffort: "high",
+      },
+    });
+    assert(mainAgentUpdateResponse.json<ApiResponse<unknown>>().success, "主智能体应允许编辑角色说明和默认模型。");
 
     const memoryResponse = await service.app.inject({
       method: "POST",

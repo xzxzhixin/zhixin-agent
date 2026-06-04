@@ -85,6 +85,26 @@
     background-color: var(--zhixin-scrollbar-thumb-hover);
 }
 
+.el-dialog {
+    width: 80vw;
+    max-width: 80vw;
+    max-height: 80vh;
+    margin-top: 10vh;
+    margin-bottom: 10vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.el-dialog__body {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.el-overlay-dialog {
+    overflow: hidden;
+}
+
 body {
     margin: 0;
     overflow: hidden;
@@ -596,10 +616,55 @@ body {
 .message-row.assistant,
 .message-row.system,
 .message-row.tool,
-.message-row.error {
+.message-row.error,
+.message-row.process {
     align-self: flex-start;
     width: min(760px, 100%);
     background: var(--zhixin-soft-bg);
+}
+
+.message-row.process.thinking {
+    border: 1px dashed var(--zhixin-border);
+}
+
+.message-row.process.stream {
+    border: 1px solid var(--zhixin-selected-border);
+}
+
+.message-row.process.tool {
+    border: 1px solid var(--zhixin-border);
+}
+
+.thinking-block summary {
+    color: var(--zhixin-text-strong);
+    cursor: pointer;
+}
+
+.process-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.process-card header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.process-card strong,
+.process-card small,
+.process-card p {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.process-card p {
+    margin: 0;
+    color: var(--zhixin-text-soft);
 }
 
 .markdown-body {

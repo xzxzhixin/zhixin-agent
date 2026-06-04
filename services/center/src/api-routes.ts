@@ -1,13 +1,11 @@
 import {createHash, randomUUID} from "node:crypto";
 import type {FastifyInstance} from "fastify";
-
 import {
     APP_NAME,
     type ClientType,
     type ConversationSession,
     type ProjectRecord,
 } from "@zhixin/shared";
-
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import {
@@ -66,6 +64,7 @@ import {
     createProvider,
     deleteProxyConfig,
     deleteRuntimeConfig,
+    fetchProviderModelsFromUpstream,
     listProviderConfigs,
     listProxyConfigs,
     listRegisteredModelProtocolPlugins,
@@ -110,15 +109,13 @@ import {
     setAgentRuntimeState,
     startWorkerTask,
 } from "./workflow-domain.js";
+import {registerToolRoutes} from "./tool-routes.js";
 import {
-    aggregateUsageRecords,
     commitAttachment,
     createTemporaryAttachment,
-    queryUsageRecords,
-    refreshUsageDailyStats,
     saveNotificationConfig,
 } from "./usage-domain.js";
-
+import {registerUsageRoutes} from "./usage-routes.js";
 export interface CenterApiRouteContext {
     /** config: 中心服务启动配置，API 路由读取端口、目录和前端资源边界。 */ config: CenterServiceConfig;
     /** app: Fastify 实例，路由注册唯一入口。 */ app: FastifyInstance;
@@ -478,13 +475,46 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         }
 
         const sent = createMessageTurnAndTask(database, events, session, body.contentMarkdown);
-        completeCreatedTurn(database, events, sent, body.contentMarkdown);
-        const eventRows = listEvents(database, {
+        const initialEventRows = listEvents(database, {
             sessionId: session.sessionId,
             turnId: sent.turnId,
             afterSequence: 0,
         });
-        broadcastEvents(realtimeClients, session, eventRows);
+        broadcastEvents(realtimeClients, session, initialEventRows);
+
+        // 发送接口先返回已创建轮次，后续执行异步追加思考、流式、工具和完成事件，保证浏览器能看到增量过程。
+        setTimeout(() => {
+            try {
+                completeCreatedTurn(database, events, sent, body.contentMarkdown ?? "");
+                const completedEventRows = listEvents(database, {
+                    sessionId: session.sessionId,
+                    turnId: sent.turnId,
+                    afterSequence: 0,
+                });
+                broadcastEvents(realtimeClients, session, completedEventRows);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "MESSAGE_TURN_ASYNC_FAILED";
+                events.append({
+                    eventType: "message.turn.failed",
+                    scopeType: "turn",
+                    scopeId: sent.turnId,
+                    sessionId: session.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    projectId: session.projectId,
+                    status: "failed",
+                    title: "对话异步执行失败",
+                    summary: message,
+                    payload: {errorMessage: message},
+                });
+                const failedEventRows = listEvents(database, {
+                    sessionId: session.sessionId,
+                    turnId: sent.turnId,
+                    afterSequence: 0,
+                });
+                broadcastEvents(realtimeClients, session, failedEventRows);
+            }
+        }, 0);
 
         return createSuccessResponse<SendMessageResponse>(sent);
     });
@@ -623,20 +653,12 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     });
 
     app.post("/api/agent/create", async (request) => {
-        const body = request.body as {
-            name?: string;
-            roleDescription?: string;
-            capabilityBoundary?: string;
-            defaultProviderId?: string | null;
-            defaultModel?: string | null;
-            reasoningEffort?: string | null;
-            createdBy?: string;
-        };
+        const body = request.body as {name?: string; roleDescription?: string; capabilityBoundary?: string; defaultProviderId?: string | null; defaultModel?: string | null; reasoningEffort?: string | null; createdBy?: string};
 
-        if (!body.name || !body.roleDescription || !body.capabilityBoundary) {
+        if (!body.name || !body.roleDescription) {
             return createErrorResponse(
                 "AGENT_CREATE_INVALID",
-                "智能体创建缺少 name、roleDescription 或 capabilityBoundary",
+                "智能体创建缺少 name 或 roleDescription",
                 "智能体信息不完整。",
             );
         }
@@ -645,15 +667,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     });
 
     app.post("/api/agent/update", async (request) => {
-        const body = request.body as {
-            agentId?: string;
-            name?: string;
-            roleDescription?: string;
-            capabilityBoundary?: string;
-            defaultProviderId?: string | null;
-            defaultModel?: string | null;
-            reasoningEffort?: string | null;
-        };
+        const body = request.body as {agentId?: string; name?: string; roleDescription?: string; capabilityBoundary?: string; defaultProviderId?: string | null; defaultModel?: string | null; reasoningEffort?: string | null};
 
         if (!body.agentId) {
             return createErrorResponse("AGENT_ID_REQUIRED", "智能体更新缺少 agentId", "智能体 ID 不能为空。");
@@ -907,6 +921,21 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             body.models ?? [],
             body.reasoningEfforts ?? [],
             body.contextWindows ?? [],
+        ));
+    });
+
+    app.post("/api/provider/model-fetch", async (request) => {
+        const body = request.body as {
+            providerId?: string;
+        };
+
+        if (!body.providerId) {
+            return createErrorResponse("PROVIDER_ID_REQUIRED", "获取模型列表缺少 providerId", "供应商 ID 不能为空。");
+        }
+
+        return createSuccessResponse(fetchProviderModelsFromUpstream(
+            config.centerDirectory,
+            body.providerId,
         ));
     });
 
@@ -1371,54 +1400,10 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         });
     });
 
-    app.post("/api/usage/query", async (request) => {
-        const body = request.body as {
-            providerId?: string | null;
-            model?: string | null;
-            projectId?: string | null;
-            sessionId?: string | null;
-            startedAt?: string | null;
-            endedAt?: string | null;
-        };
-
-        return createSuccessResponse({
-            records: queryUsageRecords(database, {
-                providerId: body.providerId ?? null,
-                model: body.model ?? null,
-                projectId: body.projectId ?? null,
-                sessionId: body.sessionId ?? null,
-                startedAt: body.startedAt ?? null,
-                endedAt: body.endedAt ?? null,
-            }),
-        });
-    });
-
-    app.post("/api/usage/aggregate", async (request) => {
-        const body = request.body as {
-            providerId?: string | null;
-            model?: string | null;
-            projectId?: string | null;
-            sessionId?: string | null;
-            startedAt?: string | null;
-            endedAt?: string | null;
-        };
-
-        return createSuccessResponse({
-            stats: aggregateUsageRecords(database, {
-                providerId: body.providerId ?? null,
-                model: body.model ?? null,
-                projectId: body.projectId ?? null,
-                sessionId: body.sessionId ?? null,
-                startedAt: body.startedAt ?? null,
-                endedAt: body.endedAt ?? null,
-            }),
-            refreshedDailyStats: refreshUsageDailyStats(database),
-        });
-    });
-
-    app.post("/api/audit/task-steps", async () => createSuccessResponse({
-        taskSteps: database.connection().prepare("SELECT * FROM task_steps ORDER BY started_at ASC").all(),
-    }));
+    registerUsageRoutes(
+        app,
+        database,
+    );
 
     app.post("/api/notification/config/set", async (request) => {
         const body = request.body as {
@@ -1499,6 +1484,11 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         }
 
         return createSuccessResponse(commitAttachment(database, events, config.centerDirectory, body));
+    });
+
+    registerToolRoutes({
+        app,
+        events,
     });
 
     registerCenterSyncRoute({

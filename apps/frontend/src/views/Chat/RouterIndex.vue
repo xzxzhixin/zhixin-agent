@@ -3,17 +3,15 @@ import {
   ArrowDown,
   ArrowRight,
   ChatDotRound,
-  CircleCheck,
-  CircleClose,
-  Clock,
   Delete,
   Folder,
   FolderAdd,
   FolderOpened,
-  Loading,
   Plus,
-  Warning,
 } from "@element-plus/icons-vue";
+import {
+  ElMessageBox,
+} from "element-plus";
 import {
   computed,
   onBeforeUnmount,
@@ -30,15 +28,28 @@ import TaskDetailDialog from "@views/Chat/dialogs/TaskDetailDialog.vue";
 import AgentStatusDialog from "@views/Chat/dialogs/AgentStatusDialog.vue";
 import EditDetailDialog from "@views/Chat/dialogs/EditDetailDialog.vue";
 import ProjectCapabilityDialog from "@views/Chat/dialogs/ProjectCapabilityDialog.vue";
+import {
+  createProcessMessageRow,
+  formatContextWindowLimit,
+  formatDisplayTime,
+  formatDurationMs,
+  formatOptionalElapsed,
+  formatTaskElapsed,
+  formatTaskStatus,
+  formatTurnTimeFooter,
+  projectTooltipContent,
+  resolveTaskStatusMeta,
+  sessionTooltipContent as buildSessionTooltipContent,
+  type NavigationStatusMeta,
+  type ProcessMessageRow,
+} from "@views/Chat/chat-view-helpers";
 import type {
   ConversationMessage,
   ConversationSession,
   ConversationTurn,
   ProjectRecord,
-  TaskStatus,
 } from "@zhixin/shared";
 import "./style.css";
-
 /**
  * ComposerEntryKind：输入框三段入口。
  *
@@ -67,42 +78,14 @@ interface SelectOption {
    * value: 协议值。
    */
   value: string;
-
   /**
    * label: 中文标签。
    */
   label: string;
-
   /**
    * description: 选项解释。
    */
   description: string;
-}
-
-/**
- * NavigationStatusMeta：左侧导航状态图标元信息。
- *
- * 来源：中心服务任务状态和会话状态。
- * 含义：统一描述项目行、项目对话行和普通对话行的状态展示。
- * 格式：图标组件、中文标题和 CSS 状态名。
- * 默认值：空闲。
- * 约束：只展示明确状态，不从多个业务字段兜底猜测。
- */
-interface NavigationStatusMeta {
-  /**
-   * icon: Element Plus 图标组件。
-   */
-  icon: unknown;
-
-  /**
-   * title: 鼠标悬停状态说明。
-   */
-  title: string;
-
-  /**
-   * tone: CSS 状态色名称。
-   */
-  tone: string;
 }
 
 /**
@@ -119,7 +102,6 @@ interface AgentStatusTreeRow {
    * node: 智能体树节点。
    */
   node: AgentStatusTreeNode;
-
   /**
    * level: 当前节点层级，根节点为 0。
    */
@@ -140,6 +122,8 @@ const agentConversationDraft = ref("");
 const selectedComposerEditFilePath = ref("");
 // projectCapabilityDialogVisible：项目能力详情弹框显隐，只属于当前客户端 UI 状态。
 const projectCapabilityDialogVisible = ref(false);
+// guidanceDraftVisible：主对话引导模式是否已打开，只影响输入区引导文案和提交按钮。
+const guidanceDraftVisible = ref(false);
 // messages：当前会话消息列表。
 const messages = computed(() => appStore.sessionDetail?.messages ?? []);
 // normalSessions：普通会话列表，来源于中心服务 sessionType 字段。
@@ -169,6 +153,25 @@ const agentStatusTreeRows = computed<AgentStatusTreeRow[]>(() => {
     0,
   );
 });
+// processMessageRows：把事件流展示为过程消息，让思考和流式输出在整轮完成前可见。
+const processMessageRows = computed<ProcessMessageRow[]>(() => {
+  return appStore.events.filter((event) => {
+    return [
+      "thinking.delta",
+      "thinking.completed",
+      "model.stream.delta",
+      "model.stream.completed",
+      "tool.command.started",
+      "tool.command.completed",
+      "tool.plugin.unavailable",
+      "tool.mcp.unavailable",
+      "tool.skill.unavailable",
+      "tool.call.failed",
+    ].includes(event.eventType);
+  }).map((event) => {
+    return createProcessMessageRow(event);
+  });
+});
 // selectedAgentConversationMessages：智能体对话列表复用当前会话消息，后续独立 API 明确后可替换来源。
 const selectedAgentConversationMessages = computed(() => {
   return messages.value.map((message) => {
@@ -193,9 +196,12 @@ const taskProgressText = computed(() => {
 });
 // agentStatusProgressText：智能体状态入口外部数字，语义为运行中数量/总数；没有真实树节点时按明确空态展示 0/0。
 const agentStatusProgressText = computed(() => {
-  // longTermNodes: 入口计数只统计当前窗口一级长期节点，子智能体只在详情树中展示。
+  // longTermNodes: 入口计数只统计当前窗口一级长期节点，主智能体和子智能体都不计入分母。
   const longTermNodes = appStore.agentStatusTree.filter((node) => {
-    return node.nodeKind === "主智能体" || node.nodeKind === "长期智能体";
+    if (node.nodeKind === "主智能体") {
+      return false;
+    }
+    return node.nodeKind === "长期智能体";
   });
   const total = longTermNodes.length;
   if (total === 0) {
@@ -211,21 +217,53 @@ const agentStatusProgressText = computed(() => {
 const activeTaskPanelRows = computed(() => {
   if (appStore.activeTasks.length > 0) {
     return appStore.activeTasks.map((task) => {
+      const taskSteps = appStore.sessionDetail?.taskSteps.filter((step) => {
+        return step.taskId === task.taskId;
+      }) ?? [];
+      const failedStep = taskSteps.find((step) => {
+        return step.status === "failed";
+      });
       return {
         id: task.taskId,
         title: task.title,
         status: formatTaskStatus(task.status),
         summary: resolveTaskStatusMeta(task.status).title,
+        elapsed: formatTaskElapsed(
+          task.createdAt,
+          task.updatedAt,
+        ),
+        traceId: resolveTaskTraceId(task.taskId),
+        traceIdUnavailableReason: resolveTaskTraceIdUnavailableReason(task.taskId),
+        failureReason: failedStep?.summary ?? null,
+        steps: taskSteps.map((step) => {
+          // stepTraceIdLabel：传给任务详情弹框的“步骤排查 ID”来源，弹框内按同名字段展示。
+          const stepTraceIdLabel = resolveTaskTraceId(task.taskId);
+          return {
+            id: step.stepId,
+            title: step.title,
+            status: formatTaskStatus(step.status),
+            elapsed: formatOptionalElapsed(
+              step.startedAt,
+              step.endedAt,
+            ),
+            summary: step.summary ?? "步骤仍在处理中。",
+            traceId: stepTraceIdLabel,
+          };
+        }),
       };
     });
   }
-
   return [
     {
       id: "composer-task-idle",
       title: "当前对话暂无编排任务",
       status: "空闲",
       summary: "发送消息后，本入口展示本轮任务、阶段和当前对话内排队状态。",
+      elapsed: "无耗时",
+      traceId: "无",
+      traceIdUnavailableReason: "TRACE_ID_PENDING：当前还没有中心服务事件写入排查 ID。",
+      failureReason: null,
+      steps: [],
     },
   ];
 });
@@ -265,18 +303,6 @@ const activeTurnElapsedText = computed(() => {
 const elapsedTimer = window.setInterval(() => {
   nowTick.value = Date.now();
 }, 1000);
-// composerModelSourceText：输入区模型选择来源说明，提醒只影响后续发送。
-const composerModelSourceText = computed(() => {
-  if (!appStore.composerSettings.selectedProviderId) {
-    return "";
-  }
-
-  if (appStore.composerSelectedModelOptions.length > 0) {
-    return "模型来源：当前启用供应商已保存或刷新得到的模型列表；切换只影响后续发送，不回改历史消息。";
-  }
-
-  return "模型来源：该供应商未提供模型列表接口或当前刷新失败，模型名称由用户手动维护；切换只影响后续发送。";
-});
 // composerContextUsageText：当前窗口上下文占用，比例允许超过 100%，用于提示 history 过大风险。
 const composerContextUsageText = computed(() => {
   const limitTokens = appStore.composerSelectedModelContextWindowTokens;
@@ -396,7 +422,6 @@ function openComposerMiniDialog(entry: ComposerEntryKind): void {
 function selectAgentStatusNode(node: AgentStatusTreeNode): void {
   selectedAgentStatusNode.value = node;
 }
-
 /**
  * sendAgentConversationDraft：向当前智能体发送消息。
  *
@@ -417,7 +442,26 @@ async function sendAgentConversationDraft(): Promise<void> {
   agentConversationDraft.value = "";
   await appStore.sendDraft();
 }
+/**
+ * sendAgentGuidanceDraft：向当前智能体发送引导内容。
+ *
+ * @returns 没有返回值。
+ */
+async function sendAgentGuidanceDraft(): Promise<void> {
+  if (!selectedAgentStatusNode.value) {
+    return;
+  }
 
+  const messageText = agentConversationDraft.value.trim();
+  if (messageText.length === 0) {
+    return;
+  }
+
+  // 引导仍归属当前对话当前轮次；中心服务独立引导 API 明确前用单一前缀表达引导语义。
+  appStore.draft.text = `引导 @${selectedAgentStatusNode.value.name}：${messageText}`;
+  agentConversationDraft.value = "";
+  await appStore.sendDraft();
+}
 /**
  * selectComposerEditFile：切换输入框“编辑”入口当前 diff 文件。
  *
@@ -427,7 +471,6 @@ async function sendAgentConversationDraft(): Promise<void> {
 function selectComposerEditFile(file: ComposerEditFile): void {
   selectedComposerEditFilePath.value = file.filePath;
 }
-
 /**
  * formatConnectionState：把连接状态协议值转成中文。
  *
@@ -444,40 +487,32 @@ function formatConnectionState(state: string): string {
 
   return labels[state] ?? "未知状态";
 }
-
 /**
- * formatTaskStatus：把任务和轮次状态协议值转成中文。
+ * resolveTaskTraceId：读取任务最近事件的排查 ID。
  *
- * @param status 状态协议值。
- * @returns 中文状态。
+ * @param taskId 任务 ID。
+ * @returns traceId 或“无”。
  */
-function formatTaskStatus(status: string): string {
-  const labels: Record<string, string> = {
-    queued: "排队中",
-    running: "执行中",
-    waiting_user: "等待用户",
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已取消",
-  };
-
-  return labels[status] ?? "未知状态";
+function resolveTaskTraceId(taskId: string): string {
+  const taskEvent = [...appStore.events].reverse().find((event) => {
+    return event.taskId === taskId;
+  });
+  return taskEvent?.traceId ?? "等待中心服务事件";
 }
 
 /**
- * formatContextWindowLimit：格式化模型窗口上限。
+ * resolveTaskTraceIdUnavailableReason：说明任务排查 ID 不可用原因。
  *
- * @param tokens token 数值。
- * @returns K 或 M 简写。
+ * @param taskId 任务 ID。
+ * @returns traceId 已存在时返回空字符串，否则返回固定原因。
  */
-function formatContextWindowLimit(tokens: number): string {
-  if (!Number.isFinite(tokens) || tokens <= 0) {
-    return "未配置窗口";
-  }
-  if (tokens >= 1000000 && tokens % 1000000 === 0) {
-    return `${tokens / 1000000}M`;
-  }
-  return `${Math.round(tokens / 1000)}K`;
+function resolveTaskTraceIdUnavailableReason(taskId: string): string {
+  const taskEvent = [...appStore.events].reverse().find((event) => {
+    return event.taskId === taskId;
+  });
+  return taskEvent?.traceId
+    ? ""
+    : "TRACE_ID_PENDING：该任务仍在等待中心服务写入事件排查 ID。";
 }
 
 /**
@@ -541,72 +576,6 @@ function resolveProjectStatusMeta(project: ProjectRecord): NavigationStatusMeta 
 }
 
 /**
- * projectTooltipContent：生成项目行详情提示。
- *
- * @param project 项目记录。
- * @returns 项目文件夹名或未登记状态，以及项目 ID。
- */
-function projectTooltipContent(project: ProjectRecord): string {
-  const nameLine = project.displayName === "未登记项目名称"
-    ? "项目名称：未登记项目名称"
-    : `项目文件夹名：${project.displayName}`;
-  const aliasLine = project.alias
-    ? `备注：${project.alias}`
-    : "备注：无";
-  return `${nameLine}\n项目 ID：${project.projectId}\n${aliasLine}`;
-}
-
-/**
- * resolveTaskStatusMeta：把任务状态映射为左侧导航图标。
- *
- * @param status 任务状态协议值。
- * @returns 状态图标元信息。
- */
-function resolveTaskStatusMeta(status: TaskStatus | undefined): NavigationStatusMeta {
-  if (status === "running") {
-    return {
-      icon: Loading,
-      title: "执行中",
-      tone: "running",
-    };
-  }
-  if (status === "queued") {
-    return {
-      icon: Clock,
-      title: "排队中：仅表示当前对话内等待上一项处理，多个对话框可并发执行",
-      tone: "queued",
-    };
-  }
-  if (status === "waiting_user") {
-    return {
-      icon: Warning,
-      title: "等待用户：引导/审批/需要用户确认归属当前对话当前轮次",
-      tone: "waiting",
-    };
-  }
-  if (status === "failed" || status === "cancelled") {
-    return {
-      icon: CircleClose,
-      title: status === "failed" ? "失败" : "已取消",
-      tone: "failed",
-    };
-  }
-  if (status === "completed") {
-    return {
-      icon: CircleCheck,
-      title: "已完成",
-      tone: "completed",
-    };
-  }
-
-  return {
-    icon: CircleCheck,
-    title: "空闲",
-    tone: "idle",
-  };
-}
-
-/**
  * handleProjectRowCreate：从项目行新增项目对话。
  *
  * @param project 项目记录。
@@ -639,59 +608,6 @@ function handleProjectHeaderCreate(): void {
  */
 function stopNavigationAction(event: MouseEvent): void {
   event.stopPropagation();
-}
-
-/**
- * formatDisplayTime：统一格式化前端展示时间。
- *
- * @param value ISO 时间、空值或服务端时间字符串。
- * @returns `YYYY-MM-DD HH:mm:ss`，无值时返回“未保存”。
- */
-function formatDisplayTime(value: string | null | undefined): string {
-  if (!value) {
-    return "未保存";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join("-") + " " + [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-  ].join(":");
-}
-
-/**
- * formatDurationMs：格式化轮次耗时。
- *
- * @param durationMs 持续毫秒数。
- * @returns 中文耗时。
- */
-function formatDurationMs(durationMs: number | null | undefined): string {
-  if (typeof durationMs !== "number" || Number.isNaN(durationMs)) {
-    return "未结束";
-  }
-
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}小时${minutes}分${seconds}秒`;
-  }
-  if (minutes > 0) {
-    return `${minutes}分${seconds}秒`;
-  }
-
-  return `${seconds}秒`;
 }
 
 /**
@@ -735,18 +651,6 @@ function shouldShowTurnTimeFooter(
 }
 
 /**
- * formatTurnTimeFooter：生成轮次末尾时间文案。
- *
- * @param turn 轮次记录。
- * @returns 开始、结束和耗时文案。
- */
-function formatTurnTimeFooter(turn: ConversationTurn): string {
-  const endedText = formatDisplayTime(turn.endedAt);
-  const durationText = formatDurationMs(turn.durationMs);
-  return `第 ${turn.turnNumber} 轮 · 开始 ${formatDisplayTime(turn.startedAt)} · 结束 ${endedText} · 耗时 ${durationText}`;
-}
-
-/**
  * selectSession：选择会话并加载详情。
  *
  * @param sessionId 会话 ID。
@@ -764,6 +668,50 @@ function selectSession(sessionId: string): void {
  */
 function openProjectCapabilityDialog(): void {
   projectCapabilityDialogVisible.value = true;
+}
+
+/**
+ * submitMainGuidanceDraft：提交主对话引导内容。
+ *
+ * @returns 没有返回值。
+ */
+function submitMainGuidanceDraft(): void {
+  const text = appStore.draft.text.trim();
+  if (text.length === 0) {
+    appStore.draft.text = "主对话引导：请补充当前轮次需要优先遵守的约束。";
+  } else if (!text.startsWith("主对话引导：")) {
+    appStore.draft.text = `主对话引导：${text}`;
+  }
+  guidanceDraftVisible.value = true;
+  void appStore.sendDraft();
+}
+
+/**
+ * requestDeleteActiveConversation：打开当前会话删除确认。
+ *
+ * @returns 用户确认后删除会话；取消路径不执行删除。
+ */
+async function requestDeleteActiveConversation(): Promise<void> {
+  const sessionId = appStore.activeSessionId;
+  if (!sessionId) {
+    appStore.lastError = "当前没有可删除的真实会话。";
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      "确认删除对话？取消不会执行删除，确认后将从中心服务删除当前会话。",
+      "确认删除对话",
+      {
+        confirmButtonText: "确认删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      },
+    );
+    await appStore.deleteConversation(sessionId);
+  } catch {
+    // 用户取消删除时不写错误，确保复测取消路径不会造成误报。
+  }
 }
 
 watch(
@@ -797,7 +745,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main
+  <section
       v-if="appStore.entryMode === 'mobile'"
       class="mobile-shell"
   >
@@ -848,9 +796,9 @@ onBeforeUnmount(() => {
         发送
       </van-button>
     </footer>
-  </main>
+  </section>
 
-  <main
+  <section
       v-else
       :class="appStore.entryMode === 'plugin-compact' ? [
         'app-shell',
@@ -1216,6 +1164,7 @@ onBeforeUnmount(() => {
               @select-node="selectAgentStatusNode"
               @update:draft="agentConversationDraft = $event"
               @send="sendAgentConversationDraft"
+              @guide="sendAgentGuidanceDraft"
           />
 
           <EditDetailDialog
@@ -1223,10 +1172,42 @@ onBeforeUnmount(() => {
               v-model="composerMiniDialogVisible"
               :files="appStore.composerEditFiles"
               :active-file="activeComposerEditFile"
+              :can-delete-conversation="Boolean(appStore.activeSessionId)"
               @select-file="selectComposerEditFile"
+              @request-delete-conversation="requestDeleteActiveConversation"
           />
 
           <section class="message-list">
+            <article
+                v-for="row in processMessageRows"
+                :key="row.rowId"
+                :class="[
+                'message-row',
+                'process',
+                row.kind,
+              ]"
+            >
+              <details
+                  v-if="row.kind === 'thinking'"
+                  class="thinking-block"
+                  :open="row.event.eventType === 'thinking.delta'"
+              >
+                <summary>{{ row.title }} · 阶段状态：{{ row.event.status === "running" ? "生成中" : "完成" }} · {{ row.event.traceId }}</summary>
+                <div class="markdown-body">
+                  {{ row.summary || "无思考内容：中心服务未返回可展示的思考片段。" }}
+                </div>
+              </details>
+              <section
+                  v-else
+                  class="process-card"
+              >
+                <header>
+                  <strong>{{ row.title }}</strong>
+                  <small>阶段状态：{{ row.event.status === "running" ? "生成中" : "完成" }} · {{ row.event.traceId }}</small>
+                </header>
+                <p>{{ row.summary }}</p>
+              </section>
+            </article>
             <article
                 v-for="(message, messageIndex) in messages"
                 :key="message.messageId"
@@ -1328,6 +1309,12 @@ onBeforeUnmount(() => {
               </div>
 
               <section class="composer-input-row">
+                <div
+                    v-if="guidanceDraftVisible"
+                    class="guidance-status-chip"
+                >
+                  待引导状态：主对话引导将在当前对话当前轮次内提交；当前对话内排队中仅表示等待上一项处理。
+                </div>
                 <el-input
                     v-model="appStore.draft.text"
                     class="composer-textarea"
@@ -1345,8 +1332,31 @@ onBeforeUnmount(() => {
                   <el-button
                       class="composer-tool-button"
                       size="small"
+                      :type="guidanceDraftVisible ? 'primary' : 'default'"
+                      @click="guidanceDraftVisible = !guidanceDraftVisible"
+                  >
+                    主对话引导
+                  </el-button>
+                  <el-button
+                      v-if="guidanceDraftVisible"
+                      class="composer-tool-button"
+                      size="small"
+                      @click="submitMainGuidanceDraft"
+                  >
+                    提交引导
+                  </el-button>
+                  <el-button
+                      class="composer-tool-button"
+                      size="small"
                   >
                     附件
+                  </el-button>
+                  <el-button
+                      class="composer-tool-button"
+                      size="small"
+                      @click="appStore.runNodeVersionToolForActiveTurn"
+                  >
+                    Node 版本
                   </el-button>
                   <span class="composer-context-usage">
                     上下文 {{ composerContextUsageText }}
@@ -1412,12 +1422,6 @@ onBeforeUnmount(() => {
                   </el-button>
                 </div>
               </section>
-              <p
-                  v-if="composerModelSourceText"
-                  class="composer-model-hint"
-              >
-                {{ composerModelSourceText }}
-              </p>
               <section
                   v-if="appStore.entryMode === 'plugin-compact'"
                   class="plugin-inline-status"
@@ -1437,6 +1441,9 @@ onBeforeUnmount(() => {
           <h2>任务状态</h2>
           <p class="panel-muted status-scope-note">
             多个对话框可并发执行；排队中仅表示当前对话内等待上一项处理。引导/审批/需要用户确认属于当前对话当前轮次。
+          </p>
+          <p class="panel-muted status-scope-note">
+            当前对话内排队中：连续发送或提交引导时，本区域只展示当前会话内任务等待关系，不会阻塞其他对话框。
           </p>
           <el-empty
               v-if="appStore.activeTasks.length === 0"
@@ -1488,5 +1495,5 @@ onBeforeUnmount(() => {
           </el-scrollbar>
         </aside>
       </section>
-  </main>
+  </section>
 </template>

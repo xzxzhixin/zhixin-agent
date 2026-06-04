@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import {
   computed,
+  nextTick,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,6 +21,8 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "providers";
+// providerDialogVisible: 供应商新增和编辑弹框显隐。
+const providerDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.providers ?? "");
 
@@ -121,6 +125,23 @@ function isDisplayTimeField(fieldName: string, value: string): boolean {
   return !Number.isNaN(new Date(value).getTime());
 }
 
+// defaultProviderProxyPolicy：旧供应商记录没有代理策略时使用全局默认代理，保持历史配置可编辑。
+const defaultProviderProxyPolicy = {
+  mode: "use-global-default" as const,
+  proxyId: null,
+};
+
+// defaultProviderCapabilities：旧供应商能力字段缺失时使用全部 false，避免弹窗渲染时访问空对象。
+const defaultProviderCapabilities = {
+  supportsVision: false,
+  supportsToolCalling: false,
+  supportsJsonOutput: false,
+  supportsReasoningEffort: false,
+  providesCacheUsage: false,
+  supportsModelList: false,
+  supportsStreaming: false,
+};
+
 // selectedProviderModelOptions：供应商默认模型下拉候选，来源于已保存或刷新后的模型列表。
 const selectedProviderModelOptions = computed(() => {
   const providerId = appStore.providerDraft.providerId;
@@ -128,7 +149,8 @@ const selectedProviderModelOptions = computed(() => {
     return [];
   }
 
-  return appStore.providerModelOptions[providerId]?.models ?? [];
+  const savedModels = appStore.providerModelOptions[providerId]?.models;
+  return Array.isArray(savedModels) ? savedModels : [];
 });
 
 // providerModelSourceText：默认模型候选来源说明。
@@ -186,6 +208,97 @@ const manualModelContextError = computed(() => {
 });
 
 /**
+ * openCreateProviderDialog：打开新增供应商弹框。
+ *
+ * @returns 没有返回值。
+ */
+function openCreateProviderDialog(): void {
+  appStore.resetProviderDraft();
+  providerDialogVisible.value = true;
+}
+
+/**
+ * openEditProviderDialog：打开编辑供应商弹框。
+ *
+ * @param provider 供应商列表项。
+ * @returns 没有返回值。
+ */
+function openEditProviderDialog(provider: Parameters<typeof appStore.editProvider>[0]): void {
+  providerDialogVisible.value = true;
+  const providerModelOptions = appStore.providerModelOptions[provider.providerId];
+  const contextWindows = Array.isArray(providerModelOptions?.contextWindows)
+    ? providerModelOptions.contextWindows
+    : [];
+  const reasoningEfforts = Array.isArray(providerModelOptions?.reasoningEfforts)
+    ? providerModelOptions.reasoningEfforts
+    : [];
+  // 旧供应商配置可能缺少 proxyPolicy、capabilities 或模型列表，编辑草稿必须在页面入口补齐默认结构。
+  appStore.providerDraft = {
+    providerId: provider.providerId,
+    providerName: provider.providerName,
+    protocolPluginId: provider.protocolPluginId,
+    protocolMode: provider.protocolMode,
+    baseUrl: provider.baseUrl,
+    apiKey: "",
+    model: provider.defaultModel,
+    enabled: provider.enabled,
+    capabilities: {
+      ...defaultProviderCapabilities,
+      ...(provider.capabilities ?? {}),
+    },
+    proxyPolicy: {
+      ...defaultProviderProxyPolicy,
+      ...(provider.proxyPolicy ?? {}),
+    },
+    refreshModelsText: provider.defaultModel,
+    refreshModelContextWindowsText: formatModelContextWindowsForDialog(contextWindows),
+    refreshReasoningText: reasoningEfforts.join("\n"),
+  };
+  void appStore.loadProviderModelOptions(provider.providerId);
+  void nextTick();
+  providerDialogVisible.value = true;
+}
+
+/**
+ * formatModelContextWindowsForDialog：把已保存模型窗口转为弹窗多行文本。
+ *
+ * @param contextWindows 中心服务返回的模型窗口配置数组。
+ * @returns 供文本域展示的 `模型名=数字K` 多行文本。
+ */
+function formatModelContextWindowsForDialog(
+  contextWindows: Array<{
+    model: string;
+    contextWindowTokens: number;
+  }>,
+): string {
+  return contextWindows.map((item) => {
+    const contextWindowK = Math.max(1, Math.round(item.contextWindowTokens / 1000));
+    return `${item.model}=${contextWindowK}K`;
+  }).join("\n");
+}
+
+/**
+ * saveProviderDialog：保存供应商配置并在成功后关闭弹框。
+ *
+ * @returns 保存完成后没有返回值。
+ */
+async function saveProviderDialog(): Promise<void> {
+  await appStore.saveProvider();
+  if (!appStore.managementErrors.providers) {
+    providerDialogVisible.value = false;
+  }
+}
+
+/**
+ * fetchProviderModelsForDialog：从当前供应商上游获取模型并同步弹框草稿。
+ *
+ * @returns 获取完成后没有返回值。
+ */
+async function fetchProviderModelsForDialog(): Promise<void> {
+  await appStore.fetchProviderModels();
+}
+
+/**
  * onMounted：当前页面挂载时加载中心服务事实数据。
  *
  * @returns 没有返回值。
@@ -208,7 +321,7 @@ onMounted(() => {
       </div>
       <el-button
           type="primary"
-          @click="appStore.resetProviderDraft"
+          @click="openCreateProviderDialog"
       >
         新增供应商
       </el-button>
@@ -221,10 +334,17 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-form
+      <el-dialog
+          v-model="providerDialogVisible"
+          append-to-body
+          class="management-config-dialog provider-config-dialog"
+          title="供应商配置"
+          width="80vw"
+      >
+        <el-form
           class="management-form"
           label-position="top"
-      >
+        >
         <el-row :gutter="12">
           <el-col :span="6">
             <el-form-item label="供应商名称">
@@ -285,7 +405,19 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item label="手填模型与上下文">
+            <el-form-item>
+              <template #label>
+                <div class="provider-field-title">
+                  <span>手填模型与上下文</span>
+                  <el-button
+                      type="primary"
+                      link
+                      @click="fetchProviderModelsForDialog"
+                  >
+                    获取
+                  </el-button>
+                </div>
+              </template>
               <el-input
                   v-model="manualModelContextText"
                   type="textarea"
@@ -396,7 +528,7 @@ onMounted(() => {
         <div class="management-actions">
           <el-button
               type="primary"
-              @click="appStore.saveProvider"
+              @click="saveProviderDialog"
           >
             保存供应商
           </el-button>
@@ -404,7 +536,8 @@ onMounted(() => {
             刷新列表
           </el-button>
         </div>
-      </el-form>
+        </el-form>
+      </el-dialog>
       <el-empty
           v-if="appStore.providers.length === 0"
           description="暂无供应商"
@@ -427,7 +560,7 @@ onMounted(() => {
             <el-tag :type="provider.enabled ? 'success' : 'info'">
               {{ provider.enabled ? "启用" : "停用" }}
             </el-tag>
-            <el-button @click="appStore.editProvider(provider)">
+            <el-button @click="openEditProviderDialog(provider)">
               修改
             </el-button>
             <el-button @click="appStore.toggleProvider(provider)">
@@ -462,5 +595,12 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.provider-field-title {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
 }
 </style>

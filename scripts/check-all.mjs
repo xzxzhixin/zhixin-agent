@@ -29,6 +29,12 @@ const commands = [
     ],
   ],
   [
+    "node",
+    [
+      "scripts/check-center-data-access-layer.mjs",
+    ],
+  ],
+  [
     "pnpm",
     [
       "exec",
@@ -138,6 +144,12 @@ const commands = [
     "node",
     [
       "scripts/check-frontend-workspace-ui.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-dialog-agent-workflow-regression.mjs",
     ],
   ],
   [

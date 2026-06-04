@@ -14,16 +14,23 @@ import type {
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import type {SendMessageResponse, TaskStepRecord} from "./types.js";
+import {SessionRepository} from "./data-access/session-repository.js";
 import {
     appendModelStreamEvent,
+    appendThinkingEvents,
     handleWorkerMessage,
-    invokeProviderModelGateway,
-    planToolCalls,
     recordUsage,
     startWorkerTask,
 } from "./workflow-domain.js";
 import {refreshUsageDailyStats} from "./usage-domain.js";
-import type {ProviderModelGatewayResult} from "./workflow-domain.js";
+import {
+    invokeProviderModelGateway,
+    type ProviderModelGatewayResult,
+} from "./model-gateway-runtime.js";
+import {
+    appendToolVisibilityEvents,
+    runNodeVersionCommandTool,
+} from "./tool-runtime.js";
 
 export function upsertSyncClient(
     database: CenterDatabase,
@@ -64,20 +71,7 @@ export function upsertSyncClient(
  * @returns 找到时返回项目记录，否则返回 null。
  */
 export function findProject(database: CenterDatabase, projectId: string): ProjectRecord | null {
-    const row = database.connection()
-        .prepare(`
-            SELECT id           AS projectId,
-                   display_name AS displayName,
-                   alias,
-                   latest_path  AS latestPath,
-                   created_at   AS createdAt,
-                   updated_at   AS updatedAt
-            FROM projects
-            WHERE id = ?
-        `)
-        .get(projectId) as ProjectRecord | undefined;
-
-    return row ?? null;
+    return new SessionRepository(database).findProject(projectId) as ProjectRecord | null;
 }
 
 /**
@@ -87,18 +81,7 @@ export function findProject(database: CenterDatabase, projectId: string): Projec
  * @returns 按最近更新时间倒序排列的项目记录数组。
  */
 export function listProjects(database: CenterDatabase): ProjectRecord[] {
-    return database.connection()
-        .prepare(`
-            SELECT id           AS projectId,
-                   display_name AS displayName,
-                   alias,
-                   latest_path  AS latestPath,
-                   created_at   AS createdAt,
-                   updated_at   AS updatedAt
-            FROM projects
-            ORDER BY updated_at DESC
-        `)
-        .all() as ProjectRecord[];
+    return new SessionRepository(database).listProjects() as ProjectRecord[];
 }
 
 /**
@@ -109,28 +92,7 @@ export function listProjects(database: CenterDatabase): ProjectRecord[] {
  * @returns 找到时返回会话记录，否则返回 null。
  */
 export function findSession(database: CenterDatabase, sessionId: string): ConversationSession | null {
-    const row = database.connection()
-        .prepare(`
-            SELECT id           AS sessionId,
-                   session_type AS sessionType,
-                   project_id   AS projectId,
-                   title,
-                   created_at   AS createdAt,
-                   updated_at   AS updatedAt,
-                   (
-                       SELECT substr(content_markdown, 1, 120)
-                       FROM messages
-                       WHERE messages.session_id = sessions.id
-                         AND messages.role = 'user'
-                       ORDER BY messages.created_at DESC
-                       LIMIT 1
-                   )            AS lastUserMessagePreview
-            FROM sessions
-            WHERE id = ?
-        `)
-        .get(sessionId) as ConversationSession | undefined;
-
-    return row ?? null;
+    return new SessionRepository(database).findSession(sessionId);
 }
 
 /**
@@ -147,78 +109,7 @@ export function listSessions(
         projectId?: string | null;
     },
 ): ConversationSession[] {
-    if (filter.sessionType === "project" && filter.projectId) {
-        return database.connection()
-            .prepare(`
-                SELECT id           AS sessionId,
-                       session_type AS sessionType,
-                       project_id   AS projectId,
-                       title,
-                       created_at   AS createdAt,
-                       updated_at   AS updatedAt,
-                       (
-                           SELECT substr(content_markdown, 1, 120)
-                           FROM messages
-                           WHERE messages.session_id = sessions.id
-                             AND messages.role = 'user'
-                           ORDER BY messages.created_at DESC
-                           LIMIT 1
-                       )            AS lastUserMessagePreview
-                FROM sessions
-                WHERE session_type = ?
-                  AND project_id = ?
-                ORDER BY updated_at DESC
-            `)
-            .all(
-                filter.sessionType,
-                filter.projectId,
-            ) as ConversationSession[];
-    }
-
-    if (filter.sessionType) {
-        return database.connection()
-            .prepare(`
-                SELECT id           AS sessionId,
-                       session_type AS sessionType,
-                       project_id   AS projectId,
-                       title,
-                       created_at   AS createdAt,
-                       updated_at   AS updatedAt,
-                       (
-                           SELECT substr(content_markdown, 1, 120)
-                           FROM messages
-                           WHERE messages.session_id = sessions.id
-                             AND messages.role = 'user'
-                           ORDER BY messages.created_at DESC
-                           LIMIT 1
-                       )            AS lastUserMessagePreview
-                FROM sessions
-                WHERE session_type = ?
-                ORDER BY updated_at DESC
-            `)
-            .all(filter.sessionType) as ConversationSession[];
-    }
-
-    return database.connection()
-        .prepare(`
-            SELECT id           AS sessionId,
-                   session_type AS sessionType,
-                   project_id   AS projectId,
-                   title,
-                   created_at   AS createdAt,
-                   updated_at   AS updatedAt,
-                   (
-                       SELECT substr(content_markdown, 1, 120)
-                       FROM messages
-                       WHERE messages.session_id = sessions.id
-                         AND messages.role = 'user'
-                       ORDER BY messages.created_at DESC
-                       LIMIT 1
-                   )            AS lastUserMessagePreview
-            FROM sessions
-            ORDER BY updated_at DESC
-        `)
-        .all() as ConversationSession[];
+    return new SessionRepository(database).listSessions(filter);
 }
 
 /**
@@ -309,19 +200,7 @@ export function deleteSession(
  * @returns 消息记录数组。
  */
 export function listMessages(database: CenterDatabase, sessionId: string): ConversationMessage[] {
-    return database.connection()
-        .prepare(`
-            SELECT id               AS messageId,
-                   session_id       AS sessionId,
-                   turn_id          AS turnId,
-                   role,
-                   content_markdown AS contentMarkdown,
-                   created_at       AS createdAt
-            FROM messages
-            WHERE session_id = ?
-            ORDER BY created_at ASC
-        `)
-        .all(sessionId) as ConversationMessage[];
+    return new SessionRepository(database).listMessages(sessionId);
 }
 
 /**
@@ -332,21 +211,7 @@ export function listMessages(database: CenterDatabase, sessionId: string): Conve
  * @returns 轮次记录数组。
  */
 export function listTurns(database: CenterDatabase, sessionId: string): ConversationTurn[] {
-    return database.connection()
-        .prepare(`
-            SELECT id              AS turnId,
-                   session_id      AS sessionId,
-                   turn_number     AS turnNumber,
-                   user_message_id AS userMessageId,
-                   status,
-                   started_at      AS startedAt,
-                   ended_at        AS endedAt,
-                   duration_ms     AS durationMs
-            FROM conversation_turns
-            WHERE session_id = ?
-            ORDER BY turn_number ASC
-        `)
-        .all(sessionId) as ConversationTurn[];
+    return new SessionRepository(database).listTurns(sessionId);
 }
 
 /**
@@ -357,20 +222,7 @@ export function listTurns(database: CenterDatabase, sessionId: string): Conversa
  * @returns 任务记录数组。
  */
 export function listTasks(database: CenterDatabase, sessionId: string): TaskRecord[] {
-    return database.connection()
-        .prepare(`
-            SELECT id         AS taskId,
-                   turn_id    AS turnId,
-                   session_id AS sessionId,
-                   status,
-                   title,
-                   created_at AS createdAt,
-                   updated_at AS updatedAt
-            FROM tasks
-            WHERE session_id = ?
-            ORDER BY created_at ASC
-        `)
-        .all(sessionId) as TaskRecord[];
+    return new SessionRepository(database).listTasks(sessionId);
 }
 
 /**
@@ -381,21 +233,7 @@ export function listTasks(database: CenterDatabase, sessionId: string): TaskReco
  * @returns 任务步骤数组。
  */
 export function listTaskSteps(database: CenterDatabase, sessionId: string): TaskStepRecord[] {
-    return database.connection()
-        .prepare(`
-            SELECT task_steps.id         AS stepId,
-                   task_steps.task_id    AS taskId,
-                   task_steps.status,
-                   task_steps.title,
-                   task_steps.started_at AS startedAt,
-                   task_steps.ended_at   AS endedAt,
-                   task_steps.summary
-            FROM task_steps
-                     INNER JOIN tasks ON tasks.id = task_steps.task_id
-            WHERE tasks.session_id = ?
-            ORDER BY task_steps.started_at ASC
-        `)
-        .all(sessionId) as TaskStepRecord[];
+    return new SessionRepository(database).listTaskSteps(sessionId);
 }
 
 /**
@@ -406,21 +244,7 @@ export function listTaskSteps(database: CenterDatabase, sessionId: string): Task
  * @returns 找到时返回任务记录，否则返回 null。
  */
 export function findTask(database: CenterDatabase, taskId: string): TaskRecord | null {
-    const row = database.connection()
-        .prepare(`
-            SELECT id         AS taskId,
-                   turn_id    AS turnId,
-                   session_id AS sessionId,
-                   status,
-                   title,
-                   created_at AS createdAt,
-                   updated_at AS updatedAt
-            FROM tasks
-            WHERE id = ?
-        `)
-        .get(taskId) as TaskRecord | undefined;
-
-    return row ?? null;
+    return new SessionRepository(database).findTask(taskId);
 }
 
 /**
@@ -875,9 +699,94 @@ export function completeCreatedTurn(
     } | undefined;
 
     startWorkerTask(database, events, sent.taskId);
+    const thinkingStep = createTaskStep(
+        database,
+        events,
+        {
+            taskId: sent.taskId,
+            turnId: sent.turnId,
+            sessionId: sent.sessionId,
+            status: "running",
+            title: "对话执行编排",
+            createdAt: now,
+            updatedAt: now,
+        },
+        "思考与上下文整理",
+    );
     try {
+        appendThinkingEvents(
+            events,
+            sent.sessionId,
+            sent.taskId,
+            sent.turnId,
+            userText,
+        );
+        updateTaskStep(
+            database,
+            events,
+            thinkingStep.stepId,
+            "completed",
+            "思考过程和上下文整理完成。",
+        );
+        const modelStep = createTaskStep(
+            database,
+            events,
+            {
+                taskId: sent.taskId,
+                turnId: sent.turnId,
+                sessionId: sent.sessionId,
+                status: "running",
+                title: "模型调用",
+                createdAt: now,
+                updatedAt: now,
+            },
+            "模型流式输出",
+        );
         const modelResult = invokeProviderModelGateway(database, events, sent.taskId, sent.turnId, userText);
-        appendModelStreamEvent(events, sent.taskId, sent.turnId, modelResult);
+        appendModelStreamEvent(events, sent.sessionId, sent.taskId, sent.turnId, modelResult);
+        updateTaskStep(
+            database,
+            events,
+            modelStep.stepId,
+            "completed",
+            "模型流式输出完成并准备固化助手消息。",
+        );
+        const toolStep = createTaskStep(
+            database,
+            events,
+            {
+                taskId: sent.taskId,
+                turnId: sent.turnId,
+                sessionId: sent.sessionId,
+                status: "running",
+                title: "自动工具过程",
+                createdAt: now,
+                updatedAt: now,
+            },
+            "命令、插件、MCP 和 skill 状态记录",
+        );
+        appendToolVisibilityEvents(
+            events,
+            sent.sessionId,
+            sent.taskId,
+            sent.turnId,
+        );
+        if (userText.includes("Node.js 版本") || userText.includes("node -v")) {
+            // 命令工具只能由对话语义触发，避免浏览器按钮绕过任务编排和审计事件链路。
+            runNodeVersionCommandTool(
+                events,
+                sent.sessionId,
+                sent.taskId,
+                sent.turnId,
+            );
+        }
+        updateTaskStep(
+            database,
+            events,
+            toolStep.stepId,
+            "completed",
+            "命令工具、插件、MCP 和 skill 过程已写入可见事件。",
+        );
         database.connection()
             .prepare("INSERT INTO messages (id, session_id, turn_id, role, content_markdown, created_at) SELECT ?, session_id, id, ?, ?, ? FROM conversation_turns WHERE id = ?")
             .run(
@@ -1211,51 +1120,6 @@ export function listEvents(
         afterSequence: number;
     },
 ): EventRecord[] {
-    const rows = database.connection()
-        .prepare(`
-            SELECT id           AS eventId,
-                   event_type   AS eventType,
-                   turn_id      AS turnId,
-                   task_id      AS taskId,
-                   sequence,
-                   occurred_at  AS occurredAt,
-                   summary,
-                   payload_json AS payloadJson,
-                   trace_id     AS traceId
-            FROM events
-            WHERE (? IS NULL OR session_id = ?)
-              AND (? IS NULL OR turn_id = ?)
-              AND sequence > ?
-            ORDER BY occurred_at ASC, sequence ASC
-        `)
-        .all(
-            filter.sessionId,
-            filter.sessionId,
-            filter.turnId,
-            filter.turnId,
-            filter.afterSequence,
-        ) as Array<{
-        eventId: string;
-        eventType: string;
-        turnId: string | null;
-        taskId: string | null;
-        sequence: number;
-        occurredAt: string;
-        summary: string;
-        payloadJson: string;
-        traceId: string;
-    }>;
-
-    return rows.map((row) => ({
-        eventId: row.eventId,
-        eventType: row.eventType,
-        turnId: row.turnId,
-        taskId: row.taskId,
-        sequence: row.sequence,
-        occurredAt: row.occurredAt,
-        summary: row.summary,
-        payload: JSON.parse(row.payloadJson),
-        traceId: row.traceId,
-    }));
+    return new SessionRepository(database).listEvents(filter);
 }
 

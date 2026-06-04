@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {spawnSync} from "node:child_process";
 import {existsSync, mkdirSync, readFileSync, readdirSync, rmSync} from "node:fs";
 import {dirname, join} from "node:path";
 
@@ -12,6 +13,9 @@ import type {
     RuntimeConfigRecord,
 } from "./types.js";
 import {writeJsonFile} from "./helpers.js";
+
+// DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS: OpenAI 兼容 `/v1/models` 通常只返回模型 ID，不返回上下文窗口；需求中手填示例使用 200K，这里仅给新增模型写入可继续编辑的默认窗口。
+const DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS = 200000;
 
 export type ModelProtocolPluginDescriptor = {
     /**
@@ -472,6 +476,79 @@ export function normalizeProviderModelContextWindows(
 }
 
 /**
+ * parseProviderModelsResponse：解析供应商模型列表响应。
+ *
+ * @param body 供应商 `/models` 原始响应文本。
+ * @returns 模型名称数组。
+ */
+function parseProviderModelsResponse(body: string): string[] {
+    const parsed = JSON.parse(body) as {
+        data?: unknown;
+        models?: unknown;
+    };
+    if (Array.isArray(parsed.data)) {
+        return parsed.data.map((item) => {
+            return typeof item === "object" && item !== null
+                ? (item as { id?: unknown }).id
+                : null;
+        }).filter((model): model is string => {
+            return typeof model === "string" && model.trim().length > 0;
+        });
+    }
+    if (Array.isArray(parsed.models)) {
+        return parsed.models.filter((model): model is string => {
+            return typeof model === "string" && model.trim().length > 0;
+        });
+    }
+    return [];
+}
+
+/**
+ * sortProviderModelsByNumericVersion：按模型名中的数字段降序排序。
+ *
+ * @param models 模型名称数组。
+ * @returns 去重且排序后的模型名称数组。
+ */
+export function sortProviderModelsByNumericVersion(models: string[]): string[] {
+    const uniqueModels = Array.from(new Set(models.map((model) => {
+        return model.trim();
+    }).filter((model) => {
+        return model.length > 0;
+    })));
+    return uniqueModels.sort((leftModel, rightModel) => {
+        const leftParts = extractModelNumericParts(leftModel);
+        const rightParts = extractModelNumericParts(rightModel);
+        const maxLength = Math.max(
+            leftParts.length,
+            rightParts.length,
+        );
+        for (let index = 0; index < maxLength; index += 1) {
+            const leftValue = leftParts[index] ?? 0;
+            const rightValue = rightParts[index] ?? 0;
+            if (leftValue !== rightValue) {
+                return rightValue - leftValue;
+            }
+        }
+        return leftModel.localeCompare(rightModel);
+    });
+}
+
+/**
+ * extractModelNumericParts：提取模型名全部数字段。
+ *
+ * @param model 模型名称。
+ * @returns 数字段数组。
+ */
+function extractModelNumericParts(model: string): number[] {
+    const matches = model.match(/\d+(?:\.\d+)?/gu) ?? [];
+    return matches.flatMap((part) => {
+        return part.split(".").map((value) => Number(value));
+    }).filter((value) => {
+        return Number.isFinite(value);
+    });
+}
+
+/**
  * normalizeProviderCapabilities：规范化供应商能力声明。
  *
  * @param input 外部传入的能力声明。
@@ -647,6 +724,66 @@ export function saveProxyConfig(
         proxyId,
         hasAuth: Boolean(normalizedUsername || passwordSecretRef),
     };
+}
+
+/**
+ * fetchProviderModelsFromUpstream：从供应商上游模型列表接口获取并保存模型。
+ *
+ * @param centerDirectory 中心目录。
+ * @param providerId 供应商 ID。
+ * @returns 已排序并保存的模型列表。
+ */
+export function fetchProviderModelsFromUpstream(
+    centerDirectory: string,
+    providerId: string,
+): {
+    providerId: string;
+    models: string[];
+    reasoningEfforts: string[];
+    contextWindows: ProviderModelContextWindow[];
+} {
+    const provider = readProviderConfig(centerDirectory, providerId);
+    if (!provider) {
+        throw new Error("PROVIDER_NOT_FOUND");
+    }
+    if (provider.protocolPluginId !== "builtin-model-openai-compatible") {
+        throw new Error("PROVIDER_MODEL_FETCH_UNSUPPORTED");
+    }
+
+    const apiKey = readSecretValue(
+        centerDirectory,
+        provider.apiKeySecretRef,
+    );
+    const response = executeProviderGetSync(
+        joinProviderEndpoint(provider.baseUrl, "/v1/models"),
+        apiKey,
+    );
+    if (!response.ok) {
+        throw new Error(`PROVIDER_MODEL_FETCH_FAILED:${response.status}:${response.body.slice(0, 240)}`);
+    }
+
+    const existingModelList = readProviderModelList(centerDirectory, providerId);
+    // existingContextWindowByModel: 获取上游模型只刷新模型 ID 顺序；已有手填窗口是用户维护事实，不能被默认值覆盖。
+    const existingContextWindowByModel = new Map(existingModelList.contextWindows.map((item) => {
+        return [
+            item.model,
+            item.contextWindowTokens,
+        ];
+    }));
+    const models = sortProviderModelsByNumericVersion(parseProviderModelsResponse(response.body));
+    return refreshProviderModels(
+        centerDirectory,
+        providerId,
+        models,
+        existingModelList.reasoningEfforts,
+        models.map((model) => {
+            return {
+                model,
+                // contextWindowTokens: 既有模型沿用用户已保存窗口；上游新增模型因 `/models` 无窗口字段，按需求示例默认 200K 后允许用户在弹框继续修改。
+                contextWindowTokens: existingContextWindowByModel.get(model) ?? DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS,
+            };
+        }),
+    );
 }
 
 /**
@@ -933,6 +1070,83 @@ export function readSecretValue(centerDirectory: string, secretRef: string | nul
 }
 
 /**
+ * joinProviderEndpoint：拼接供应商 baseUrl 和接口路径。
+ *
+ * @param baseUrl 用户配置的基础地址。
+ * @param endpoint 协议接口路径。
+ * @returns 完整请求地址。
+ */
+function joinProviderEndpoint(
+    baseUrl: string,
+    endpoint: string,
+): string {
+    const normalizedBaseUrl = baseUrl.replace(/\/$/u, "");
+    if (normalizedBaseUrl.endsWith("/v1") && endpoint.startsWith("/v1/")) {
+        return `${normalizedBaseUrl}${endpoint.slice(3)}`;
+    }
+    return `${normalizedBaseUrl}${endpoint}`;
+}
+
+/**
+ * executeProviderGetSync：同步请求供应商 GET 接口。
+ *
+ * @param url 请求地址。
+ * @param apiKey 供应商 API Key 明文，未配置时为 null。
+ * @returns HTTP 状态和响应文本。
+ */
+function executeProviderGetSync(
+    url: string,
+    apiKey: string | null,
+): {
+    ok: boolean;
+    status: number;
+    body: string;
+} {
+    // script: 中心服务现有模型调用使用同步子进程 fetch；模型获取沿用该方式，避免改造路由异步边界。
+    const script = [
+        "const input = JSON.parse(process.argv[1]);",
+        "(async () => {",
+        "const response = await fetch(input.url, {method: 'GET', headers: input.headers});",
+        "const body = await response.text();",
+        "process.stdout.write(JSON.stringify({status: response.status, ok: response.ok, body}));",
+        "})().catch((error) => {",
+        "process.stdout.write(JSON.stringify({status: 0, ok: false, body: error && error.message ? error.message : 'FETCH_FAILED'}));",
+        "process.exitCode = 1;",
+        "});",
+    ].join("");
+    const output = spawnSync(
+        process.execPath,
+        [
+            "-e",
+            script,
+            JSON.stringify({
+                url,
+                headers: {
+                    ...(apiKey
+                        ? {
+                            authorization: `Bearer ${apiKey}`,
+                        }
+                        : {}),
+                },
+            }),
+        ],
+        {
+            encoding: "utf-8",
+            windowsHide: true,
+        },
+    );
+    const parsed = JSON.parse(output.stdout || "{\"status\":0,\"ok\":false,\"body\":\"FETCH_OUTPUT_EMPTY\"}") as {
+        ok: boolean;
+        status: number;
+        body: string;
+    };
+    if (output.status !== 0 && parsed.status === 0) {
+        throw new Error(`PROVIDER_MODEL_FETCH_CONNECT_FAILED:${parsed.body}`);
+    }
+    return parsed;
+}
+
+/**
  * readProviderConfig：读取供应商配置。
  *
  * @param centerDirectory 中心目录。
@@ -1036,9 +1250,13 @@ export function resolveProviderModelSelection(
     }
 
     const modelList = readProviderModelList(centerDirectory, providerId);
-    const model = preferredModel && preferredModel.trim().length > 0
-        ? preferredModel.trim()
-        : modelList.models[0] ?? provider.defaultModel;
+    const trimmedPreferredModel = preferredModel?.trim() ?? "";
+    // model: 已刷新模型列表是供应商当前可用模型事实源；默认模型过期时必须回退到列表首项，避免继续请求不可用模型。
+    const model = modelList.models.length > 0
+        ? modelList.models.includes(trimmedPreferredModel)
+            ? trimmedPreferredModel
+            : modelList.models[0]
+        : trimmedPreferredModel || provider.defaultModel;
     if (!model) {
         throw new Error("PROVIDER_MODEL_REQUIRED");
     }

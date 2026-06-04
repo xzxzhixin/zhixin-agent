@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,8 +20,43 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "runtimes";
+// runtimeDialogVisible: 运行环境新增和编辑弹框显隐。
+const runtimeDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.runtimes ?? "");
+
+/**
+ * openCreateRuntimeDialog：打开新增运行环境弹框。
+ *
+ * @returns 没有返回值。
+ */
+function openCreateRuntimeDialog(): void {
+  appStore.resetRuntimeDraft();
+  runtimeDialogVisible.value = true;
+}
+
+/**
+ * openEditRuntimeDialog：打开编辑运行环境弹框。
+ *
+ * @param runtime 运行环境列表项。
+ * @returns 没有返回值。
+ */
+function openEditRuntimeDialog(runtime: Parameters<typeof appStore.editRuntime>[0]): void {
+  appStore.editRuntime(runtime);
+  runtimeDialogVisible.value = true;
+}
+
+/**
+ * saveRuntimeDialog：保存运行环境并在成功后关闭弹框。
+ *
+ * @returns 保存完成后没有返回值。
+ */
+async function saveRuntimeDialog(): Promise<void> {
+  await appStore.saveRuntime();
+  if (!appStore.managementErrors.runtimes) {
+    runtimeDialogVisible.value = false;
+  }
+}
 
 /**
  * formatDisplayTime：统一格式化前端展示时间。
@@ -154,7 +190,7 @@ onMounted(() => {
       </div>
       <el-button
           type="primary"
-          @click="appStore.resetRuntimeDraft"
+          @click="openCreateRuntimeDialog"
       >
         新增环境
       </el-button>
@@ -167,10 +203,18 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-form
+      <el-dialog
+          v-model="runtimeDialogVisible"
+          append-to-body
+          class="management-config-dialog runtime-config-dialog"
+          title="运行环境配置"
+          width="80vw"
+          destroy-on-close
+      >
+        <el-form
           class="management-form"
           label-position="top"
-      >
+        >
         <el-row :gutter="12">
           <el-col :span="6">
             <el-form-item label="环境名称">
@@ -191,7 +235,7 @@ onMounted(() => {
         <div class="management-actions">
           <el-button
               type="primary"
-              @click="appStore.saveRuntime"
+              @click="saveRuntimeDialog"
           >
             保存环境
           </el-button>
@@ -202,7 +246,8 @@ onMounted(() => {
             设置默认环境
           </el-button>
         </div>
-      </el-form>
+        </el-form>
+      </el-dialog>
       <section class="management-list">
         <article
             v-for="runtime in appStore.runtimes"
@@ -213,6 +258,14 @@ onMounted(() => {
             <strong>{{ runtime.runtimeName }}</strong>
             <span>{{ runtime.runtimeType }} · {{ runtime.version }}</span>
             <small>{{ runtime.executablePath }}</small>
+          </div>
+          <div class="management-actions">
+            <el-button @click="openEditRuntimeDialog(runtime)">
+              修改
+            </el-button>
+            <el-button @click="appStore.setDefaultRuntime">
+              设置默认
+            </el-button>
           </div>
         </article>
       </section>

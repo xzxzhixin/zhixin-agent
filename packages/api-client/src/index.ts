@@ -9,6 +9,7 @@ import type {
   SessionUpdatedPayload,
   SessionType,
   TaskRecord,
+  TaskStatus,
   WebSocketEnvelope,
 } from "@zhixin/shared";
 
@@ -129,6 +130,37 @@ export interface SessionDetailResult {
    * tasks: 会话任务列表。
    */
   tasks: TaskRecord[];
+
+  /**
+   * taskSteps: 会话任务步骤列表，来源于中心服务 `task_steps` 表。
+   */
+  taskSteps: TaskStepRecordView[];
+}
+
+/**
+ * TaskStepRecordView：任务步骤展示结构。
+ *
+ * 来源：中心服务 `POST /api/session/detail`。
+ * 含义：让前端任务详情弹框展示编排步骤、耗时、失败原因和排查线索。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：只使用中心服务返回字段，不在前端推断步骤。
+ */
+export interface TaskStepRecordView {
+  /** stepId: 任务步骤 ID。 */
+  stepId: string;
+  /** taskId: 所属任务 ID。 */
+  taskId: string;
+  /** status: 步骤状态。 */
+  status: TaskStatus;
+  /** title: 步骤标题。 */
+  title: string;
+  /** startedAt: 步骤开始时间，ISO 字符串或 null。 */
+  startedAt: string | null;
+  /** endedAt: 步骤结束时间，ISO 字符串或 null。 */
+  endedAt: string | null;
+  /** summary: 步骤摘要、失败原因或排查信息。 */
+  summary: string | null;
 }
 
 /**
@@ -517,7 +549,7 @@ export interface AgentConfigView {
   enabled: boolean;
   /** roleDescription: 角色说明。 */
   roleDescription: string;
-  /** capabilityBoundary: 能力边界说明。 */
+  /** capabilityBoundary: 中心服务兼容旧定义文件的动态能力说明；前端不再编辑。 */
   capabilityBoundary: string;
   /** defaultProviderId: 默认供应商 ID，没有配置时为 null。 */
   defaultProviderId: string | null;
@@ -854,7 +886,6 @@ export class CenterApiClient {
   createAgent(payload: {
     name: string;
     roleDescription: string;
-    capabilityBoundary: string;
     defaultProviderId?: string | null;
     defaultModel?: string | null;
     reasoningEffort?: string | null;
@@ -872,7 +903,6 @@ export class CenterApiClient {
     agentId: string;
     name?: string;
     roleDescription?: string;
-    capabilityBoundary?: string;
     defaultProviderId?: string | null;
     defaultModel?: string | null;
     reasoningEffort?: string | null;
@@ -944,6 +974,26 @@ export class CenterApiClient {
     reasoningEfforts: string[];
   }> {
     return this.post("/api/provider/model-refresh", payload);
+  }
+
+  /**
+   * fetchProviderModels：从供应商上游接口获取模型列表。
+   *
+   * @param payload 供应商 ID。
+   * @returns 已排序并保存的模型列表。
+   */
+  fetchProviderModels(payload: {
+    providerId: string;
+  }): Promise<{
+    providerId: string;
+    models: string[];
+    contextWindows: Array<{
+      model: string;
+      contextWindowTokens: number;
+    }>;
+    reasoningEfforts: string[];
+  }> {
+    return this.post("/api/provider/model-fetch", payload);
   }
 
   /**
@@ -1230,6 +1280,25 @@ export class CenterApiClient {
     relativePath: string;
   }> {
     return this.post("/api/skill/install", payload);
+  }
+
+  /**
+   * runNodeVersionCommandTool：通过中心服务执行 Node.js 版本命令工具。
+   *
+   * @param payload 当前会话、任务和轮次身份。
+   * @returns 命令工具输出摘要。
+   */
+  runNodeVersionCommandTool(payload: {
+    sessionId: string;
+    taskId: string;
+    turnId: string;
+  }): Promise<{
+    toolKind: "command";
+    command: string;
+    status: "completed" | "failed";
+    outputSummary: string;
+  }> {
+    return this.post("/api/tool/command/node-version", payload);
   }
 
   /**

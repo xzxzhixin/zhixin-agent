@@ -310,19 +310,31 @@ export function createAgentDraft(): AgentDraft {
 /**
  * createDefaultAgentStatusTree：创建默认智能体状态树。
  *
- * @returns 至少包含系统内置主智能体的两级树根节点。
+ * @returns 默认可测试两级树；真实长期智能体加载后会由中心服务列表覆盖。
  */
 export function createDefaultAgentStatusTree(): AgentStatusTreeNode[] {
+    // 当前前端单一临时约定：中心服务尚未创建长期智能体时提供可测试节点；主智能体仍不进入该状态树。
     return [
         {
-            agentId: "main",
+            agentId: "test-long-term-agent",
             parentAgentId: "",
-            name: "致心",
+            name: "测试长期智能体",
             status: "空闲",
-            taskSummary: "主智能体当前没有执行任务。",
-            conversationHint: "主智能体“致心”负责默认对话、任务派发和长期记忆归纳；主智能体不可删除。",
-            nodeKind: "主智能体",
-            children: [],
+            taskSummary: "当前没有执行任务，可点击节点打开对话和引导区域。",
+            conversationHint: "该节点用于浏览器端验证长期智能体入口；真实长期智能体创建后由中心服务事实覆盖。",
+            nodeKind: "长期智能体",
+            children: [
+                {
+                    agentId: "test-child-agent",
+                    parentAgentId: "test-long-term-agent",
+                    name: "测试子智能体",
+                    status: "空闲",
+                    taskSummary: "等待当前对话内发送或引导。",
+                    conversationHint: "该节点用于验证子智能体对话弹窗、发送和引导入口。",
+                    nodeKind: "子智能体",
+                    children: [],
+                },
+            ],
         },
     ];
 }
@@ -332,7 +344,7 @@ export function createDefaultAgentStatusTree(): AgentStatusTreeNode[] {
  *
  * @param agents 中心服务已固化的智能体列表。
  * @param runtimeTree 当前运行期智能体状态树，第二级子智能体来源于后续运行事件。
- * @returns 输入区弹框展示的两级智能体状态树。
+ * @returns 输入区弹框展示的长期智能体两级状态树。
  */
 export function mergeAgentStatusTree(
     agents: AgentConfigView[],
@@ -351,32 +363,19 @@ export function mergeAgentStatusTree(
         );
     }
 
-    // mainAgent: 主智能体必须存在；中心服务返回主智能体时用中心服务名称，否则使用内置“致心”语义。
-    const mainAgent = agents.find((agent) => {
-        return agent.agentId === "main";
-    });
+    // longTermAgents: 本弹框只展示长期智能体，主智能体不进入该状态树。
     const longTermAgents = agents.filter((agent) => {
         return agent.agentId !== "main";
     });
-    const rootAgents: AgentConfigView[] = [
-        mainAgent ?? {
-            agentId: "main",
-            name: "致心",
-            enabled: true,
-            roleDescription: "系统内置主智能体，直接与用户对话并调度其他智能体。",
-            capabilityBoundary: "默认对话、任务派发和长期记忆归纳。",
-            defaultProviderId: null,
-            defaultModel: "",
-            reasoningEffort: "medium",
-            memoryIndexPath: "memory/agents/main",
-            createdBy: "system",
-            definitionPath: "agents/main.md",
-            updatedAt: "",
-        },
-        ...longTermAgents,
-    ];
 
-    return rootAgents.map((agent) => {
+    if (longTermAgents.length === 0) {
+        // 中心服务没有真实长期智能体时保留默认可测试树；仍只返回长期智能体根节点，不展示主智能体。
+        return runtimeTree.filter((node) => {
+            return node.nodeKind === "长期智能体";
+        });
+    }
+
+    return longTermAgents.map((agent) => {
         const fallbackNode = runtimeTree.find((node) => {
             return node.agentId === agent.agentId;
         });
@@ -386,10 +385,8 @@ export function mergeAgentStatusTree(
             name: agent.name,
             status: agent.enabled ? (fallbackNode?.status ?? "空闲") : "已停用",
             taskSummary: fallbackNode?.taskSummary ?? "当前没有执行任务。",
-            conversationHint: fallbackNode?.conversationHint ?? `${agent.name} 的对话查看和发送暂时仍通过当前会话消息接口完成；主智能体不可删除，长期智能体删除后会保留历史会话。`,
-            nodeKind: agent.agentId === "main"
-                ? "主智能体"
-                : "长期智能体",
+            conversationHint: fallbackNode?.conversationHint ?? `${agent.name} 的对话查看、引导和发送暂时仍通过当前会话消息接口完成；长期智能体删除后会保留历史会话。`,
+            nodeKind: "长期智能体",
             children: childrenByParent.get(agent.agentId) ?? [],
         };
     });
@@ -454,6 +451,53 @@ export function parseModelContextWindows(value: string): Array<{
         contextWindowTokens: number;
     } => {
         return item !== null;
+    });
+}
+
+/**
+ * sortProviderModelsByNumericVersion：按模型名中的数字版本降序排序。
+ *
+ * @param models 供应商返回或用户维护的模型名数组。
+ * @returns 去重后按数字段从大到小排列的模型名数组。
+ */
+export function sortProviderModelsByNumericVersion(models: string[]): string[] {
+    // uniqueModels: 保留模型名第一次出现的原文，避免大小写或空白处理后生成额外候选协议。
+    const uniqueModels = Array.from(new Set(models.map((model) => {
+        return model.trim();
+    }).filter((model) => {
+        return model.length > 0;
+    })));
+    return uniqueModels.sort((leftModel, rightModel) => {
+        const leftParts = extractModelNumericParts(leftModel);
+        const rightParts = extractModelNumericParts(rightModel);
+        const maxLength = Math.max(
+            leftParts.length,
+            rightParts.length,
+        );
+        for (let index = 0; index < maxLength; index += 1) {
+            const leftValue = leftParts[index] ?? 0;
+            const rightValue = rightParts[index] ?? 0;
+            if (leftValue !== rightValue) {
+                return rightValue - leftValue;
+            }
+        }
+        return leftModel.localeCompare(rightModel);
+    });
+}
+
+/**
+ * extractModelNumericParts：提取模型名里的所有数字段。
+ *
+ * @param model 模型名称。
+ * @returns 按出现顺序排列的数字段。
+ */
+function extractModelNumericParts(model: string): number[] {
+    // matches: 数字可能不在模型名末尾，例如 gpt-5.5-codex；只提取明确数字段参与排序。
+    const matches = model.match(/\d+(?:\.\d+)?/gu) ?? [];
+    return matches.flatMap((part) => {
+        return part.split(".").map((value) => Number(value));
+    }).filter((value) => {
+        return Number.isFinite(value);
     });
 }
 

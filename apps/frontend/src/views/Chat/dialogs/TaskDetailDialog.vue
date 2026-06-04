@@ -14,6 +14,29 @@ interface TaskPanelRow {
   status: string;
   /** summary: 任务状态说明，说明当前对话内排队等边界。 */
   summary: string;
+  /** elapsed: 当前任务耗时，来源于任务创建和更新时间。 */
+  elapsed: string;
+  /** traceId: 当前任务最近事件排查 ID。 */
+  traceId: string;
+  /** traceIdUnavailableReason: 没有真实排查 ID 时的固定原因说明。 */
+  traceIdUnavailableReason: string;
+  /** failureReason: 失败任务的明确原因；非失败为 null。 */
+  failureReason: string | null;
+  /** steps: 当前任务编排步骤列表。 */
+  steps: Array<{
+    /** id: 步骤 ID。 */
+    id: string;
+    /** title: 步骤标题。 */
+    title: string;
+    /** status: 步骤中文状态。 */
+    status: string;
+    /** elapsed: 步骤耗时。 */
+    elapsed: string;
+    /** summary: 步骤摘要或排查信息。 */
+    summary: string;
+    /** traceId: 步骤所属任务最近事件排查 ID。 */
+    traceId: string;
+  }>;
 }
 
 const props = defineProps<{
@@ -34,9 +57,9 @@ const emit = defineEmits<{
 <template>
   <el-dialog
       :model-value="props.modelValue"
+      append-to-body
       class="composer-mini-dialog task-detail-dialog"
-      title="任务"
-      width="720px"
+      title="任务编排详情"
       @update:model-value="emit('update:modelValue', $event)"
   >
     <section class="composer-mini-dialog-body composer-task-panel">
@@ -45,9 +68,29 @@ const emit = defineEmits<{
           :key="task.id"
           class="composer-panel-row"
       >
-        <strong>{{ task.title }}</strong>
-        <span>{{ task.status }}</span>
+        <header class="composer-task-row-header">
+          <strong>{{ task.title }}</strong>
+          <span>{{ task.status }}</span>
+        </header>
         <small>{{ task.summary }}</small>
+        <small>耗时：{{ task.elapsed }} · 排查 ID：{{ task.traceId }}</small>
+        <small v-if="task.traceIdUnavailableReason">{{ task.traceIdUnavailableReason }}</small>
+        <small v-if="task.failureReason">失败原因：{{ task.failureReason }}</small>
+        <div
+            v-if="task.steps.length > 0"
+            class="composer-task-step-list"
+        >
+          <article
+              v-for="step in task.steps"
+              :key="step.id"
+              class="composer-task-step-row"
+          >
+            <strong>{{ step.title }}</strong>
+            <span>{{ step.status }}</span>
+            <small>{{ step.elapsed }} · {{ step.summary }}</small>
+            <small>步骤排查 ID：{{ step.traceId }}</small>
+          </article>
+        </div>
       </article>
     </section>
   </el-dialog>
@@ -80,8 +123,8 @@ const emit = defineEmits<{
 }
 
 .composer-panel-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 4px 10px;
   padding: 8px 10px;
   border: 1px solid var(--zhixin-border);
@@ -89,9 +132,32 @@ const emit = defineEmits<{
   background: var(--zhixin-soft-bg);
 }
 
+.composer-task-row-header,
+.composer-task-step-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+}
+
+.composer-task-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.composer-task-step-row {
+  padding: 7px 8px;
+  border: 1px dashed var(--zhixin-border);
+  border-radius: 7px;
+}
+
 .composer-panel-row strong,
 .composer-panel-row span,
-.composer-panel-row small {
+.composer-panel-row small,
+.composer-task-step-row strong,
+.composer-task-step-row span,
+.composer-task-step-row small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

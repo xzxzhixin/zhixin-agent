@@ -1,16 +1,9 @@
 import {randomUUID} from "node:crypto";
-import {spawnSync} from "node:child_process";
-import {existsSync, readFileSync, readdirSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
-import type {ModelRequest, ModelUsage} from "@zhixin/model-protocol";
 import type {AgentRuntimeStatus, ClientType, EventRecord, ExecutionMode} from "@zhixin/shared";
 
-import {
-    readProviderConfig,
-    readSecretValue,
-    resolveProviderModelSelection,
-} from "./provider-domain.js";
 import {writeAgentMemory} from "./agent-domain.js";
 import {broadcastGlobalEvent} from "./realtime.js";
 import type {CenterDatabase} from "./database.js";
@@ -19,6 +12,7 @@ import {findProject, findSession, createMessageTurnAndTask} from "./session-doma
 import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "./types.js";
 import {writeJsonFile} from "./helpers.js";
+import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
 
 export function collectOneSkill(
     centerDirectory: string,
@@ -647,43 +641,55 @@ export function orchestrateModelCall(events: CenterEventStore, taskId: string, a
     return eventType;
 }
 
-export interface ProviderModelGatewayResult {
-    providerId: string;
-    model: string;
-    reasoningEffort: string | null;
-    assistantText: string;
-    usage: {
-        inputTokens: number | null;
-        outputTokens: number | null;
-        totalTokens: number | null;
-        cacheHitTokens: number | null;
-        cacheMissTokens: number | null;
-        rawUsage: unknown;
-    } | null;
+export function appendThinkingEvents(
+    events: CenterEventStore,
+    sessionId: string,
+    taskId: string,
+    turnId: string,
+    userText: string,
+): void {
+    events.append({
+        eventType: "thinking.delta",
+        scopeType: "thinking",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "running",
+        title: "思考片段",
+        summary: `正在分析用户输入：${userText.slice(0, 80)}`,
+        payload: {
+            thinkingText: "读取当前会话、任务状态、可用供应商和扩展能力后组织回复。",
+        },
+    });
+    events.append({
+        eventType: "thinking.completed",
+        scopeType: "thinking",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "completed",
+        title: "思考完成",
+        summary: "思考过程已完成，进入模型输出和工具过程记录。",
+        payload: {
+            taskId,
+        },
+    });
 }
 
-/**
- * ProviderModelGatewayHttpResult：模型网关 HTTP 返回结果。
- *
- * 来源：中心服务向供应商发起的真实 HTTP 调用。
- * 含义：把供应商响应文本和用量从原始 JSON 中解析出来。
- * 格式：助手文本 + 可空用量。
- * 默认值：供应商未返回 usage 时 usage 为 null。
- * 约束：不保存 API Key 或其他敏感请求头。
- */
-interface ProviderModelGatewayHttpResult {
-    /** assistantText: 供应商返回的助手正文。 */
-    assistantText: string;
-    /** usage: 供应商返回的真实用量；未提供时为 null。 */
-    usage: ProviderModelGatewayResult["usage"];
-}
-
-export function appendModelStreamEvent(events: CenterEventStore, taskId: string, turnId: string, result: ProviderModelGatewayResult): void {
+export function appendModelStreamEvent(
+    events: CenterEventStore,
+    sessionId: string,
+    taskId: string,
+    turnId: string,
+    result: ProviderModelGatewayResult,
+): void {
     events.append({
         eventType: "model.stream.delta",
         scopeType: "model",
         scopeId: taskId,
-        sessionId: null,
+        sessionId,
         turnId,
         taskId,
         status: "running",
@@ -700,7 +706,7 @@ export function appendModelStreamEvent(events: CenterEventStore, taskId: string,
         eventType: "model.stream.completed",
         scopeType: "model",
         scopeId: taskId,
-        sessionId: null,
+        sessionId,
         turnId,
         taskId,
         status: "completed",
@@ -748,539 +754,15 @@ export function planToolCalls(events: CenterEventStore, taskId: string, agentId:
 }
 
 /**
- * invokeProviderModelGateway：基于中心服务供应商配置执行最小模型调用。
+ * handleWorkerMessage：处理 Worker 回传的任务状态消息。
  *
  * @param database 中心服务数据库。
  * @param events 事件日志仓储。
- * @param taskId 任务 ID。
- * @param turnId 轮次 ID。
- * @param userText 用户输入。
- * @returns 模型网关执行结果。
+ * @param type Worker 消息类型。
+ * @param taskId 任务 ID，空值表示只记录 Worker 消息。
+ * @param payload Worker 消息载荷。
+ * @returns Worker 消息接收结果。
  */
-export function invokeProviderModelGateway(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    taskId: string,
-    turnId: string,
-    userText: string,
-): ProviderModelGatewayResult {
-    const provider = readProviderConfigByPriority(database, taskId);
-    if (!provider) {
-        throw new Error("PROVIDER_NOT_AVAILABLE");
-    }
-
-    const centerDirectory = extractCenterDirectory(database);
-    const modelSelection = resolveProviderModelSelection(
-        centerDirectory,
-        provider.providerId,
-        provider.defaultModel,
-    );
-    const requestPayload = buildModelRequestPayload(userText, modelSelection.model, modelSelection.reasoningEffort);
-    const gatewayRequest = provider.protocolPluginId === "builtin-model-anthropic-messages"
-        ? buildAnthropicGatewayRequest(requestPayload)
-        : buildOpenAiGatewayRequest(requestPayload, provider.protocolMode);
-    const apiKey = readSecretValue(
-        centerDirectory,
-        provider.apiKeySecretRef,
-    );
-    const httpResult = sendModelRequest(
-        provider.baseUrl,
-        gatewayRequest.endpoint,
-        gatewayRequest.body,
-        apiKey,
-        provider.protocolMode,
-    );
-    const result: ProviderModelGatewayResult = {
-        providerId: provider.providerId,
-        model: modelSelection.model,
-        reasoningEffort: modelSelection.reasoningEffort,
-        assistantText: httpResult.assistantText,
-        usage: httpResult.usage ?? buildUsageSummary(userText, httpResult.assistantText, provider.protocolPluginId),
-    };
-
-    events.append({
-        eventType: "model.orchestrated",
-        scopeType: "model",
-        scopeId: taskId,
-        sessionId: null,
-        turnId,
-        taskId,
-        status: "completed",
-        title: "模型编排",
-        summary: "中心服务已准备模型网关调用。",
-        payload: {
-            providerId: result.providerId,
-            model: result.model,
-            assistantTextPreview: result.assistantText.slice(0, 120),
-        },
-    });
-
-    return result;
-}
-
-function extractCenterDirectory(database: CenterDatabase): string {
-    const row = database.connection()
-        .prepare("SELECT value FROM meta WHERE key = ?")
-        .get("centerDirectory") as { value?: string } | undefined;
-    return row?.value ?? "";
-}
-
-function readProviderConfigByPriority(database: CenterDatabase, taskId: string): {
-    providerId: string;
-    protocolPluginId: string;
-    protocolMode: string;
-    baseUrl: string;
-    defaultModel: string;
-    apiKeySecretRef: string | null;
-} | null {
-    const centerDirectory = extractCenterDirectory(database);
-    if (!centerDirectory) {
-        return null;
-    }
-    void taskId;
-    const providersDirectory = join(centerDirectory, "providers");
-    if (!existsSync(providersDirectory)) {
-        return null;
-    }
-    const providerFiles = readdirSync(providersDirectory)
-        .filter((fileName) => {
-            return fileName.endsWith(".json")
-                && !fileName.endsWith(".models.json")
-                && !fileName.endsWith(".patch.json");
-        })
-        .sort();
-    for (const fileName of providerFiles) {
-        const providerId = fileName.replace(/\.json$/u, "");
-        const provider = readProviderConfig(centerDirectory, providerId);
-        if (provider?.enabled) {
-            return provider;
-        }
-    }
-
-    return null;
-}
-
-function buildModelRequestPayload(userText: string, model: string, reasoningEffort: string | null): ModelRequest {
-    return {
-        requestId: randomUUID(),
-        providerId: "",
-        model,
-        reasoningEffort,
-        messages: [
-            {
-                role: "user",
-                content: [
-                    {
-                        type: "text",
-                        text: userText,
-                    },
-                ],
-            },
-        ],
-        tools: [],
-        stream: true,
-    };
-}
-
-function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string): {
-    endpoint: "/v1/responses" | "/v1/chat/completions";
-    body: Record<string, unknown>;
-} {
-    return protocolMode === "responses"
-        ? {
-            endpoint: "/v1/responses",
-            body: {
-                model: request.model,
-                input: request.messages.map(toProviderMessage),
-                stream: false,
-            },
-        }
-        : {
-            endpoint: "/v1/chat/completions",
-            body: {
-                model: request.model,
-                messages: request.messages.map(toChatCompletionMessage),
-                stream: false,
-            },
-        };
-}
-
-function buildAnthropicGatewayRequest(request: ModelRequest): {
-    endpoint: "/v1/messages";
-    body: Record<string, unknown>;
-} {
-    return {
-        endpoint: "/v1/messages",
-        body: {
-            model: request.model,
-            messages: request.messages.map(toProviderMessage),
-            stream: false,
-        },
-    };
-}
-
-function sendModelRequest(
-    baseUrl: string,
-    endpoint: string,
-    body: Record<string, unknown>,
-    apiKey: string | null,
-    protocolMode: string,
-): ProviderModelGatewayHttpResult {
-    const response = executeFetchSync(joinProviderEndpoint(baseUrl, endpoint), {
-        method: "POST",
-        headers: {
-            "content-type": "application/json",
-            ...(apiKey
-                ? {
-                    authorization: `Bearer ${apiKey}`,
-                }
-                : {}),
-        },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        throw new Error(`PROVIDER_RESPONSE_${response.status}`);
-    }
-
-    return parseProviderModelResponse(
-        response.body,
-        protocolMode,
-    );
-}
-
-/**
- * joinProviderEndpoint：拼接供应商 baseUrl 和接口路径。
- *
- * @param baseUrl 用户保存的供应商基础地址。
- * @param endpoint 协议插件给出的接口路径。
- * @returns 完整请求地址。
- */
-function joinProviderEndpoint(
-    baseUrl: string,
-    endpoint: string,
-): string {
-    const normalizedBaseUrl = baseUrl.replace(/\/$/u, "");
-    if (normalizedBaseUrl.endsWith("/v1") && endpoint.startsWith("/v1/")) {
-        return `${normalizedBaseUrl}${endpoint.slice(3)}`;
-    }
-    return `${normalizedBaseUrl}${endpoint}`;
-}
-
-/**
- * executeFetchSync：用同步子进程执行 Node fetch，保持当前中心服务发送流程仍为同步闭环。
- *
- * @param url 供应商完整接口地址。
- * @param requestInit fetch 请求参数。
- * @returns HTTP 状态和响应文本。
- */
-function executeFetchSync(
-    url: string,
-    requestInit: {
-        method: string;
-        headers: Record<string, string>;
-        body: string;
-    },
-): {
-    ok: boolean;
-    status: number;
-    body: string;
-} {
-    // script: 当前代码运行在 CommonJS/tsx 环境中；用 node -e 保持同步调用，避免扩大 API 路由异步改造范围。
-    const script = [
-        "const input = JSON.parse(process.argv[1]);",
-        "(async () => {",
-        "const response = await fetch(input.url, input.init);",
-        "const body = await response.text();",
-        "process.stdout.write(JSON.stringify({status: response.status, ok: response.ok, body}));",
-        "})().catch((error) => {",
-        "process.stdout.write(JSON.stringify({status: 0, ok: false, body: error && error.message ? error.message : 'FETCH_FAILED'}));",
-        "process.exitCode = 1;",
-        "});",
-    ].join("");
-    const output = spawnSync(
-        process.execPath,
-        [
-            "-e",
-            script,
-            JSON.stringify({
-                url,
-                init: requestInit,
-            }),
-        ],
-        {
-            encoding: "utf-8",
-            windowsHide: true,
-        },
-    );
-    const parsed = JSON.parse(output.stdout || "{\"status\":0,\"ok\":false,\"body\":\"FETCH_OUTPUT_EMPTY\"}") as {
-        ok: boolean;
-        status: number;
-        body: string;
-    };
-    if (output.status !== 0 && parsed.status === 0) {
-        throw new Error(`PROVIDER_CONNECT_FAILED:${parsed.body}`);
-    }
-    return parsed;
-}
-
-/**
- * parseProviderModelResponse：从供应商原始 JSON 中解析助手文本和用量。
- *
- * @param body 供应商响应文本。
- * @param protocolMode 供应商协议模式。
- * @returns 统一助手文本和用量。
- */
-function parseProviderModelResponse(
-    body: string,
-    protocolMode: string,
-): ProviderModelGatewayHttpResult {
-    const parsed = JSON.parse(body) as Record<string, unknown>;
-    const assistantText = protocolMode === "responses"
-        ? readResponsesText(parsed)
-        : readChatCompletionText(parsed);
-    if (!assistantText) {
-        throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
-    }
-
-    return {
-        assistantText,
-        usage: normalizeProviderUsage(parsed.usage),
-    };
-}
-
-/**
- * readResponsesText：读取 Responses API 文本。
- *
- * @param parsed 供应商响应 JSON。
- * @returns 助手正文；无法解析时返回空字符串。
- */
-function readResponsesText(parsed: Record<string, unknown>): string {
-    if (typeof parsed.output_text === "string") {
-        return parsed.output_text;
-    }
-    const output = Array.isArray(parsed.output)
-        ? parsed.output
-        : [];
-    const textParts: string[] = [];
-    for (const item of output) {
-        if (typeof item !== "object" || item === null) {
-            continue;
-        }
-        const content = Array.isArray((item as { content?: unknown }).content)
-            ? (item as { content: unknown[] }).content
-            : [];
-        for (const contentItem of content) {
-            if (typeof contentItem !== "object" || contentItem === null) {
-                continue;
-            }
-            const text = (contentItem as { text?: unknown }).text;
-            if (typeof text === "string") {
-                textParts.push(text);
-            }
-        }
-    }
-    return textParts.join("");
-}
-
-/**
- * readChatCompletionText：读取 Chat Completions 或 Messages API 文本。
- *
- * @param parsed 供应商响应 JSON。
- * @returns 助手正文；无法解析时返回空字符串。
- */
-function readChatCompletionText(parsed: Record<string, unknown>): string {
-    const choices = Array.isArray(parsed.choices)
-        ? parsed.choices
-        : [];
-    const firstChoice = choices[0];
-    if (typeof firstChoice === "object" && firstChoice !== null) {
-        const message = (firstChoice as { message?: unknown }).message;
-        if (typeof message === "object" && message !== null) {
-            const content = (message as { content?: unknown }).content;
-            if (typeof content === "string") {
-                return content;
-            }
-        }
-    }
-    const content = Array.isArray(parsed.content)
-        ? parsed.content
-        : [];
-    const textParts = content.map((item) => {
-        if (typeof item !== "object" || item === null) {
-            return "";
-        }
-        const text = (item as { text?: unknown }).text;
-        return typeof text === "string"
-            ? text
-            : "";
-    });
-    return textParts.join("");
-}
-
-/**
- * normalizeProviderUsage：把供应商 usage 转换为内部用量。
- *
- * @param rawUsage 供应商原始 usage 字段。
- * @returns 内部用量；未提供时返回 null。
- */
-function normalizeProviderUsage(rawUsage: unknown): ProviderModelGatewayResult["usage"] {
-    if (typeof rawUsage !== "object" || rawUsage === null) {
-        return null;
-    }
-    const usage = rawUsage as Record<string, unknown>;
-    const inputTokens = readNumberField(
-        usage,
-        [
-            "input_tokens",
-            "prompt_tokens",
-        ],
-    );
-    const outputTokens = readNumberField(
-        usage,
-        [
-            "output_tokens",
-            "completion_tokens",
-        ],
-    );
-    const totalTokens = readNumberField(
-        usage,
-        [
-            "total_tokens",
-        ],
-    );
-    const cacheHitTokens = readNestedNumberField(
-        usage,
-        "prompt_tokens_details",
-        "cached_tokens",
-    ) ?? readNumberField(
-        usage,
-        [
-            "cache_hit_tokens",
-        ],
-    );
-
-    return {
-        inputTokens,
-        outputTokens,
-        totalTokens,
-        cacheHitTokens,
-        cacheMissTokens: null,
-        rawUsage,
-    };
-}
-
-/**
- * readNumberField：按固定字段名读取数字。
- *
- * @param source 原始对象。
- * @param keys 字段名列表。
- * @returns 第一个数字字段；不存在时为 null。
- */
-function readNumberField(
-    source: Record<string, unknown>,
-    keys: string[],
-): number | null {
-    for (const key of keys) {
-        const value = source[key];
-        if (typeof value === "number") {
-            return value;
-        }
-    }
-    return null;
-}
-
-/**
- * readNestedNumberField：读取嵌套数字字段。
- *
- * @param source 原始对象。
- * @param objectKey 嵌套对象字段名。
- * @param valueKey 数字字段名。
- * @returns 数字或 null。
- */
-function readNestedNumberField(
-    source: Record<string, unknown>,
-    objectKey: string,
-    valueKey: string,
-): number | null {
-    const objectValue = source[objectKey];
-    if (typeof objectValue !== "object" || objectValue === null) {
-        return null;
-    }
-    const value = (objectValue as Record<string, unknown>)[valueKey];
-    return typeof value === "number"
-        ? value
-        : null;
-}
-
-/**
- * toProviderMessage：把内部模型消息转换为当前最小供应商消息结构。
- *
- * @param message 内部模型消息。
- * @returns 供应商消息对象。
- */
-function toProviderMessage(message: ModelRequest["messages"][number]): Record<string, unknown> {
-    return {
-        role: message.role,
-        content: message.content.map((part) => {
-            if (part.type === "text") {
-                return {
-                    type: "text",
-                    text: part.text,
-                };
-            }
-            if (part.type === "image") {
-                return {
-                    type: "image_url",
-                    image_url: {
-                        url: part.attachmentId,
-                    },
-                };
-            }
-            return {
-                type: "text",
-                text: part.resultText,
-            };
-        }),
-    };
-}
-
-/**
- * toChatCompletionMessage：转换为 Chat Completions 常见消息结构。
- *
- * @param message 内部模型消息。
- * @returns Chat Completions 消息对象。
- */
-function toChatCompletionMessage(message: ModelRequest["messages"][number]): Record<string, unknown> {
-    const textContent = message.content.map((part) => {
-        if (part.type === "text") {
-            return part.text;
-        }
-        if (part.type === "image") {
-            return `[图片附件:${part.attachmentId}]`;
-        }
-        return part.resultText;
-    }).join("\n");
-    return {
-        role: message.role,
-        content: textContent,
-    };
-}
-
-function buildUsageSummary(userText: string, assistantText: string, providerId: string): ModelUsage {
-    return {
-        inputTokens: userText.length,
-        outputTokens: assistantText.length,
-        totalTokens: userText.length + assistantText.length,
-        cacheHitTokens: null,
-        cacheMissTokens: null,
-        rawUsage: {
-            providerId,
-            inputTextLength: userText.length,
-            outputTextLength: assistantText.length,
-        },
-    };
-}
-
 export function handleWorkerMessage(
     database: CenterDatabase,
     events: CenterEventStore,

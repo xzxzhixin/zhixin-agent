@@ -112,6 +112,22 @@ export class CenterDatabase {
                 NOT
                 NULL
             );
+
+            CREATE TABLE IF NOT EXISTS meta
+            (
+                key
+                TEXT
+                PRIMARY
+                KEY,
+                value
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
         `);
 
         const migrationVersion = "0001_center_bootstrap";
@@ -143,6 +159,22 @@ export class CenterDatabase {
      */
     private createCoreTables(db: Database.Database): void {
         db.exec(`
+            CREATE TABLE IF NOT EXISTS meta
+            (
+                key
+                TEXT
+                PRIMARY
+                KEY,
+                value
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
+
             CREATE TABLE IF NOT EXISTS projects
             (
                 id
@@ -788,6 +820,22 @@ export class CenterDatabase {
         if (!hasUsageSessionId) {
             db.exec("ALTER TABLE usage_records ADD COLUMN session_id TEXT");
         }
+
+        // meta.centerDirectory: 模型网关需要从 SQLite 侧读取中心目录以访问 providers 和 secrets；每次初始化都按启动配置刷新，支持用户切换中心目录后继续使用同一数据库文件。
+        db.prepare(`
+            INSERT INTO meta (key,
+                              value,
+                              updated_at)
+            VALUES (?, ?, ?) ON CONFLICT(key) DO
+            UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+        `)
+            .run(
+                "centerDirectory",
+                this.config.centerDirectory,
+                new Date().toISOString(),
+            );
     }
 
     /**

@@ -17,16 +17,52 @@ import {
     createSkillDraft,
     estimateComposerContextUsedTokens,
     findInvalidModelContextWindowLine,
+    formatModelContextWindowsForDraft,
     formatJsonText,
     normalizeOptionalText,
     parseEnvironmentVariables,
     readPluginConfig,
+    sortProviderModelsByNumericVersion,
 } from "./app-helpers";
 import type {
     ProviderDraft,
     ProxyDraft,
     RuntimeDraft,
 } from "./app-types";
+
+/**
+ * sortModelContextWindowsByModels：按模型排序结果重排上下文窗口配置。
+ *
+ * @param models 已排序模型名称数组。
+ * @param contextWindows 中心服务返回的模型窗口配置。
+ * @returns 与模型顺序一致的窗口配置数组。
+ */
+function sortModelContextWindowsByModels(
+    models: string[],
+    contextWindows: Array<{
+        model: string;
+        contextWindowTokens: number;
+    }>,
+): Array<{
+    model: string;
+    contextWindowTokens: number;
+}> {
+    // contextWindowByModel: 窗口配置只按明确 model 字段匹配，不猜测别名或候选字段。
+    const contextWindowByModel = new Map(contextWindows.map((item) => {
+        return [
+            item.model,
+            item,
+        ];
+    }));
+    return models.map((model) => {
+        return contextWindowByModel.get(model);
+    }).filter((item): item is {
+        model: string;
+        contextWindowTokens: number;
+    } => {
+        return item !== undefined;
+    });
+}
 
 /**
  * createManagementActions：创建管理页相关 Pinia actions。
@@ -190,7 +226,15 @@ export function createManagementActions() {
                 const result = await this.api().listProviderModels({
                     providerId,
                 });
-                this.providerModelOptions[providerId] = result;
+                const sortedModels = sortProviderModelsByNumericVersion(result.models);
+                this.providerModelOptions[providerId] = {
+                    ...result,
+                    models: sortedModels,
+                    contextWindows: sortModelContextWindowsByModels(
+                        sortedModels,
+                        result.contextWindows,
+                    ),
+                };
             } catch (error) {
                 // 模型列表失败不阻断供应商主列表，页面会显示手动填写兜底说明。
                 console.error("供应商模型列表加载失败", {
@@ -227,6 +271,46 @@ export function createManagementActions() {
                 refreshReasoningText: "",
             };
             void this.loadProviderModelOptions(provider.providerId);
+        },
+
+        /**
+         * fetchProviderModels：从供应商上游获取模型列表并同步当前弹框。
+         *
+         * @returns 获取完成后没有返回值。
+         */
+        async fetchProviderModels(): Promise<void> {
+            try {
+                const providerId = this.providerDraft.providerId;
+                if (!providerId) {
+                    this.managementErrors.providers = "新增供应商请先保存后再获取模型列表。";
+                    this.lastError = this.managementErrors.providers;
+                    return;
+                }
+                const result = await this.api().fetchProviderModels({
+                    providerId,
+                });
+                const sortedModels = sortProviderModelsByNumericVersion(result.models);
+                const sortedContextWindows = sortModelContextWindowsByModels(
+                    sortedModels,
+                    result.contextWindows,
+                );
+                this.providerModelOptions[providerId] = {
+                    ...result,
+                    models: sortedModels,
+                    contextWindows: sortedContextWindows,
+                };
+                this.providerDraft.refreshModelsText = sortedModels.join("\n");
+                this.providerDraft.refreshModelContextWindowsText = formatModelContextWindowsForDraft(sortedContextWindows);
+                this.providerDraft.refreshReasoningText = result.reasoningEfforts.join("\n");
+                if (sortedModels.length > 0) {
+                    // 默认模型：用户确认获取后使用数字版本排序后的第一项，例如 gpt-5.5 优先于 gpt-5.4。
+                    this.providerDraft.model = sortedModels[0];
+                }
+                this.clearManagementError("providers");
+                await this.loadProviders();
+            } catch (error) {
+                this.recordManagementError("providers", error);
+            }
         },
 
         /**
@@ -691,7 +775,6 @@ export function createManagementActions() {
             agentId: string;
             name: string;
             roleDescription: string;
-            capabilityBoundary: string;
             defaultProviderId: string | null;
             defaultModel: string;
             reasoningEffort: string;
@@ -701,7 +784,6 @@ export function createManagementActions() {
                 agentId: agent.agentId,
                 name: agent.name,
                 roleDescription: agent.roleDescription,
-                capabilityBoundary: agent.capabilityBoundary,
                 defaultProviderId: agent.defaultProviderId,
                 defaultModel: agent.defaultModel,
                 reasoningEffort: agent.reasoningEffort,
@@ -719,7 +801,6 @@ export function createManagementActions() {
                 agentId: null,
                 name: "",
                 roleDescription: "",
-                capabilityBoundary: "",
                 defaultProviderId: null,
                 defaultModel: "",
                 reasoningEffort: "medium",
@@ -739,7 +820,6 @@ export function createManagementActions() {
                         agentId: this.agentDraft.agentId,
                         name: this.agentDraft.name,
                         roleDescription: this.agentDraft.roleDescription,
-                        capabilityBoundary: this.agentDraft.capabilityBoundary,
                         defaultProviderId: this.agentDraft.defaultProviderId,
                         defaultModel: this.agentDraft.defaultModel,
                         reasoningEffort: this.agentDraft.reasoningEffort,
@@ -748,7 +828,6 @@ export function createManagementActions() {
                     await this.api().createAgent({
                         name: this.agentDraft.name,
                         roleDescription: this.agentDraft.roleDescription,
-                        capabilityBoundary: this.agentDraft.capabilityBoundary,
                         defaultProviderId: this.agentDraft.defaultProviderId,
                         defaultModel: this.agentDraft.defaultModel,
                         reasoningEffort: this.agentDraft.reasoningEffort,

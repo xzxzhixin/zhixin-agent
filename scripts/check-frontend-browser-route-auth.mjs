@@ -56,16 +56,17 @@ if (!appSource.includes("useRoute")) {
   process.exitCode = 1;
 }
 
-if (!appSource.includes("<router-view")
+if (!(appSource.includes("<router-view") || appSource.includes("<RouterView"))
     || !appSource.includes("v-slot=\"{ Component, route: matchedRoute }\"")
     || !appSource.includes(":is=\"Component\"")
-    || !appSource.includes(":key=\"matchedRoute.fullPath\"")) {
-  console.error("App 顶层 router-view 必须 key 到当前命中组件的 fullPath，避免 hash 已变化但旧顶层主体残留。");
+    || !appSource.includes("`${matchedRoute.fullPath}:${routeRenderVersion}`")) {
+  console.error("App 顶层 router-view 必须 key 到当前命中组件的 fullPath 和渲染版本，避免 hash 已变化但旧顶层主体残留。");
   process.exitCode = 1;
 }
 
-if (!appSource.includes(":key=\"route.fullPath\"")) {
-  console.error("App 顶层 router-view 自身也必须使用当前 route.fullPath 作为 key，避免 RouterView 渲染层停留在旧主体。");
+if (!appSource.includes("routeRenderVersion")
+    || !appSource.includes("hashchange")) {
+  console.error("App 顶层 router-view 必须使用 routeRenderVersion 监听原生 hashchange，避免 RouterView 渲染层停留在旧主体。");
   process.exitCode = 1;
 }
 

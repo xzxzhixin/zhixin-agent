@@ -24,6 +24,7 @@ const emit = defineEmits<{
 <template>
   <el-dialog
       :model-value="props.modelValue"
+      append-to-body
       class="project-capability-dialog"
       title="项目能力详情"
       width="720px"

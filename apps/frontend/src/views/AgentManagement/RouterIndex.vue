@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   ElMessageBox,
@@ -14,26 +15,33 @@ import type {
   AgentConfigView,
 } from "@zhixin/api-client";
 
-// appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
+// appStore: 页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
-
-// currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
+// currentWorkspacePage: 当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "agent-management";
-// managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
+// agentDialogVisible: 新增和编辑智能体弹框显隐。
+const agentDialogVisible = ref(false);
+// managementError: 当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.agents ?? "");
-// mainAgent：主智能体来自中心服务固化列表；缺失时页面显示明确空态，不伪造删除能力。
+// mainAgent: 主智能体来自中心服务固化列表；缺失时页面显示明确空态，不伪造删除能力。
 const mainAgent = computed(() => appStore.agents.find((agent) => {
   return agent.agentId === "main";
 }) ?? null);
-// longTermAgents：长期智能体列表只排除主智能体，子智能体仍由运行期状态弹框展示。
+// longTermAgents: 长期智能体列表只排除主智能体，子智能体仍由运行期状态弹框展示。
 const longTermAgents = computed(() => appStore.agents.filter((agent) => {
   return agent.agentId !== "main";
 }));
-// agentFormTitle：根据草稿是否有 ID 决定表单标题。
-const agentFormTitle = computed(() => {
+// agentRows: 外层表格同时展示主智能体和长期智能体，管理动作按行区分。
+const agentRows = computed(() => appStore.agents);
+// agentDialogTitle: 根据草稿是否有 ID 决定弹框标题。
+const agentDialogTitle = computed(() => {
+  if (appStore.agentDraft.agentId === "main") {
+    return "编辑主智能体";
+  }
+
   return appStore.agentDraft.agentId
-    ? "修改长期智能体"
-    : "创建长期智能体";
+    ? "编辑长期智能体"
+    : "新增长期智能体";
 });
 
 /**
@@ -52,7 +60,10 @@ function formatDisplayTime(value: string | null | undefined): string {
     return value;
   }
 
-  const pad = (part: number) => String(part).padStart(2, "0");
+  const pad = (part: number) => String(part).padStart(
+    2,
+    "0",
+  );
   return [
     date.getFullYear(),
     pad(date.getMonth() + 1),
@@ -88,6 +99,39 @@ function formatAgentDefaultModel(agent: AgentConfigView): string {
  */
 function formatAgentSource(agent: AgentConfigView): string {
   return `来源 ${agent.createdBy} · 定义 ${agent.definitionPath || "未返回定义路径"}`;
+}
+
+/**
+ * openCreateAgentDialog：打开新增长期智能体弹框。
+ *
+ * @returns 没有返回值。
+ */
+function openCreateAgentDialog(): void {
+  appStore.resetAgentDraft();
+  agentDialogVisible.value = true;
+}
+
+/**
+ * openEditAgentDialog：打开智能体编辑弹框。
+ *
+ * @param agent 中心服务返回的智能体摘要。
+ * @returns 没有返回值。
+ */
+function openEditAgentDialog(agent: AgentConfigView): void {
+  appStore.editAgent(agent);
+  agentDialogVisible.value = true;
+}
+
+/**
+ * saveAgentDialog：保存弹框中的智能体配置。
+ *
+ * @returns 保存完成后没有返回值。
+ */
+async function saveAgentDialog(): Promise<void> {
+  await appStore.saveAgent();
+  if (!appStore.managementErrors.agents) {
+    agentDialogVisible.value = false;
+  }
 }
 
 /**
@@ -128,32 +172,35 @@ async function confirmDeleteAgent(agent: AgentConfigView): Promise<void> {
   await appStore.deleteAgent(agent);
 }
 
-/**
- * onMounted：当前页面挂载时加载中心服务事实数据。
- *
- * @returns 没有返回值。
- */
 onMounted(() => {
   void appStore.loadAgents();
   void appStore.loadProviders();
 });
-
 </script>
 
 <template>
-      <section
-      class="page-panel"
+  <section
+      class="page-panel agent-management-page"
       :data-workspace-page="currentWorkspacePage"
   >
     <header class="page-header">
       <div>
         <h1>智能体管理</h1>
-        <p>展示主智能体和长期智能体的管理入口；主智能体不可删除，长期智能体用于跨会话持续协作。</p>
+        <p>主智能体可编辑角色说明和默认模型，主智能体不可删除；长期智能体通过列表进入弹窗新增、编辑、停用和删除。</p>
       </div>
-      <el-button @click="appStore.loadAgents">
-        刷新智能体
-      </el-button>
+      <div class="page-header-actions">
+        <el-button @click="appStore.loadAgents">
+          刷新智能体
+        </el-button>
+        <el-button
+            type="primary"
+            @click="openCreateAgentDialog"
+        >
+          新增长期智能体
+        </el-button>
+      </div>
     </header>
+
     <section class="page-scroll">
       <el-alert
           v-if="managementError"
@@ -162,171 +209,92 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
+
       <section class="management-section">
-        <h2>主智能体</h2>
-        <article
-            v-if="mainAgent"
-            class="management-item agent-management-card"
-        >
-          <div>
-            <strong>{{ mainAgent.name }}</strong>
-            <span>{{ mainAgent.roleDescription }}</span>
-            <small>{{ mainAgent.capabilityBoundary }}</small>
-            <small>{{ formatAgentDefaultModel(mainAgent) }}</small>
-            <small>记忆索引：{{ mainAgent.memoryIndexPath || "未返回记忆索引" }}</small>
-            <small>{{ formatAgentSource(mainAgent) }}</small>
-            <small>更新时间：{{ formatDisplayTime(mainAgent.updatedAt) }}</small>
-          </div>
-          <div class="management-actions">
-            <el-tag type="success">
-              系统内置
-            </el-tag>
-            <el-tag :type="mainAgent.enabled ? 'success' : 'info'">
-              {{ mainAgent.enabled ? "启用" : "停用" }}
-            </el-tag>
-            <el-button disabled>
-              不可删除
-            </el-button>
-          </div>
-        </article>
+        <h2>智能体列表</h2>
+        <p class="management-hint">
+          角色说明支持 Markdown；可用插件、MCP、skill 和工具权限由当前会话窗口动态决定，不在表单中单独维护权限范围字段。
+        </p>
         <el-empty
-            v-else
-            description="中心服务暂未返回主智能体定义"
+            v-if="agentRows.length === 0"
+            description="暂无智能体"
         />
-      </section>
-      <section class="management-section">
-        <h2>长期智能体</h2>
-        <el-form
-            class="management-form agent-management-form"
-            label-position="top"
-            @submit.prevent
-        >
-          <h3>{{ agentFormTitle }}</h3>
-          <div class="management-form-grid">
-            <el-form-item label="智能体名称">
-              <el-input
-                  v-model="appStore.agentDraft.name"
-                  placeholder="例如：代码审查助手"
-              />
-            </el-form-item>
-            <el-form-item label="推理深度">
-              <el-select v-model="appStore.agentDraft.reasoningEffort">
-                <el-option
-                    label="低"
-                    value="low"
-                />
-                <el-option
-                    label="中"
-                    value="medium"
-                />
-                <el-option
-                    label="高"
-                    value="high"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="默认供应商">
-              <el-select
-                  v-model="appStore.agentDraft.defaultProviderId"
-                  clearable
-                  placeholder="不指定供应商"
-              >
-                <el-option
-                    v-for="provider in appStore.providers"
-                    :key="provider.providerId"
-                    :label="provider.providerName"
-                    :value="provider.providerId"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="默认模型">
-              <el-input
-                  v-model="appStore.agentDraft.defaultModel"
-                  placeholder="例如 gpt-4o"
-              />
-            </el-form-item>
-          </div>
-          <el-form-item label="角色说明">
-            <el-input
-                v-model="appStore.agentDraft.roleDescription"
-                :rows="3"
-                type="textarea"
-                placeholder="说明该长期智能体负责什么。"
-            />
-          </el-form-item>
-          <el-form-item label="能力边界">
-            <el-input
-                v-model="appStore.agentDraft.capabilityBoundary"
-                :rows="3"
-                type="textarea"
-                placeholder="说明该智能体不能越过的任务、权限和上下文边界。"
-            />
-          </el-form-item>
-          <el-form-item label="删除记忆处理">
-            <el-switch
-                v-model="appStore.agentDraft.archiveMemoryOnDelete"
-                active-text="删除时归档专属记忆"
-                inactive-text="删除时移除专属记忆"
-            />
-          </el-form-item>
-          <div class="management-actions">
-            <el-button
-                type="primary"
-                @click="appStore.saveAgent"
-            >
-              {{ appStore.agentDraft.agentId ? "保存修改" : "创建智能体" }}
-            </el-button>
-            <el-button @click="appStore.resetAgentDraft">
-              清空表单
-            </el-button>
-          </div>
-        </el-form>
-        <el-empty
-            v-if="longTermAgents.length === 0"
-            description="暂无长期智能体"
-        />
-        <div
+        <el-table
             v-else
-            class="management-list"
+            class="management-table"
+            :data="agentRows"
+            row-key="agentId"
         >
-          <article
-              v-for="agent in longTermAgents"
-              :key="agent.agentId"
-              class="management-item agent-management-card"
+          <el-table-column
+              label="名称"
+              min-width="180"
           >
-            <div>
-              <strong>{{ agent.name }}</strong>
-              <span>{{ agent.roleDescription }}</span>
-              <small>{{ agent.capabilityBoundary }}</small>
-              <small>{{ formatAgentDefaultModel(agent) }}</small>
-              <small>记忆索引：{{ agent.memoryIndexPath || "未返回记忆索引" }}</small>
-              <small>{{ formatAgentSource(agent) }}</small>
-              <small>更新时间：{{ formatDisplayTime(agent.updatedAt) }}</small>
-            </div>
-            <div class="management-actions">
-              <el-tag :type="agent.enabled ? 'success' : 'info'">
-                {{ agent.enabled ? "启用" : "停用" }}
+            <template #default="{ row }">
+              <strong>{{ row.name }}</strong>
+              <small>{{ row.agentId === "main" ? "主智能体" : "长期智能体" }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column
+              label="角色说明"
+              min-width="260"
+              prop="roleDescription"
+          />
+          <el-table-column
+              label="默认模型"
+              min-width="260"
+          >
+            <template #default="{ row }">
+              {{ formatAgentDefaultModel(row) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+              label="状态"
+              width="110"
+          >
+            <template #default="{ row }">
+              <el-tag :type="row.enabled ? 'success' : 'info'">
+                {{ row.enabled ? "启用" : "停用" }}
               </el-tag>
-              <el-button @click="appStore.editAgent(agent)">
-                修改
-              </el-button>
-              <el-button
-                  :disabled="!agent.enabled"
-                  @click="confirmDisableAgent(agent)"
-              >
-                停用
-              </el-button>
-              <el-button
-                  type="danger"
-                  plain
-                  @click="confirmDeleteAgent(agent)"
-              >
-                删除
-              </el-button>
-            </div>
-          </article>
-        </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+              label="更新时间"
+              width="180"
+          >
+            <template #default="{ row }">
+              {{ formatDisplayTime(row.updatedAt) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+              label="操作"
+              width="260"
+              fixed="right"
+          >
+            <template #default="{ row }">
+              <div class="management-actions">
+                <el-button @click="openEditAgentDialog(row)">
+                  编辑
+                </el-button>
+                <el-button
+                    :disabled="row.agentId === 'main' || !row.enabled"
+                    @click="confirmDisableAgent(row)"
+                >
+                  停用
+                </el-button>
+                <el-button
+                    type="danger"
+                    plain
+                    :disabled="row.agentId === 'main'"
+                    @click="confirmDeleteAgent(row)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
       </section>
+
       <section class="management-section">
         <h2>删除影响提示</h2>
         <article class="management-item">
@@ -334,28 +302,128 @@ onMounted(() => {
             <strong>删除前必须由中心服务确认影响</strong>
             <span>删除长期智能体会影响专属记忆、后续任务调度入口和正在使用该智能体的会话入口。</span>
             <small>历史对话按会话记录保留；删除时可选择归档专属记忆或移除专属记忆，停用不处理记忆。</small>
+            <small v-if="mainAgent">主智能体：{{ formatAgentSource(mainAgent) }}</small>
+            <small>长期智能体数量：{{ longTermAgents.length }}</small>
           </div>
         </article>
       </section>
     </section>
-      </section>
+
+    <el-dialog
+        v-model="agentDialogVisible"
+        append-to-body
+        class="agent-management-dialog"
+        :title="agentDialogTitle"
+        width="80vw"
+        destroy-on-close
+    >
+      <el-form
+          class="agent-management-form"
+          label-position="top"
+          @submit.prevent
+      >
+        <div class="management-form-grid">
+          <el-form-item label="智能体名称">
+            <el-input
+                v-model="appStore.agentDraft.name"
+                :disabled="appStore.agentDraft.agentId === 'main'"
+                placeholder="例如：代码审查助手"
+            />
+          </el-form-item>
+          <el-form-item label="推理深度">
+            <el-select v-model="appStore.agentDraft.reasoningEffort">
+              <el-option
+                  label="低"
+                  value="low"
+              />
+              <el-option
+                  label="中"
+                  value="medium"
+              />
+              <el-option
+                  label="高"
+                  value="high"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="默认供应商">
+            <el-select
+                v-model="appStore.agentDraft.defaultProviderId"
+                clearable
+                placeholder="不指定供应商"
+            >
+              <el-option
+                  v-for="provider in appStore.providers"
+                  :key="provider.providerId"
+                  :label="provider.providerName"
+                  :value="provider.providerId"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="默认模型">
+            <el-input
+                v-model="appStore.agentDraft.defaultModel"
+                placeholder="例如 gpt-4o"
+            />
+          </el-form-item>
+        </div>
+        <el-form-item label="角色说明（Markdown）">
+          <el-input
+              v-model="appStore.agentDraft.roleDescription"
+              :rows="8"
+              type="textarea"
+              placeholder="说明该智能体的角色、协作方式和输出偏好。"
+          />
+        </el-form-item>
+        <el-form-item
+            v-if="appStore.agentDraft.agentId !== 'main'"
+            label="删除记忆处理"
+        >
+          <el-switch
+              v-model="appStore.agentDraft.archiveMemoryOnDelete"
+              active-text="删除时归档专属记忆"
+              inactive-text="删除时移除专属记忆"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="management-actions">
+          <el-button @click="agentDialogVisible = false">
+            取消
+          </el-button>
+          <el-button
+              type="primary"
+              @click="saveAgentDialog"
+          >
+            保存
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+  </section>
 </template>
 
 <style scoped>
-.agent-management-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--panel-bg);
+.agent-management-page {
+  min-width: 0;
 }
 
-.agent-management-form h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.management-hint {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.management-table :deep(.cell) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .management-form-grid {
@@ -364,14 +432,22 @@ onMounted(() => {
   gap: 12px;
 }
 
-.agent-management-card {
-  align-items: flex-start;
-}
-
 .management-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.agent-management-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+:deep(.agent-management-dialog .el-dialog__body) {
+  max-height: 70vh;
+  overflow: auto;
 }
 
 @media (max-width: 760px) {
@@ -380,4 +456,3 @@ onMounted(() => {
   }
 }
 </style>
-

@@ -99,6 +99,14 @@ const centerUsageDomainPath = join(
   "src",
   "usage-domain.ts",
 );
+// centerAgentDomainPath: 中心服务智能体领域文件路径，用于检查主智能体编辑和动态能力说明。
+const centerAgentDomainPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "agent-domain.ts",
+);
 // desktopShellMainPath: 桌面壳主进程源码路径，用于确认桌面壳启动新版中心服务。
 const desktopShellMainPath = join(
   process.cwd(),
@@ -195,6 +203,7 @@ const centerService = [
   centerApiRoutesPath,
   centerProviderDomainPath,
   centerUsageDomainPath,
+  centerAgentDomainPath,
 ].map((sourcePath) => {
   return readFileSync(
     sourcePath,
@@ -265,6 +274,16 @@ const expectations = [
     mainView,
     "refreshProviderModels",
     "供应商页面必须支持刷新模型或推理深度。",
+  ],
+  [
+    mainView,
+    "fetchProviderModelsForDialog",
+    "供应商弹框必须提供获取模型按钮，不能只依赖手填模型列表。",
+  ],
+  [
+    mainView,
+    "获取",
+    "供应商弹框获取模型按钮必须使用用户可识别的“获取”文案。",
   ],
   [
     apiClient,
@@ -363,6 +382,51 @@ const expectations = [
   ],
   [
     store,
+    "sortProviderModelsByNumericVersion",
+    "前端状态容器必须按模型名数字段降序排序获取到的模型。",
+  ],
+  [
+    store,
+    "model.match(/\\d+(?:\\.\\d+)?/gu)",
+    "前端模型排序必须从模型名任意位置匹配数字段，不能只匹配末尾数字。",
+  ],
+  [
+    store,
+    "return rightValue - leftValue",
+    "前端模型排序必须按数字段降序排列，大数字模型排在前面。",
+  ],
+  [
+    store,
+    "fetchProviderModels",
+    "前端状态容器必须封装供应商真实模型获取动作。",
+  ],
+  [
+    apiClient,
+    "fetchProviderModels(",
+    "API 客户端必须封装供应商真实模型获取接口。",
+  ],
+  [
+    centerService,
+    "/api/provider/model-fetch",
+    "中心服务必须提供供应商真实模型获取接口。",
+  ],
+  [
+    centerService,
+    "fetchProviderModelsFromUpstream",
+    "中心服务必须通过供应商上游模型接口获取模型列表。",
+  ],
+  [
+    centerService,
+    "existingContextWindowByModel",
+    "中心服务获取上游模型时必须保留用户已维护的模型上下文窗口。",
+  ],
+  [
+    centerService,
+    "DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS",
+    "中心服务必须为上游新增且未返回窗口的模型使用明确默认窗口。",
+  ],
+  [
+    store,
     "draft.providerId === provider.providerId",
     "只有表单正在编辑当前供应商时才允许使用手填模型窗口配置。",
   ],
@@ -380,6 +444,31 @@ const expectations = [
     mainView,
     "主智能体不可删除",
     "智能体管理页必须说明主智能体不可删除。",
+  ],
+  [
+    mainView,
+    "agent-management-dialog",
+    "智能体管理新增和编辑必须进入弹窗。",
+  ],
+  [
+    mainView,
+    "width=\"80vw\"",
+    "智能体管理弹窗默认宽度必须为 80vw。",
+  ],
+  [
+    mainView,
+    "<el-table",
+    "智能体管理外层必须使用表格列表。",
+  ],
+  [
+    mainView,
+    "openEditAgentDialog(row)",
+    "主智能体和长期智能体都必须可通过表格行进入编辑弹窗。",
+  ],
+  [
+    centerService,
+    "AGENT_DYNAMIC_CAPABILITY_BOUNDARY",
+    "中心服务必须使用动态能力兼容说明，前端不再编辑能力边界。",
   ],
   [
     mainView,
@@ -589,6 +678,135 @@ function assertNotIncludes(
 ) {
   if (source.includes(pattern)) {
     console.error(message);
+    process.exitCode = 1;
+  }
+}
+
+// agentManagementPage: 智能体管理页面源码，用于检查本轮表格加弹窗和能力边界移除口径。
+const agentManagementPage = readFileSync(
+  join(
+    process.cwd(),
+    "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
+  ),
+  "utf-8",
+);
+
+assertNotIncludes(
+  agentManagementPage,
+  "能力边界",
+  "智能体管理页不能继续展示或编辑“能力边界”字段。",
+);
+
+assertNotIncludes(
+  agentManagementPage,
+  "capabilityBoundary",
+  "智能体管理页不能继续绑定 capabilityBoundary 表单字段。",
+);
+
+/**
+ * providerDialogBlock: 供应商配置弹框源码块。
+ *
+ * 来源：T08 复测失败。
+ * 含义：新增和编辑必须使用同一个可见 80vw 弹框，不能只留下空 dialog 容器。
+ * 格式：从供应商弹框开始标签到表单结束标签的源码片段。
+ * 默认值：缺失时标记检查失败。
+ * 约束：弹框内容保持稳定挂载，编辑入口必须在草稿写入后打开该弹框。
+ */
+const providerDialogBlock = extractRequiredBlock(
+  workspacePageHost,
+  "<el-dialog",
+  "</el-dialog>",
+  "供应商页面必须存在配置弹框。",
+);
+const openEditProviderDialogBlock = extractRequiredBlock(
+  workspacePageHost,
+  "function openEditProviderDialog",
+  "void nextTick();",
+  "供应商页面必须存在编辑弹框打开函数。",
+);
+
+assertIncludes(
+  providerDialogBlock,
+  "width=\"80vw\"",
+  "供应商新增和编辑弹框默认宽度必须为 80vw。",
+);
+assertIncludes(
+  providerDialogBlock,
+  "class=\"management-form\"",
+  "供应商弹框必须包含真实配置表单，不能只渲染空容器。",
+);
+assertNotIncludes(
+  providerDialogBlock,
+  "destroy-on-close",
+  "供应商配置弹框不能销毁内容，否则编辑入口可能只留下空 dialog 容器。",
+);
+assertIncludes(
+  openEditProviderDialogBlock,
+  "providerDialogVisible.value = true;",
+  "供应商编辑入口必须先打开配置弹框，避免后续草稿兼容逻辑异常时只留下不可见空容器。",
+);
+assertIncludes(
+  openEditProviderDialogBlock,
+  "...defaultProviderCapabilities",
+  "供应商编辑入口必须为旧记录补齐能力声明默认结构。",
+);
+assertIncludes(
+  openEditProviderDialogBlock,
+  "...defaultProviderProxyPolicy",
+  "供应商编辑入口必须为旧记录补齐代理策略默认结构，避免展开空字段导致事件异常。",
+);
+assertIncludes(
+  openEditProviderDialogBlock,
+  "Array.isArray(providerModelOptions?.contextWindows)",
+  "供应商编辑入口必须把模型窗口列表归一化为数组。",
+);
+assertIncludes(
+  openEditProviderDialogBlock,
+  "Array.isArray(providerModelOptions?.reasoningEfforts)",
+  "供应商编辑入口必须把推理深度列表归一化为数组。",
+);
+assertNotIncludes(
+  openEditProviderDialogBlock,
+  "appStore.editProvider(provider);",
+  "供应商编辑入口不能继续调用旧 store editProvider，否则旧记录缺 proxyPolicy 时会在事件处理器抛错。",
+);
+assertIncludes(
+  workspacePageHost,
+  "@click=\"openEditProviderDialog(provider)\"",
+  "供应商列表行修改按钮必须调用编辑弹框入口。",
+);
+
+for (const pagePath of [
+  "apps/frontend/src/views/Providers/RouterIndex.vue",
+  "apps/frontend/src/views/Proxies/RouterIndex.vue",
+  "apps/frontend/src/views/Runtimes/RouterIndex.vue",
+  "apps/frontend/src/views/Plugins/RouterIndex.vue",
+  "apps/frontend/src/views/Mcp/RouterIndex.vue",
+  "apps/frontend/src/views/Skills/RouterIndex.vue",
+  "apps/frontend/src/views/Center/RouterIndex.vue",
+]) {
+  const pageSource = readFileSync(
+    join(
+      process.cwd(),
+      pagePath,
+    ),
+    "utf-8",
+  );
+  assertIncludes(
+    pageSource,
+    "<el-dialog",
+    `${pagePath} 必须把新增或编辑配置放入弹框。`,
+  );
+  assertIncludes(
+    pageSource,
+    "width=\"80vw\"",
+    `${pagePath} 的配置弹框默认宽度必须为 80vw。`,
+  );
+  const pageScrollIndex = pageSource.indexOf("class=\"page-scroll\"");
+  const dialogIndex = pageSource.indexOf("<el-dialog");
+  const formIndex = pageSource.indexOf("class=\"management-form\"");
+  if (pageScrollIndex >= 0 && formIndex >= 0 && (dialogIndex < 0 || formIndex < dialogIndex)) {
+    console.error(`${pagePath} 不能在页面滚动区常驻 management-form，新增或编辑表单必须进入弹框。`);
     process.exitCode = 1;
   }
 }

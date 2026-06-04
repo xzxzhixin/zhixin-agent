@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,6 +20,8 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "center";
+// centerDialogVisible: 中心服务本机配置弹框显隐。
+const centerDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.center ?? "");
 
@@ -156,8 +159,11 @@ onMounted(() => {
           v-if="appStore.runtime.capabilities.canManageCenterService"
           class="page-header-actions"
       >
-        <el-button @click="appStore.saveDesktopConfig">
-          保存配置
+        <el-button
+            type="primary"
+            @click="centerDialogVisible = true"
+        >
+          打开配置
         </el-button>
       </div>
     </header>
@@ -175,10 +181,32 @@ onMounted(() => {
         v-else
         class="page-scroll"
     >
-      <el-form
+      <section class="management-list">
+        <article class="management-item">
+          <div>
+            <strong>中心服务配置</strong>
+            <span>端口：{{ appStore.desktopConfigDraft.port }} · 目录：{{ appStore.desktopConfigDraft.centerDirectory || "未配置" }}</span>
+            <small>Web 远程访问账号、密码和外部中心目录提示在配置弹框内维护。</small>
+          </div>
+          <div class="management-actions">
+            <el-button @click="centerDialogVisible = true">
+              编辑
+            </el-button>
+          </div>
+        </article>
+      </section>
+      <el-dialog
+          v-model="centerDialogVisible"
+          append-to-body
+          class="management-config-dialog center-config-dialog"
+          title="中心服务配置"
+          width="80vw"
+          destroy-on-close
+      >
+        <el-form
           class="center-service-form"
           label-position="top"
-      >
+        >
         <el-form-item label="端口">
           <el-input-number
               v-model="appStore.desktopConfigDraft.port"
@@ -212,7 +240,8 @@ onMounted(() => {
         <p class="panel-muted">
           系统通知：{{ appStore.notificationPermission || "未检测" }}
         </p>
-      </el-form>
+        </el-form>
+      </el-dialog>
     </section>
   </section>
 </template>

@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,8 +20,43 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "proxies";
+// proxyDialogVisible: 代理新增和编辑弹框显隐。
+const proxyDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.proxies ?? "");
+
+/**
+ * openCreateProxyDialog：打开新增代理弹框。
+ *
+ * @returns 没有返回值。
+ */
+function openCreateProxyDialog(): void {
+  appStore.resetProxyDraft();
+  proxyDialogVisible.value = true;
+}
+
+/**
+ * openEditProxyDialog：打开编辑代理弹框。
+ *
+ * @param proxy 代理列表项。
+ * @returns 没有返回值。
+ */
+function openEditProxyDialog(proxy: Parameters<typeof appStore.editProxy>[0]): void {
+  appStore.editProxy(proxy);
+  proxyDialogVisible.value = true;
+}
+
+/**
+ * saveProxyDialog：保存代理配置并在成功后关闭弹框。
+ *
+ * @returns 保存完成后没有返回值。
+ */
+async function saveProxyDialog(): Promise<void> {
+  await appStore.saveProxy();
+  if (!appStore.managementErrors.proxies) {
+    proxyDialogVisible.value = false;
+  }
+}
 
 /**
  * formatDisplayTime：统一格式化前端展示时间。
@@ -154,7 +190,7 @@ onMounted(() => {
       </div>
       <el-button
           type="primary"
-          @click="appStore.resetProxyDraft"
+          @click="openCreateProxyDialog"
       >
         新增代理
       </el-button>
@@ -167,10 +203,18 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-form
+      <el-dialog
+          v-model="proxyDialogVisible"
+          append-to-body
+          class="management-config-dialog proxy-config-dialog"
+          title="网络代理配置"
+          width="80vw"
+          destroy-on-close
+      >
+        <el-form
           class="management-form"
           label-position="top"
-      >
+        >
         <el-row :gutter="12">
           <el-col :span="6">
             <el-form-item label="代理名称">
@@ -256,7 +300,7 @@ onMounted(() => {
         <div class="management-actions">
           <el-button
               type="primary"
-              @click="appStore.saveProxy"
+              @click="saveProxyDialog"
           >
             保存代理
           </el-button>
@@ -267,7 +311,8 @@ onMounted(() => {
             取消全局默认代理
           </el-button>
         </div>
-      </el-form>
+        </el-form>
+      </el-dialog>
       <section class="management-list">
         <article
             v-for="proxy in appStore.proxies"
@@ -286,7 +331,7 @@ onMounted(() => {
             <el-tag :type="proxy.enabled ? 'success' : 'info'">
               {{ proxy.enabled ? "启用" : "停用" }}
             </el-tag>
-            <el-button @click="appStore.editProxy(proxy)">
+            <el-button @click="openEditProxyDialog(proxy)">
               修改
             </el-button>
             <el-button @click="appStore.toggleProxy(proxy)">

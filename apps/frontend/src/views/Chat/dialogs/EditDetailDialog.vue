@@ -10,6 +10,8 @@ const props = defineProps<{
   files: ComposerEditFile[];
   /** activeFile: 当前选中的编辑文件。 */
   activeFile: ComposerEditFile | null;
+  /** canDeleteConversation: 当前是否有中心服务真实会话可进入删除确认。 */
+  canDeleteConversation: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -21,12 +23,15 @@ const emit = defineEmits<{
   "select-file": [
     file: ComposerEditFile,
   ];
+  /** request-delete-conversation: 用户请求打开会话删除确认。 */
+  "request-delete-conversation": [];
 }>();
 </script>
 
 <template>
   <el-dialog
       :model-value="props.modelValue"
+      append-to-body
       class="composer-mini-dialog edit-detail-dialog"
       title="编辑"
       width="720px"
@@ -37,6 +42,20 @@ const emit = defineEmits<{
           v-if="props.files.length === 0"
           description="暂无本次编辑"
       />
+      <section class="conversation-delete-section">
+        <header>
+          <strong>会话删除</strong>
+          <span>点击后只打开确认弹框；复测取消路径不会执行不可逆删除。</span>
+        </header>
+        <el-button
+            type="danger"
+            plain
+            :disabled="!props.canDeleteConversation"
+            @click="emit('request-delete-conversation')"
+        >
+          确认删除对话
+        </el-button>
+      </section>
       <button
           v-for="file in props.files"
           :key="file.filePath"
@@ -91,6 +110,29 @@ const emit = defineEmits<{
   color: var(--zhixin-text);
   text-align: left;
   cursor: pointer;
+}
+
+.conversation-delete-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--zhixin-border);
+  border-radius: 8px;
+  background: var(--zhixin-soft-bg);
+}
+
+.conversation-delete-section header {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.conversation-delete-section span {
+  color: var(--zhixin-text-soft);
+  font-size: 12px;
 }
 
 .composer-edit-file.active,

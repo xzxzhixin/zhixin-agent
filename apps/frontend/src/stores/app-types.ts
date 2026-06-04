@@ -456,8 +456,6 @@ export interface AgentDraft {
     name: string;
     /** roleDescription: 角色说明。 */
     roleDescription: string;
-    /** capabilityBoundary: 能力边界。 */
-    capabilityBoundary: string;
     /** defaultProviderId: 默认供应商 ID，未选择时为 null。 */
     defaultProviderId: string | null;
     /** defaultModel: 默认模型。 */

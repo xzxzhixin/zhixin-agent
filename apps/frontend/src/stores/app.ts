@@ -16,14 +16,12 @@ import {
     type ProxyConfigView,
     type RuntimeConfigView,
     type SessionDetailResult,
-    type SkillConfigView,
     type SessionUpdatedPayload,
+    type SkillConfigView,
     type UsageFilters,
 } from "@zhixin/api-client";
 import {
     createEmptyComposerDraft,
-    canSendComposerDraft,
-    type ComposerAttachmentDraft,
     type ComposerDraftModel,
 } from "@zhixin/ui";
 import type {
@@ -40,32 +38,20 @@ import {
     type ThemeMode,
 } from "../runtime";
 import {
-    buildProviderModelRefreshDraft,
-    convertIdePayloadToReference,
-    createDefaultAgentStatusTree,
-    createMcpDraft,
-    createPluginDraft,
-    createAgentDraft,
-    createProjectCodeSuggestion,
-    createProjectFileSuggestion,
-    createProjectFolderSuggestion,
-    createProviderDraft,
-    createProxyDraft,
-    createRuntimeDraft,
-    createSkillDraft,
-    createUsageFilters,
-    estimateComposerContextUsedTokens,
-    fallbackProjectsFromSessions,
-    formatReferenceMarkdown,
-    mergeAgentStatusTree,
-    normalizeOptionalText,
-    parseEnvironmentVariables,
-    readPluginConfig,
-    formatJsonText,
+    buildProviderModelRefreshDraft, convertIdePayloadToReference, createDefaultAgentStatusTree,
+    createMcpDraft, createPluginDraft, createAgentDraft, createProjectCodeSuggestion,
+    createProjectFileSuggestion, createProjectFolderSuggestion, createProviderDraft,
+    createProxyDraft, createRuntimeDraft, createSkillDraft, createUsageFilters,
+    estimateComposerContextUsedTokens, fallbackProjectsFromSessions, formatReferenceMarkdown,
+    mergeAgentStatusTree, normalizeOptionalText, parseEnvironmentVariables, readPluginConfig,
+    formatJsonText, resolveComposerProjectId,
 } from "./app-helpers";
 import {
     createManagementActions,
 } from "./app-management-actions";
+import {
+    createConversationActions,
+} from "./app-conversation-actions";
 import type {
     AgentStatusTreeNode,
     AgentDraft,
@@ -261,7 +247,7 @@ export const useAppStore = defineStore("app", {
          * mainAgentStatusTree: 输入框“智能体状态”入口两级树。
          *
          * 来源：第一级由中心服务 agents 列表派生，第二级待中心服务子智能体运行事件协议明确后接入。
-         * 默认值：包含主智能体“致心”，避免团队树缺少系统内置入口。
+         * 默认值：空数组；主智能体不展示在该状态树中。
          */
         mainAgentStatusTree: createDefaultAgentStatusTree() as AgentStatusTreeNode[],
 
@@ -600,7 +586,7 @@ export const useAppStore = defineStore("app", {
         /**
          * agentStatusTree：输入区“智能体状态”两级树。
          *
-         * @returns 第一级为主智能体和长期智能体，第二级为各自子智能体。
+         * @returns 第一级为长期智能体，第二级为各自子智能体。
          */
         agentStatusTree(state): AgentStatusTreeNode[] {
             return mergeAgentStatusTree(
@@ -1130,38 +1116,7 @@ export const useAppStore = defineStore("app", {
             this.updateComposerContextUsage();
         },
 
-        /**
-         * sendDraft：发送当前输入框文本。
-         *
-         * @returns 发送完成后没有返回值。
-         */
-        async sendDraft(): Promise<void> {
-            if (!canSendComposerDraft(this.draft)) {
-                return;
-            }
-
-            const contentMarkdown = this.buildDraftMarkdown();
-            const attachments = [
-                ...this.draft.attachments,
-            ];
-            this.draft = createEmptyComposerDraft();
-            this.showProjectReferencePopover = false;
-            this.projectReferenceQuery = "";
-
-            const sessionId = await this.ensureSessionForSending();
-            if (!sessionId) {
-                return;
-            }
-
-            const sent = await this.api().sendMessage({
-                sessionId,
-                contentMarkdown,
-            });
-            await this.commitDraftAttachments(sessionId, sent.messageId, attachments);
-            await this.loadNavigationData();
-            await this.loadActiveSessionDetail();
-            await this.refreshEvents();
-        },
+        ...createConversationActions(),
 
         /**
          * ensureSessionForSending：真实发送前把本地草稿转成中心服务会话。
@@ -1215,7 +1170,11 @@ export const useAppStore = defineStore("app", {
             }
 
             this.composerSettings.selectedProviderId = nextProvider.providerId;
-            if (this.composerSettings.selectedModel.length === 0 || !currentProvider) {
+            const providerModels = this.providerModelOptions[nextProvider.providerId]?.models ?? [];
+            const selectedModelBelongsToProvider = providerModels.includes(this.composerSettings.selectedModel);
+            if (this.composerSettings.selectedModel.length === 0
+                || !currentProvider
+                || (providerModels.length > 0 && !selectedModelBelongsToProvider)) {
                 this.composerSettings.selectedModel = this.resolveComposerDefaultModel(nextProvider);
             }
         },
@@ -1359,20 +1318,6 @@ export const useAppStore = defineStore("app", {
             this.ideContextListenerRegistered = true;
         },
 
-        /**
-         * refreshEvents：拉取当前会话缺失事件。
-         *
-         * @returns 拉取完成后没有返回值。
-         */
-        async refreshEvents(): Promise<void> {
-            const result = await this.api().listEvents({
-                sessionId: this.activeSessionId,
-                turnId: null,
-                afterSequence: 0,
-            });
-            this.events = result.events;
-        },
-
         ...createManagementActions(),
 
         /**
@@ -1385,87 +1330,6 @@ export const useAppStore = defineStore("app", {
             return marked.parse(contentMarkdown, {
                 async: false,
             });
-        },
-
-        /**
-         * connectRealtime：建立 WebSocket 实时同步连接。
-         *
-         * @returns 没有返回值。
-         */
-        connectRealtime(): void {
-            if (!this.authorization) {
-                return;
-            }
-
-            const webSocketUrl = this.runtime.centerBaseUrl.replace(/^http/u, "ws");
-            this.webSocketClient?.close();
-            this.webSocketClient = new ReconnectingWebSocketClient({
-                url: `${webSocketUrl}/api/sync`,
-                clientId: this.authorization.clientId,
-                clientType: this.runtime.clientType,
-                projectId: this.runtime.projectContext?.projectId ?? null,
-                maxRetries: 5,
-                retryIntervalMs: 2000,
-                onStateChange: (state) => {
-                    this.connectionState = state;
-                },
-                onMessage: (message) => {
-                    if (message.type === "event.appended") {
-                        this.events.push(message.payload as EventRecord);
-                    }
-                    if (message.type === "session.updated") {
-                        void this.handleSessionUpdated(message.payload as SessionUpdatedPayload);
-                    }
-                },
-            });
-            this.webSocketClient.connect();
-        },
-
-        /**
-         * addClipboardImageAttachment：把剪贴板图片登记为临时附件草稿。
-         *
-         * @param file 剪贴板图片文件。
-         * @returns 登记完成后没有返回值。
-         */
-        async addClipboardImageAttachment(file: File): Promise<void> {
-            const fileName = file.name || `clipboard-${Date.now()}.png`;
-            const temporary = await this.api().createTemporaryAttachment({
-                fileName,
-                mimeType: file.type,
-                sizeBytes: file.size,
-                file,
-            });
-            this.draft.attachments.push({
-                temporaryAttachmentId: temporary.temporaryAttachmentId,
-                fileName,
-                mimeType: file.type,
-                sizeBytes: file.size,
-            });
-        },
-
-        /**
-         * commitDraftAttachments：消息发送成功后提交所有临时附件。
-         *
-         * @param sessionId 当前会话 ID。
-         * @param messageId 已创建消息 ID。
-         * @param attachments 临时附件草稿数组。
-         * @returns 全部提交完成后没有返回值。
-         */
-        async commitDraftAttachments(
-            sessionId: string,
-            messageId: string,
-            attachments: ComposerAttachmentDraft[],
-        ): Promise<void> {
-            for (const attachment of attachments) {
-                await this.api().commitAttachment({
-                    sessionId,
-                    messageId,
-                    temporaryAttachmentId: attachment.temporaryAttachmentId,
-                    fileName: attachment.fileName,
-                    mimeType: attachment.mimeType,
-                    sizeBytes: attachment.sizeBytes,
-                });
-            }
         },
 
         /**

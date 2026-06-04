@@ -51,10 +51,16 @@ const projectCapabilityDialogSource = readProjectFile("apps/frontend/src/views/C
 const mainViewSource = `${mainViewOnlySource}\n${chatPageSource}\n${managementPageSources}\n${projectCapabilityDialogSource}`;
 // storeSource: 前端状态容器源码，覆盖连接状态和桌面壳状态同步。
 const storeSource = readProjectFile("apps/frontend/src/stores/app.ts");
+// managementActionsSource: 管理页动作拆分源码，覆盖供应商、插件、MCP 和 skill 的真实中心服务动作。
+const managementActionsSource = readProjectFile("apps/frontend/src/stores/app-management-actions.ts");
+// storeHelpersSource: store 辅助函数源码，覆盖供应商模型刷新草稿解析等页面无关逻辑。
+const storeHelpersSource = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 // apiClientSource: API 客户端源码，覆盖插件、MCP 和 skill 管理页是否接入中心服务。
 const apiClientSource = readProjectFile("packages/api-client/src/index.ts");
-// centerSource: 中心服务源码，覆盖扩展管理接口是否真实存在。
-const centerSource = readProjectFile("services/center/src/index.ts");
+// centerSource: 中心服务路由源码，覆盖扩展管理接口是否真实存在。
+const centerSource = readProjectFile("services/center/src/api-routes.ts");
+// combinedStoreSource: store 主体和管理动作合并事实源，避免拆分文件后误判功能缺失。
+const combinedStoreSource = `${storeSource}\n${managementActionsSource}\n${storeHelpersSource}`;
 
 /**
  * fail：记录检查失败原因。
@@ -265,6 +271,11 @@ assertIncludes(
 );
 assertIncludes(
   mainViewSource,
+  "composer-mode-select",
+  "输入区必须保留执行模式选择。",
+);
+assertIncludes(
+  mainViewSource,
   "composerContextUsageText",
   "输入区必须展示当前窗口上下文用量。",
 );
@@ -283,10 +294,15 @@ assertIncludes(
   "composer-reasoning-select",
   "输入区必须提供推理深度选择。",
 );
-assertIncludes(
-  mainViewSource,
-  "只影响后续发送",
-  "模型选择区域必须说明切换只影响后续发送，不回改历史消息。",
+assertNotIncludes(
+  chatPageSource,
+  "composer-model-hint",
+  "对话输入区底部不能继续展示模型来源说明。",
+);
+assertNotIncludes(
+  chatPageSource,
+  "模型来源：该供应商未提供模型列表接口或当前刷新失败",
+  "对话输入区底部不能继续展示供应商未提供模型列表的可见说明。",
 );
 assertIncludes(
   mainViewSource,
@@ -359,7 +375,7 @@ assertIncludes(
   "行级刷新模型列表必须按当前供应商构造负载，不能误用其他供应商草稿。",
 );
 assertIncludes(
-  storeSource,
+  combinedStoreSource,
   "draft.providerId === provider.providerId",
   "只有表单正在编辑当前供应商时，才能使用表单里的手填模型窗口配置。",
 );
@@ -549,12 +565,12 @@ assertNotIncludes(
   "顶部不应展示桌面端、本机 Web 等端类型标志，只保留连接状态。",
 );
 assertNotIncludes(
-  mainViewSource,
+  mainViewOnlySource,
   "本机 Web",
   "顶部不应展示本机 Web 端类型标志。",
 );
 assertNotIncludes(
-  mainViewOnlySource,
+  extractFunctionBody(mainViewOnlySource, "formatConnectionState"),
   "桌面端",
   "顶部不应展示桌面端类型标志。",
 );
@@ -609,17 +625,17 @@ assertIncludes(
   "状态容器可以保存协议态 stopped，但展示层必须做中文格式化。",
 );
 assertIncludes(
-  storeSource,
+  combinedStoreSource,
   "loadPlugins",
   "前端必须提供插件管理加载动作。",
 );
 assertIncludes(
-  storeSource,
+  combinedStoreSource,
   "saveMcpConfig",
   "前端必须提供 MCP 配置保存动作。",
 );
 assertIncludes(
-  storeSource,
+  combinedStoreSource,
   "installSkill",
   "前端必须提供 skill 安装动作。",
 );

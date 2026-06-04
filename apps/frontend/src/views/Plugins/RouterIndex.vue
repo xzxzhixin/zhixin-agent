@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  ref,
 } from "vue";
 import {
   use,
@@ -19,6 +20,8 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "plugins";
+// pluginDialogVisible: 插件安装弹框显隐。
+const pluginDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.plugins ?? "");
 
@@ -155,6 +158,12 @@ onMounted(() => {
       <el-button @click="appStore.loadPlugins">
         刷新列表
       </el-button>
+      <el-button
+          type="primary"
+          @click="pluginDialogVisible = true"
+      >
+        安装插件
+      </el-button>
     </header>
     <section class="page-scroll">
       <el-alert
@@ -164,10 +173,18 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-form
+      <el-dialog
+          v-model="pluginDialogVisible"
+          append-to-body
+          class="management-config-dialog plugin-config-dialog"
+          title="安装插件清单"
+          width="80vw"
+          destroy-on-close
+      >
+        <el-form
           class="management-form"
           label-position="top"
-      >
+        >
         <el-form-item label="插件清单 JSON">
           <el-input
               v-model="appStore.pluginDraft.manifestJson"
@@ -183,7 +200,8 @@ onMounted(() => {
             安装插件清单
           </el-button>
         </div>
-      </el-form>
+        </el-form>
+      </el-dialog>
       <section class="management-list">
         <article
             v-for="plugin in appStore.globalPlugins"
