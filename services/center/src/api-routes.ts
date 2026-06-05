@@ -34,6 +34,7 @@ import {
     completeCreatedTurn,
     createMessageTurnAndTask,
     createTaskStep,
+    deleteProject,
     deleteSession,
     findProject,
     findSession,
@@ -314,6 +315,36 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         return createSuccessResponse({
             projects: listProjects(database),
         });
+    });
+
+    app.post("/api/project/delete", async (request) => {
+        const body = request.body as {
+            projectId?: string;
+        };
+
+        if (!body.projectId) {
+            return createErrorResponse(
+                "PROJECT_DELETE_INVALID",
+                "删除项目缺少 projectId",
+                "请选择要删除的项目。",
+            );
+        }
+
+        const project = findProject(database, body.projectId);
+
+        if (!project) {
+            return createErrorResponse(
+                "PROJECT_NOT_FOUND",
+                "删除项目时项目不存在",
+                "没有找到要删除的项目。",
+            );
+        }
+
+        return createSuccessResponse(deleteProject(
+            database,
+            events,
+            project,
+        ));
     });
 
     app.post("/api/session/create", async (request) => {

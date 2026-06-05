@@ -430,6 +430,72 @@ export class SessionRepository {
     }
 
     /**
+     * deleteProjectFacts：删除项目索引和项目下会话事实。
+     *
+     * @param projectId 项目 UUID。
+     * @returns 被清理的项目会话数量。
+     */
+    deleteProjectFacts(projectId: string): number {
+        const projectSessionRows = this.database.connection()
+            .prepare("SELECT id FROM sessions WHERE project_id = ?")
+            .all(projectId) as Array<{
+                /** id: 项目会话 ID，来源于 sessions 表。 */
+                id: string;
+            }>;
+        const projectSessionIds = projectSessionRows.map((row) => {
+            return row.id;
+        });
+
+        const transaction = this.database.connection().transaction(() => {
+            for (const sessionId of projectSessionIds) {
+                // 复用会话删除顺序，避免任务步骤、轮次、附件索引残留。
+                this.database.connection()
+                    .prepare(`
+                        DELETE FROM task_steps
+                        WHERE task_id IN (
+                            SELECT id
+                            FROM tasks
+                            WHERE session_id = ?
+                        )
+                    `)
+                    .run(sessionId);
+
+                this.database.connection()
+                    .prepare("DELETE FROM tasks WHERE session_id = ?")
+                    .run(sessionId);
+
+                this.database.connection()
+                    .prepare("DELETE FROM conversation_turns WHERE session_id = ?")
+                    .run(sessionId);
+
+                this.database.connection()
+                    .prepare("DELETE FROM pending_messages WHERE session_id = ?")
+                    .run(sessionId);
+
+                this.database.connection()
+                    .prepare("DELETE FROM attachments WHERE session_id = ?")
+                    .run(sessionId);
+
+                this.database.connection()
+                    .prepare("DELETE FROM messages WHERE session_id = ?")
+                    .run(sessionId);
+            }
+
+            this.database.connection()
+                .prepare("DELETE FROM sessions WHERE project_id = ?")
+                .run(projectId);
+
+            this.database.connection()
+                .prepare("DELETE FROM projects WHERE id = ?")
+                .run(projectId);
+        });
+
+        transaction();
+
+        return projectSessionIds.length;
+    }
+
+    /**
      * createTaskStep：创建任务步骤并把任务置为运行中。
      *
      * @param input 步骤和任务字段。

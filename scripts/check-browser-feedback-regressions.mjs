@@ -113,7 +113,7 @@ for (const signal of [
 for (const signal of [
   "traceIdUnavailableReason",
   "TRACE_ID_PENDING",
-  "步骤排查 ID",
+  "步骤所属任务最近事件排查 ID",
 ]) {
   assertIncludes(
     chatPage + chatConversation + taskDialog,
@@ -152,23 +152,24 @@ for (const signal of [
   "submitGuidanceForQueuedMessage",
   "isQueuedMessage",
   "queued-message-actions",
-  "当前对话内排队中",
+  "当前对话当前轮次排队中",
 ]) {
   assertIncludes(
-    chatPage,
+    chatPage + chatConversation,
     signal,
     `主对话引导或排队缺少可见入口：${signal}`,
   );
 }
 
 for (const signal of [
-  "会话删除",
-  "确认删除对话",
+  "删除对话",
+  "确认删除",
   "取消",
-  "requestDeleteActiveConversation",
+  "requestDeleteConversation",
+  "requestDeleteProject",
 ]) {
   assertIncludes(
-    chatPage + editDialog,
+    chatPage + editDialog + readProjectFile("apps/frontend/src/stores/app.ts"),
     signal,
     `编辑弹框缺少会话删除入口或取消路径：${signal}`,
   );

@@ -349,7 +349,8 @@ for (const signal of [
   ".chat-page-host .composer-shell {",
   "@media (max-height: 840px)",
   "max-height: min(42vh, 340px);",
-  "max-height: min(46vh, 380px);",
+  "max-height: min(86vh, 760px);",
+  "max-height: 40vh;",
 ]) {
   assertIncludes(
     chatPage + chatStyle + chatComposerResize,
@@ -374,18 +375,16 @@ for (const signal of [
   ".chat-page-host .composer {",
   "flex: 0 0 auto;",
   "height: clamp(",
-  "max-height: min(46vh, 380px);",
+  "max-height: min(86vh, 760px);",
   "智能体 {{ agentStatusProgressText }}",
-  "composerEntriesVisible",
-  "toggleComposerEntries",
-  "composer-entry-toggle",
   "composer-frame",
   "composer-entry-strip",
   ".chat-page-host .composer-frame",
   "width: 100%;",
-  "right: 0;",
-  "left: 0;",
+  "bottom: calc(100% - 1px);",
+  "max-height: 40vh;",
   "requestDeleteConversation",
+  "requestDeleteProject",
   "ElMessageBox.confirm",
   "<AgentConversationDialog",
   "agentConversationDialogVisible",
@@ -397,6 +396,16 @@ for (const signal of [
     signal,
     `本轮输入区 flex、点击关闭或智能体入口文案约束缺少：${signal}`,
   );
+}
+
+if (chatStyle.includes("width: min(900px, 100%);")) {
+  console.error("输入框不能继续限制为 900px，必须铺满中间对话区。");
+  process.exitCode = 1;
+}
+
+if (chatStyle.includes(".composer-shell:has(.composer-mini-popover)")) {
+  console.error("三入口浮层不能通过撑高输入框展示，必须向上弹出。");
+  process.exitCode = 1;
 }
 
 for (const signal of [

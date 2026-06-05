@@ -660,6 +660,32 @@ export interface EventRecord {
 }
 
 /**
+ * DeleteProjectResult：项目删除结果。
+ *
+ * 来源：`POST /api/project/delete`。
+ * 含义：中心服务确认指定项目索引及其项目会话事实已删除。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：只删除中心服务事实源，不删除项目根目录或 `致心项目ID.md`。
+ */
+export interface DeleteProjectResult {
+  /**
+   * projectId: 已删除项目 ID，来源于项目根目录 `致心项目ID.md`。
+   */
+  projectId: string;
+
+  /**
+   * deletedSessionCount: 本次随项目删除清理的项目会话数量。
+   */
+  deletedSessionCount: number;
+
+  /**
+   * deleted: 是否删除成功。
+   */
+  deleted: boolean;
+}
+
+/**
  * 统一工具能力类型。
  *
  * 来源：中心服务工具能力注册表。

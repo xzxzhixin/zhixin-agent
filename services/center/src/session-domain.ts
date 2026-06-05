@@ -5,6 +5,7 @@ import type {
     ConversationMessage,
     ConversationSession,
     ConversationTurn,
+    DeleteProjectResult,
     EventRecord,
     ProjectRecord,
     SessionType,
@@ -143,6 +144,49 @@ export function deleteSession(
 
     return {
         sessionId: session.sessionId,
+        deleted: true,
+    };
+}
+
+/**
+ * deleteProject：删除项目索引及该项目下属会话事实。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param project 项目事实记录。
+ * @returns 删除结果，包含项目 ID 和清理的项目会话数量。
+ */
+export function deleteProject(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    project: ProjectRecord,
+): DeleteProjectResult {
+    // 只清理中心服务事实源；项目根目录和 致心项目ID.md 属于用户工程文件，不在项目删除接口中触碰。
+    const deletedSessionCount = new SessionRepository(database).deleteProjectFacts(project.projectId);
+
+    events.append({
+        eventType: "project.deleted",
+        scopeType: "project",
+        scopeId: project.projectId,
+        sessionId: null,
+        turnId: null,
+        taskId: null,
+        projectId: project.projectId,
+        status: "completed",
+        title: "项目删除",
+        summary: project.displayName,
+        payload: {
+            projectId: project.projectId,
+            displayName: project.displayName,
+            deletedSessionCount,
+            // keepProjectIdentityFile: 明确 UI 提示的边界，删除中心服务记录不删除磁盘身份文件。
+            keepProjectIdentityFile: true,
+        },
+    });
+
+    return {
+        projectId: project.projectId,
+        deletedSessionCount,
         deleted: true,
     };
 }

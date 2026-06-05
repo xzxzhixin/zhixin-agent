@@ -1129,14 +1129,66 @@ export const useAppStore = defineStore("app", {
         },
 
         /**
-         * deleteProjectPlaceholder：项目删除 UI 占位。
+         * deleteProject：删除中心服务中的项目索引和项目会话事实。
          *
          * @param projectId 项目 UUID。
-         * @returns 没有返回值。
+         * @returns 删除和刷新完成后没有返回值。
          */
-        deleteProjectPlaceholder(projectId: string): void {
-            // 当前中心服务尚未提供 /api/project/delete；项目删除会影响会话、任务和记忆，不能只在前端移除。
-            this.lastError = `删除项目接口待中心服务补齐：${projectId}`;
+        async deleteProject(projectId: string): Promise<void> {
+            try {
+                const deletingActiveProject = this.sessionDetail?.session.projectId === projectId
+                    || this.pendingSessionDraft?.projectId === projectId;
+                await this.api().deleteProject({
+                    projectId,
+                });
+                if (deletingActiveProject) {
+                    // 删除当前项目后必须清理会话详情和草稿，避免旧项目消息继续显示。
+                    this.activeSessionId = null;
+                    this.sessionDetail = null;
+                    this.events = [];
+                    this.pendingSessionDraft = null;
+                    this.projectCapabilitySummary = null;
+                }
+                this.expandedProjectIds = this.expandedProjectIds.filter((item) => {
+                    return item !== projectId;
+                });
+                await this.loadNavigationData();
+                if (this.activeSessionId) {
+                    await this.loadActiveSessionDetail();
+                    return;
+                }
+                await this.ensureSession();
+                this.lastError = "";
+            } catch (error) {
+                // 删除项目失败必须进入可见错误状态，避免用户误以为项目和会话已清理。
+                this.lastError = error instanceof Error
+                    ? error.message
+                    : "删除项目失败，请稍后重试。";
+                console.error("删除项目失败", error);
+            }
+        },
+
+        /**
+         * requestDeleteProject：弹出项目删除确认后删除项目。
+         *
+         * @param project 项目记录。
+         * @returns 确认删除、取消或失败处理完成后没有返回值。
+         */
+        async requestDeleteProject(project: ProjectRecord): Promise<void> {
+            try {
+                await ElMessageBox.confirm(
+                    `确认删除项目“${project.displayName}”？将删除中心服务中的项目索引及该项目下的对话、消息、轮次和任务记录；不会删除项目目录和 致心项目ID.md。`,
+                    "项目删除",
+                    {
+                        confirmButtonText: "确认删除",
+                        cancelButtonText: "取消",
+                        type: "warning",
+                    },
+                );
+                await this.deleteProject(project.projectId);
+            } catch {
+                // 用户取消删除时不写错误，避免取消路径被误判为删除失败。
+            }
         },
 
         /**

@@ -4,6 +4,7 @@ import type {
   ConversationMessage,
   ConversationSession,
   ConversationTurn,
+  DeleteProjectResult,
   EventRecord,
   ProjectRecord,
   SessionUpdatedPayload,
@@ -713,6 +714,18 @@ export class CenterApiClient {
     sessionId: string;
   }): Promise<DeleteSessionResult> {
     return this.post("/api/session/delete", payload);
+  }
+
+  /**
+   * deleteProject：删除中心服务中的项目索引及其项目会话事实。
+   *
+   * @param payload 项目 ID。
+   * @returns 删除结果。
+   */
+  deleteProject(payload: {
+    projectId: string;
+  }): Promise<DeleteProjectResult> {
+    return this.post("/api/project/delete", payload);
   }
 
   /**

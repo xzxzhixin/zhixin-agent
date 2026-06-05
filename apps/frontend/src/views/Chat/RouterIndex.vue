@@ -2,7 +2,6 @@
 import {
   ArrowDown,
   ArrowRight,
-  ArrowUp,
   ChatDotRound,
   Delete,
   Folder,
@@ -74,8 +73,6 @@ const chatConversation = useChatConversation(appStore);
 const activeComposerEntry = ref<ComposerEntryKind>("task");
 // composerMiniDialogVisible：输入框三段入口小弹框显隐。
 const composerMiniDialogVisible = ref(false);
-// composerEntriesVisible：输入区外部三入口条是否展开，默认展开以保持任务、智能体和编辑状态可见。
-const composerEntriesVisible = ref(true);
 // composerRootRef：输入区根节点，用于判断点击是否落在输入区内部。
 const composerRootRef = ref<HTMLElement | null>(null);
 // composerMiniDialogRef：输入区小弹框节点，用于判断点击是否落在浮层内部。
@@ -321,18 +318,6 @@ function openComposerMiniDialog(entry: ComposerEntryKind): void {
       firstNode,
     ] = agentStatusTreeRows.value;
     selectedAgentStatusNode.value = firstNode?.node ?? null;
-  }
-}
-
-/**
- * toggleComposerEntries：收起或展开输入区外部三入口按钮。
- *
- * @returns 没有返回值。
- */
-function toggleComposerEntries(): void {
-  composerEntriesVisible.value = !composerEntriesVisible.value;
-  if (!composerEntriesVisible.value) {
-    composerMiniDialogVisible.value = false;
   }
 }
 
@@ -856,6 +841,16 @@ onBeforeUnmount(() => {
                         <button
                             class="conversation-icon-button"
                             type="button"
+                            title="删除项目"
+                            @click="stopNavigationAction($event); appStore.requestDeleteProject(group.project)"
+                        >
+                          <el-icon>
+                            <Delete/>
+                          </el-icon>
+                        </button>
+                        <button
+                            class="conversation-icon-button"
+                            type="button"
                             title="新增项目对话"
                             @click="stopNavigationAction($event); handleProjectRowCreate(group.project)"
                         >
@@ -1236,22 +1231,22 @@ onBeforeUnmount(() => {
                   ref="composerRootRef"
                   class="composer-frame"
               >
-                <button
-                    class="composer-entry-toggle"
-                    type="button"
-                    :title="composerEntriesVisible ? '收起任务、智能体和编辑入口' : '展开任务、智能体和编辑入口'"
-                    :aria-label="composerEntriesVisible ? '收起任务、智能体和编辑入口' : '展开任务、智能体和编辑入口'"
-                    @click="toggleComposerEntries"
-                >
-                  <el-icon>
-                    <ArrowUp v-if="composerEntriesVisible"/>
-                    <ArrowDown v-else/>
-                  </el-icon>
-                </button>
                 <section
-                    v-if="composerEntriesVisible"
-                    class="composer-entry-strip"
+                    class="composer-shell"
+                    :class="{ 'is-focused': composerFocused }"
+                    :style="composerPanelStyle"
                 >
+                <button
+                    class="composer-resize-handle"
+                    type="button"
+                    :aria-label="composerResizeHandleLabel"
+                    :title="composerResizeHandleLabel"
+                    @pointerdown="startComposerResize"
+                >
+                  <span></span>
+                </button>
+
+                <section class="composer-entry-strip">
                   <button
                       class="composer-entry-tab"
                       :class="{ active: activeComposerEntry === 'task' && composerMiniDialogVisible }"
@@ -1305,21 +1300,6 @@ onBeforeUnmount(() => {
                       @select-file="selectComposerEditFile"
                   />
                 </section>
-
-                <section
-                    class="composer-shell"
-                    :class="{ 'is-focused': composerFocused }"
-                    :style="composerPanelStyle"
-                >
-                <button
-                    class="composer-resize-handle"
-                    type="button"
-                    :aria-label="composerResizeHandleLabel"
-                    :title="composerResizeHandleLabel"
-                    @pointerdown="startComposerResize"
-                >
-                  <span></span>
-                </button>
 
               <div
                   v-if="appStore.draft.attachments.length > 0 || appStore.draft.references.length > 0"

@@ -770,13 +770,18 @@ const expectations = [
   ],
   [
     requirements,
-    "三段入口固定为“任务 / 智能体状态 / 编辑”",
-    "需求文档必须把输入区三段入口更新为任务、智能体状态和编辑。",
+    "三段入口固定为“任务 / 智能体 / 编辑”",
+    "需求文档必须把输入区三段入口更新为任务、智能体和编辑。",
   ],
   [
     requirements,
-    "任务详情、智能体状态详情和编辑详情都使用贴近输入区的小弹框展示",
-    "需求文档必须要求三段入口详情使用小弹框。",
+    "任务详情、智能体状态详情和编辑详情都从输入框内部入口向上打开浮层",
+    "需求文档必须要求三段入口详情从输入框内部入口向上打开浮层。",
+  ],
+  [
+    requirements,
+    "最大高度为 `40vh`",
+    "需求文档必须要求三个输入区小浮层最大高度为 40vh。",
   ],
   [
     requirements,
@@ -866,8 +871,23 @@ if (mainView.includes("toggleComposerEntries") || mainView.includes("composer-en
   process.exitCode = 1;
 }
 
-if (chatStyle.includes("bottom: calc(100% + 10px);")) {
-  console.error("输入区小浮层不能再脱离输入框向上外置，必须在输入框内部展开并受 40vh 限高。");
+if (chatStyle.includes("width: min(900px, 100%);")) {
+  console.error("输入框不能继续固定 900px 最大宽度，必须占满中间对话区可用宽度。");
+  process.exitCode = 1;
+}
+
+if (!chatStyle.includes("width: 100%;")) {
+  console.error("输入框 frame 必须使用 100% 宽度对齐中间对话区。");
+  process.exitCode = 1;
+}
+
+if (chatStyle.includes(".composer-shell:has(.composer-mini-popover)")) {
+  console.error("输入区浮层不能再把 composer-shell 撑高，必须作为向上浮窗覆盖在输入框上方。");
+  process.exitCode = 1;
+}
+
+if (!chatStyle.includes("bottom: calc(100% - 1px);")) {
+  console.error("输入区小浮层必须从输入框内部入口向上打开，并贴合输入框宽度。");
   process.exitCode = 1;
 }
 

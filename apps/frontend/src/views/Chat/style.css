@@ -67,7 +67,7 @@
 }
 
 .chat-page-host .chat-surface:has(.conversation-timeline) .composer {
-  padding-left: 64px;
+  padding-left: 0;
 }
 
 .chat-page-host .composer-frame {
@@ -78,7 +78,7 @@
   flex: 0 0 auto;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 0;
 }
 
 .chat-page-host .conversation-body {
@@ -170,9 +170,9 @@
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 0;
+  min-height: 148px;
   height: clamp(148px, var(--composer-panel-height), min(46vh, 380px));
-  max-height: min(46vh, 380px);
+  max-height: min(86vh, 760px);
   align-self: center;
   flex: 0 0 auto;
   flex-direction: column;
@@ -187,22 +187,32 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  padding: 10px 12px 6px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--zhixin-border);
+  background: var(--zhixin-soft-bg);
 }
 
-.chat-page-host .composer-entry-toggle {
-  position: absolute;
-  top: -32px;
-  right: 0;
-  z-index: 13;
-  display: grid;
-  width: 30px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid var(--zhixin-border);
+.chat-page-host .composer-entry-tab {
+  display: inline-flex;
+  min-width: 0;
+  height: 32px;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--zhixin-panel-bg);
+  background: transparent;
   color: var(--zhixin-text);
   cursor: pointer;
+}
+
+.chat-page-host .composer-entry-tab.active {
+  border-color: var(--zhixin-selected-border);
+  background: var(--zhixin-panel-bg);
+  color: var(--zhixin-text-strong);
 }
 
 .chat-page-host .composer-resize-handle {
@@ -232,20 +242,33 @@
 
 .chat-page-host .composer-mini-popover {
   position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  left: 0;
-  z-index: 12;
+  right: 12px;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 16;
   display: flex;
-  width: 100%;
-  max-height: min(42vh, 360px);
+  width: auto;
+  max-height: 40vh;
+  box-sizing: border-box;
   flex-direction: column;
   padding: 10px;
   border: 1px solid var(--zhixin-border);
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   background: var(--zhixin-panel-bg);
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
-  overflow: hidden;
+  box-shadow: 0 -14px 34px rgba(15, 23, 42, 0.2);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 三入口浮层向上覆盖消息区，避免任务、智能体和编辑内容撑高输入框本体。 */
+.chat-page-host .composer-mini-popover::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  background: var(--zhixin-panel-bg);
+  content: "";
 }
 
 .chat-page-host .composer-edit-summary {
