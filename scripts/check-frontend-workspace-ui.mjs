@@ -85,8 +85,20 @@ const chatPage = readFileSync(
   chatPagePath,
   "utf-8",
 );
+const chatOptions = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "chat-view-options.ts",
+  ),
+  "utf-8",
+);
 // mainView: 工作台整体源码，合并公共壳和对话页入口，适配页面主体已迁出 MainView 的结构。
-const mainView = `${mainViewShell}\n${chatPage}\n${workspaceRouteHost}`;
+const mainView = `${mainViewShell}\n${chatPage}\n${chatOptions}\n${workspaceRouteHost}`;
 // centerService: 中心服务源码文本。
 const centerService = readFileSync(
   centerServicePath,
@@ -192,6 +204,19 @@ const chatHelpers = readFileSync(
   ),
   "utf-8",
 );
+// chatStyle: 对话页专属样式源码，用于检查输入区内部入口和小浮层高度边界。
+const chatStyle = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "style.css",
+  ),
+  "utf-8",
+);
 // agentStatusDialogPath: 智能体状态弹框组件源码。
 const agentStatusDialogPath = join(
   process.cwd(),
@@ -210,6 +235,31 @@ const agentStatusDialog = existsSync(agentStatusDialogPath)
     "utf-8",
   )
   : "";
+const agentConversationDialog = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "dialogs",
+    "AgentConversationDialog.vue",
+  ),
+  "utf-8",
+);
+const statusSummaryPanel = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "StatusSummaryPanel.vue",
+  ),
+  "utf-8",
+);
 // requirementsPath: 产品需求文档，用于确认本轮 UI 需求只写入产品语义。
 const requirementsPath = join(
   process.cwd(),
@@ -286,6 +336,10 @@ const requiredComponentPaths = [
     "智能体状态小弹框和智能体对话必须拆到 Chat 页面专属 dialogs 目录。",
   ],
   [
+    "apps/frontend/src/views/Chat/dialogs/AgentConversationDialog.vue",
+    "智能体完整对话必须拆到 Chat 页面专属 dialogs 目录。",
+  ],
+  [
     "apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue",
     "编辑详情小弹框必须拆到 Chat 页面专属 dialogs 目录。",
   ],
@@ -309,6 +363,21 @@ for (const [
  * expectations: 工作台 UI 必须保留的结构信号。
  */
 const expectations = [
+  [
+    mainViewShell,
+    "line-height: 1;",
+    "顶部菜单和主题按钮必须固定行高，避免图标文字上下错位。",
+  ],
+  [
+    mainViewShell,
+    "display: inline-flex;",
+    "顶部菜单项必须使用 inline-flex 保证图标、文字和激活态同一视觉中线。",
+  ],
+  [
+    mainViewShell,
+    "height: 34px;",
+    "顶部菜单项必须有稳定高度，避免 hover 或激活态导致中线漂移。",
+  ],
   [
     mainView,
     "top-menu",
@@ -420,14 +489,19 @@ const expectations = [
     "轮次结束时间必须展示在对话内容内部本轮最后。",
   ],
   [
-    mainView,
+    mainView + statusSummaryPanel,
     "config-panel",
-    "对话页必须保留右侧任务和智能体状态栏。",
+    "对话页必须保留右侧任务和智能体栏。",
   ],
   [
     mainView,
     "composer-shell",
     "输入区必须使用原工作台胶囊式输入框结构。",
+  ],
+  [
+    mainView,
+    "composer-entry-strip",
+    "输入区三入口必须保留在输入框内部并与输入框左右边缘对齐。",
   ],
   [
     mainView,
@@ -471,8 +545,8 @@ const expectations = [
   ],
   [
     mainView,
-    "智能体状态",
-    "输入区第二段入口必须命名为“智能体状态”。",
+    "智能体 {{ agentStatusProgressText }}",
+    "输入区第二段入口必须命名为“智能体”。",
   ],
   [
     mainView,
@@ -487,12 +561,12 @@ const expectations = [
   [
     mainView,
     "任务 {{ taskProgressText }}",
-    "输入区任务入口必须外部展示任务进度数字。",
+    "输入区任务入口必须展示任务进度数字。",
   ],
   [
     mainView,
-    "智能体状态 {{ agentStatusProgressText }}",
-    "输入区智能体状态入口必须外部展示运行中数量/总数。",
+    "智能体 {{ agentStatusProgressText }}",
+    "输入区智能体入口必须展示运行中数量/总数。",
   ],
   [
     mainView,
@@ -505,12 +579,12 @@ const expectations = [
     "中心服务缺少独立智能体会话 API 时，代码注释或传参必须明确仍通过当前会话发送。",
   ],
   [
-    agentStatusDialog,
-    "agent-conversation-list",
+    agentConversationDialog,
+    "agent-dialog-message-list",
     "智能体状态弹框必须提供智能体对话消息列表。",
   ],
   [
-    agentStatusDialog,
+    agentConversationDialog,
     "draft",
     "智能体对话详情必须提供输入草稿。",
   ],
@@ -531,8 +605,13 @@ const expectations = [
   ],
   [
     mainView,
-    ":autosize=\"{ minRows: 4, maxRows: 8 }\"",
-    "workspace 输入框 autosize 必须使用 minRows 4、maxRows 8，保证默认输入区高度稳定。",
+    ":autosize=\"false\"",
+    "workspace 输入框必须关闭 autosize，交由用户手动调整高度并保持底部输入区稳定。",
+  ],
+  [
+    mainView,
+    ":rows=\"5\"",
+    "workspace 输入框必须提供稳定默认行数，避免初始高度过低。",
   ],
   [
     mainView,
@@ -575,6 +654,11 @@ const expectations = [
     "样式必须包含胶囊式输入框布局。",
   ],
   [
+    chatStyle,
+    "max-height: 40vh;",
+    "任务、智能体和编辑三个输入区小浮层必须限制最大高度为 40vh。",
+  ],
+  [
     styles,
     "--zhixin-scrollbar-thumb",
     "必须提供统一滚动条 thumb 颜色变量。",
@@ -605,17 +689,17 @@ const expectations = [
     "执行模式下拉面板必须提供带说明的选项行。",
   ],
   [
-    chatPage,
+    mainView,
     "每一步副作用操作都需要用户确认",
     "执行模式下拉必须解释建议模式的审批语义。",
   ],
   [
-    chatPage,
+    mainView,
     "低风险读取或编辑流程可自动执行",
     "执行模式下拉必须解释自动编辑的审批语义。",
   ],
   [
-    chatPage,
+    mainView,
     "在权限和沙箱范围内自动执行",
     "执行模式下拉必须解释全自动的审批语义。",
   ],
@@ -774,6 +858,16 @@ if (mainView.includes("composer-provider-select")) {
 
 if (mainView.includes("activeComposerPanel = 'task'")) {
   console.error("输入区三段入口不能切换常驻详情面板，必须打开小弹框。");
+  process.exitCode = 1;
+}
+
+if (mainView.includes("toggleComposerEntries") || mainView.includes("composer-entry-toggle")) {
+  console.error("输入区三入口不能再提供收起/展开按钮，三入口必须固定展示在输入框内部。");
+  process.exitCode = 1;
+}
+
+if (chatStyle.includes("bottom: calc(100% + 10px);")) {
+  console.error("输入区小浮层不能再脱离输入框向上外置，必须在输入框内部展开并受 40vh 限高。");
   process.exitCode = 1;
 }
 
@@ -1107,6 +1201,17 @@ if (!appStore.includes("contextUsedTokens") || !appStore.includes("composerSelec
 if (!(appStore + appManagementActions).includes("countComposerContextTokens") || !(appStore + appManagementActions).includes("updateComposerContextUsage")) {
   console.error("当前窗口上下文用量必须通过中心服务 tokenizer 随会话和草稿更新。");
   process.exitCode = 1;
+}
+
+for (const signal of [
+  "scheduleComposerContextUsageUpdate",
+  "lastComposerContextUsageKey",
+  "composerContextUsageRequestSerial",
+]) {
+  if (!(appStore + appManagementActions).includes(signal)) {
+    console.error(`当前窗口上下文用量必须节流、去重并防止旧响应覆盖新输入状态：${signal}`);
+    process.exitCode = 1;
+  }
 }
 
 const agentStatusProgressStart = mainView.indexOf("const agentStatusProgressText = computed");

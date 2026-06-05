@@ -7,6 +7,7 @@
  * 返回值：检查通过时退出码为 0，发现缺失时为 1。
  */
 import {
+  existsSync,
   readFileSync,
 } from "node:fs";
 import {
@@ -27,6 +28,25 @@ function readProjectFile(pathInProject) {
     ),
     "utf-8",
   );
+}
+
+/**
+ * readOptionalProjectFile：读取可选仓库文件。
+ *
+ * @param {string} pathInProject 仓库相对路径。
+ * @returns {string} 文件存在时返回内容，不存在时返回空字符串。
+ */
+function readOptionalProjectFile(pathInProject) {
+  const fullPath = join(
+    process.cwd(),
+    pathInProject,
+  );
+  return existsSync(fullPath)
+    ? readFileSync(
+      fullPath,
+      "utf-8",
+    )
+    : "";
 }
 
 /**
@@ -53,10 +73,16 @@ const chatPage = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue")
 const chatStyle = readProjectFile("apps/frontend/src/views/Chat/style.css");
 const chatHelpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 const chatConversation = readProjectFile("apps/frontend/src/views/Chat/useChatConversation.ts");
+const chatAutoScroll = readProjectFile("apps/frontend/src/views/Chat/useMessageListAutoScroll.ts");
+const chatComposerResize = readProjectFile("apps/frontend/src/views/Chat/useComposerPanelResize.ts");
 const taskDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
 const agentDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/AgentStatusDialog.vue");
+const agentConversationDialog = readOptionalProjectFile("apps/frontend/src/views/Chat/dialogs/AgentConversationDialog.vue");
+const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
+const projectConversationTestFile = readProjectFile("项目对话测试/致心项目对话测试.md");
 const appStore = readProjectFile("apps/frontend/src/stores/app.ts");
 const appConversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
+const appManagementActions = readProjectFile("apps/frontend/src/stores/app-management-actions.ts");
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const apiClient = readProjectFile("packages/api-client/src/index.ts");
 const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
@@ -78,18 +104,29 @@ for (const signal of [
   );
 }
 
+assertIncludes(
+  projectConversationTestFile,
+  "项目对话测试",
+  "项目对话测试目录缺少本轮全流程测试文件。",
+);
+
 for (const signal of [
   "ProcessMessageRow",
   "ProcessMessageGroupRow",
   "processMessageRows",
   "createGroupedProcessRows",
-  "thinking.delta",
+  "createMergedThinkingRows",
+  "startsWith(\"thinking.\")",
   "model.stream.delta",
   "process-card",
   "process-log-list",
   "max-height: 20vh;",
   "thinking-block",
   "readEventText",
+  "model.failed",
+  "message.turn.failed",
+  "worker.task.failed",
+  "resolveProcessSummary",
 ]) {
     assertIncludes(
     chatPage + chatHelpers + chatStyle + appConversationActions,
@@ -103,8 +140,7 @@ for (const signal of [
   "failureReason",
   "traceId",
   "steps:",
-  "任务编排详情",
-  "composer-task-step-row",
+  "任务",
   "scopeHint",
   "currentTurnNotice",
 ]) {
@@ -117,14 +153,19 @@ for (const signal of [
 
 for (const signal of [
   "planCommandToolForUserText",
+  "planUnifiedToolCallForUserText",
+  "UNIFIED_TOOL_CAPABILITY_REGISTRY",
+  "UnifiedToolCapability",
+  "UnifiedToolCallIntent",
   "runCommandTool",
   "CommandToolRequest",
   "tool.command.started",
   "tool.command.output",
   "tool.command.completed",
-  "tool.plugin.unavailable",
-  "tool.mcp.unavailable",
-  "tool.skill.unavailable",
+  "tool.${capability.toolKind}.unavailable",
+  "PLUGIN_NOT_SELECTED",
+  "MCP_SERVER_NOT_RESOLVED",
+  "SKILL_NOT_SELECTED",
 ]) {
   assertIncludes(
     chatPage + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + toolRuntime,
@@ -134,13 +175,51 @@ for (const signal of [
 }
 
 for (const signal of [
+  "capabilities: listUnifiedToolCapabilities()",
+  "formatAssistantTextWithCommandResult",
+  "commandRequestFromUnifiedToolIntent",
+  "已收到命令工具请求。",
+  "requiredPermission",
+]) {
+  assertIncludes(
+    apiRoutes + sessionDomain + toolRuntime,
+    signal,
+    `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
+  );
+}
+
+const commandIntentIndex = sessionDomain.indexOf("const unifiedToolIntent = planUnifiedToolCallForUserText(userText);");
+const modelGatewayIndex = sessionDomain.indexOf("const modelResult = invokeProviderModelGateway");
+const commandBranchIndex = sessionDomain.indexOf("if (unifiedToolIntent?.toolKind === \"command\")");
+const commandBranchEndIndex = sessionDomain.indexOf("const modelStep = createTaskStep", commandBranchIndex);
+const commandBranchSource = commandBranchIndex >= 0 && commandBranchEndIndex >= 0
+  ? sessionDomain.slice(
+    commandBranchIndex,
+    commandBranchEndIndex,
+  )
+  : "";
+if (commandIntentIndex < 0 || modelGatewayIndex < 0 || commandIntentIndex > modelGatewayIndex) {
+  console.error("明确命令工具意图必须在模型网关调用前规划，避免模型回复先于命令事件。");
+  process.exitCode = 1;
+}
+
+if (!commandBranchSource.includes("runCommandTool(")
+    || !commandBranchSource.includes("formatAssistantTextWithCommandResult(")
+    || !commandBranchSource.includes("return;")) {
+  console.error("明确命令请求必须先执行命令工具、写入命令结果助手回复，并在进入模型流式调用前结束本轮。");
+  process.exitCode = 1;
+}
+
+if (sessionDomain.includes("export function planCommandToolForUserText")) {
+  console.error("session-domain 不得保留重复命令工具规划函数，必须使用统一工具注册表入口。");
+  process.exitCode = 1;
+}
+
+for (const signal of [
   "nodeKind: isMainAgent ? \"主智能体\" : \"长期智能体\"",
   "nodeKind: \"长期智能体\"",
   "nodeKind: \"子智能体\"",
-  "发送引导",
   "el-tree",
-  "@guide",
-  "sendAgentGuidanceDraft",
   "currentTurnNotice",
 ]) {
   assertIncludes(
@@ -154,11 +233,29 @@ for (const forbiddenSignal of [
   "主智能体不在该状态树中展示",
   "agent.agentId !== \"main\"",
   "任务 0/0",
+  "智能体状态 {{ agentStatusProgressText }}",
+  "<strong>智能体状态</strong>",
+  "关闭任务详情",
+  "关闭智能体状态详情",
+  "关闭编辑详情",
+  "composer-mini-dialog-header",
+  "会话删除",
+  "request-delete-conversation",
+  "@click=\"stopNavigationAction($event); appStore.deleteConversation(session.sessionId)\"",
+  "deleteProjectPlaceholder(group.project.projectId)",
+  "composer-task-step-list",
+  "agent-conversation-detail",
+  "agent-composer-full-controls",
   "智能体状态 1/1",
   "title=\"智能体状态\"\n      width=\"720px\"",
   "title=\"任务\"\n      width=\"720px\"",
+  "append-to-body",
+  "<el-dialog",
+  "optimistic-thinking",
+  "optimistic-stream",
+  "sequence: -",
 ]) {
-  if ((chatPage + taskDialog + agentDialog).includes(forbiddenSignal)) {
+  if ((chatPage + taskDialog + agentDialog + editDialog + appConversationActions).includes(forbiddenSignal)) {
     console.error(`发现本轮禁止回归片段：${forbiddenSignal}`);
     process.exitCode = 1;
   }
@@ -169,6 +266,7 @@ for (const signal of [
   "conversationId",
   "messages",
   "activeTasks",
+  "currentTurnTasks",
   "taskPanelRows",
   "processMessageRows",
   "sendDraftForConversation",
@@ -180,6 +278,145 @@ for (const signal of [
     signal,
     `统一完整对话组合能力缺少：${signal}`,
   );
+}
+
+for (const signal of [
+  "resolveCurrentTurnTaskScope",
+  "latestActiveTurn",
+  "latestTurn",
+  "task.turnId === currentTurnId",
+]) {
+  assertIncludes(
+    chatConversation,
+    signal,
+    `任务入口必须只统计当前轮次任务编排，不能累加历史对话任务：${signal}`,
+  );
+}
+
+for (const signal of [
+  "scheduleComposerContextUsageUpdate",
+  "composerContextUsageTimer",
+  "lastComposerContextUsageKey",
+  "composerContextUsageRequestSerial",
+  "window.setTimeout",
+]) {
+  assertIncludes(
+    appStore + appConversationActions + appManagementActions,
+    signal,
+    `输入区 token 统计必须节流、去重并防止旧响应覆盖新状态：${signal}`,
+  );
+}
+
+for (const signal of [
+  "messageListRef",
+  "isMessageListPinnedToBottom",
+  "updateMessageListPinnedState",
+  "requestAutoScrollToBottom",
+  "scrollMessageListToBottom",
+  "data-auto-scroll=\"pinned-to-bottom\"",
+  "@scroll=\"updateMessageListPinnedState\"",
+]) {
+  assertIncludes(
+    chatPage + chatAutoScroll,
+    signal,
+    `消息列表贴底和用户离底暂停逻辑缺少：${signal}`,
+  );
+}
+
+assertIncludes(
+  appConversationActions,
+  "this.events.sort",
+  "实时事件进入前端后必须按中心服务 sequence 排序。",
+);
+
+for (const signal of [
+  "height: 100%;",
+  "flex: 1 1 0;",
+  "overscroll-behavior: contain;",
+  ".chat-page-host .message-list[data-auto-scroll=\"pinned-to-bottom\"]",
+  "useComposerPanelResize",
+  "composerResizeHandleLabel",
+  "startComposerResize",
+  "--composer-panel-height",
+  "composer-resize-handle",
+  "class=\"composer-mini-popover\"",
+  "v-if=\"composerMiniDialogVisible\"",
+  "flex: 0 0 auto;",
+  "height: clamp(",
+  "resize: none;",
+  ".chat-page-host .message-list {",
+  ".chat-page-host .composer {",
+  ".chat-page-host .composer-shell {",
+  "@media (max-height: 840px)",
+  "max-height: min(42vh, 340px);",
+  "max-height: min(46vh, 380px);",
+]) {
+  assertIncludes(
+    chatPage + chatStyle + chatComposerResize,
+    signal,
+    `Chat 固定视口 flex 高度或主滚动区域约束缺少：${signal}`,
+  );
+}
+
+for (const signal of [
+  "composerRootRef",
+  "composerMiniDialogRef",
+  "handleComposerOutsidePointerDown",
+  "document.addEventListener(\"pointerdown\"",
+  "document.removeEventListener(\"pointerdown\"",
+  "composerMiniDialogVisible.value = false",
+  "activeComposerEntry.value === entry",
+  ".chat-page-host .chat-surface {",
+  "display: flex;",
+  "flex-direction: column;",
+  ".chat-page-host .conversation-body {",
+  "flex: 1 1 0;",
+  ".chat-page-host .composer {",
+  "flex: 0 0 auto;",
+  "height: clamp(",
+  "max-height: min(46vh, 380px);",
+  "智能体 {{ agentStatusProgressText }}",
+  "composerEntriesVisible",
+  "toggleComposerEntries",
+  "composer-entry-toggle",
+  "composer-frame",
+  "composer-entry-strip",
+  ".chat-page-host .composer-frame",
+  "width: 100%;",
+  "right: 0;",
+  "left: 0;",
+  "requestDeleteConversation",
+  "ElMessageBox.confirm",
+  "<AgentConversationDialog",
+  "agentConversationDialogVisible",
+  "openAgentConversationDialog",
+  "composer-edit-description",
+]) {
+  assertIncludes(
+    chatPage + chatStyle + editDialog + appStore,
+    signal,
+    `本轮输入区 flex、点击关闭或智能体入口文案约束缺少：${signal}`,
+  );
+}
+
+for (const signal of [
+  "agent-conversation-dialog",
+  "agent-dialog-message-list",
+  "agent-dialog-composer-shell",
+  "agent-dialog-entry-strip",
+  "sendAgentConversationDraft",
+  "发送到当前会话",
+]) {
+  assertIncludes(
+    agentConversationDialog + chatPage,
+    signal,
+    `智能体点击后的完整对话弹窗缺少：${signal}`,
+  );
+}
+
+if (chatPage.includes("status-scope-note")) {
+  console.error("右侧状态栏不能常驻解释性说明，任务和智能体说明应收敛到输入区小浮层。");
+  process.exitCode = 1;
 }
 
 for (const signal of [

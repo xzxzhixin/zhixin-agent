@@ -1,6 +1,7 @@
 .chat-page-host {
   display: flex;
   width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
@@ -9,8 +10,18 @@
 
 .chat-page-host .content-grid {
   width: 100%;
+  height: 100%;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.chat-page-host .chat-surface {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .chat-page-host .chat-surface,
@@ -19,7 +30,20 @@
   flex-basis: 0;
 }
 
+.chat-page-host .message-list[data-auto-scroll="pinned-to-bottom"] {
+  flex: 1 1 0;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+}
+
+.chat-page-host .message-list {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .chat-page-host .composer,
+.chat-page-host .composer-frame,
 .chat-page-host .composer-shell,
 .chat-page-host .composer-toolbar,
 .chat-page-host .composer-tools,
@@ -28,10 +52,39 @@
   flex-shrink: 1;
 }
 
+.chat-page-host .composer {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 12px;
+  padding-bottom: 10px;
+  position: relative;
+  z-index: 2;
+}
+
+.chat-page-host .chat-surface:has(.conversation-timeline) .composer {
+  padding-left: 64px;
+}
+
+.chat-page-host .composer-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .chat-page-host .conversation-body {
   display: flex;
   min-height: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   gap: 10px;
   overflow: hidden;
 }
@@ -112,10 +165,14 @@
 }
 
 .chat-page-host .composer-shell {
+  --composer-panel-height: 184px;
+  position: relative;
   display: flex;
-  width: min(100%, 980px);
+  width: 100%;
   min-width: 0;
-  min-height: 190px;
+  min-height: 0;
+  height: clamp(148px, var(--composer-panel-height), min(46vh, 380px));
+  max-height: min(46vh, 380px);
   align-self: center;
   flex: 0 0 auto;
   flex-direction: column;
@@ -123,20 +180,105 @@
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
+.chat-page-host .composer-entry-strip {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-page-host .composer-entry-toggle {
+  position: absolute;
+  top: -32px;
+  right: 0;
+  z-index: 13;
+  display: grid;
+  width: 30px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--zhixin-border);
+  border-radius: 8px;
+  background: var(--zhixin-panel-bg);
+  color: var(--zhixin-text);
+  cursor: pointer;
+}
+
+.chat-page-host .composer-resize-handle {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  display: grid;
+  width: 88px;
+  height: 13px;
+  transform: translateX(-50%);
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.chat-page-host .composer-resize-handle span {
+  width: 72px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--el-border-color);
+}
+
+.chat-page-host .composer-resize-handle:hover span {
+  background: var(--el-color-primary);
+}
+
+.chat-page-host .composer-mini-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 12;
+  display: flex;
+  width: 100%;
+  max-height: min(42vh, 360px);
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid var(--zhixin-border);
+  border-radius: 8px;
+  background: var(--zhixin-panel-bg);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.chat-page-host .composer-edit-summary {
+  color: var(--el-color-success);
+}
+
 .chat-page-host .composer-input-row {
   display: flex;
   min-width: 0;
-  flex: 1 1 auto;
+  min-height: 46px;
+  flex: 1 1 46px;
+  overflow: hidden;
+  padding-bottom: 4px;
 }
 
 .chat-page-host .composer-textarea {
   width: 100%;
   min-width: 0;
+  min-height: 0;
+}
+
+.chat-page-host .composer-textarea .el-textarea__inner {
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  resize: none;
 }
 
 .chat-page-host .composer-toolbar {
   display: flex;
   min-width: 0;
+  min-height: 32px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
@@ -176,6 +318,40 @@
   flex: 0 0 auto;
 }
 
+@media (max-height: 840px) {
+  .chat-page-host .content-grid {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .chat-page-host .chat-surface {
+    padding: 12px;
+  }
+
+  .chat-page-host .chat-header {
+    margin-bottom: 10px;
+  }
+
+  .chat-page-host .project-capability-summary {
+    margin-bottom: 8px;
+  }
+
+  .chat-page-host .composer {
+    margin-top: 8px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .chat-page-host .composer-shell {
+    height: clamp(132px, var(--composer-panel-height), min(42vh, 340px));
+    max-height: min(42vh, 340px);
+  }
+
+  .chat-page-host .composer-textarea .el-textarea__inner {
+    max-height: 100%;
+  }
+}
+
 @media (max-width: 1100px) {
   .chat-page-host .content-grid {
     flex-wrap: nowrap;
@@ -204,7 +380,7 @@
     align-self: stretch;
   }
 
-  .chat-page-host .composer-entry-tabs {
+  .chat-page-host .composer-entry-strip {
     flex-wrap: wrap;
   }
 

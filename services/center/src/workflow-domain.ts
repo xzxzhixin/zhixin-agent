@@ -14,7 +14,6 @@ import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "./types.js";
 import {writeJsonFile} from "./helpers.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
-import type {CommandToolRequest} from "./tool-runtime.js";
 
 export function collectOneSkill(
     centerDirectory: string,
@@ -787,37 +786,6 @@ export function planToolCalls(events: CenterEventStore, taskId: string, agentId:
         },
     });
     return toolPlanId;
-}
-
-/**
- * planCommandToolForUserText：为 Agent 编排规划通用命令工具。
- *
- * @param userText 用户输入。
- * @returns 明确命令请求；无命令意图时返回 null。
- */
-export function planCommandToolForUserText(userText: string): CommandToolRequest | null {
-    const normalized = userText.toLowerCase();
-    if (normalized.includes("node") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
-        return {
-            executablePath: process.execPath,
-            args: [
-                "-v",
-            ],
-            inputSummary: "输出当前中心服务使用的 Node.js 运行环境版本。",
-        };
-    }
-
-    if (normalized.includes("python") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
-        return {
-            executablePath: "python",
-            args: [
-                "--version",
-            ],
-            inputSummary: "输出本机 Python 运行环境版本。",
-        };
-    }
-
-    return null;
 }
 
 /**

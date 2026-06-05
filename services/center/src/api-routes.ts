@@ -37,6 +37,7 @@ import {
     deleteSession,
     findProject,
     findSession,
+    findTask,
     listEvents,
     listMessages,
     listPendingMessages,
@@ -91,6 +92,9 @@ import {
     saveSkillContent,
     setPluginEnabled,
 } from "./extension-domain.js";
+import {
+    listUnifiedToolCapabilities,
+} from "./tool-runtime.js";
 import {
     buildWorkerContext,
     cancelWorkerTask,
@@ -1189,6 +1193,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     }));
 
     app.post("/api/capability/resolve", async () => createSuccessResponse({
+        capabilities: listUnifiedToolCapabilities(),
         priority: [
             "project-local",
             "user-installed",
@@ -1398,6 +1403,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     registerUsageRoutes(
         app,
         database,
+        config.centerDirectory,
     );
 
     app.post("/api/notification/config/set", async (request) => {

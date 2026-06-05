@@ -197,93 +197,6 @@ function usageBarWidth(value: number, rows: UsageSummaryView[]): string {
 }
 
 /**
- * formatDisplayTime：统一格式化前端展示时间。
- *
- * @param value ISO 时间、空值或服务端时间字符串。
- * @returns `YYYY-MM-DD HH:mm:ss`，无值时返回“未保存”。
- */
-function formatDisplayTime(value: string | null | undefined): string {
-  if (!value) {
-    return "未保存";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join("-") + " " + [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-  ].join(":");
-}
-
-/**
- * formatUsageRecordForDisplay：递归格式化用量记录中的时间字段。
- *
- * @param value 中心服务返回的用量记录或聚合记录。
- * @returns 时间字段已转为 `YYYY-MM-DD HH:mm:ss` 的展示副本。
- */
-function formatUsageRecordForDisplay(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => formatUsageRecordForDisplay(item));
-  }
-
-  if (value !== null && typeof value === "object") {
-    const formatted: Record<string, unknown> = {};
-    for (const [
-      fieldName,
-      fieldValue,
-    ] of Object.entries(value)) {
-      // fieldName: 服务端用量、事件和配置协议中的时间字段统一以后缀 At 或 Date 表达，展示前必须格式化。
-      if (typeof fieldValue === "string" && isDisplayTimeField(fieldName, fieldValue)) {
-        formatted[fieldName] = formatDisplayTime(fieldValue);
-      } else {
-        formatted[fieldName] = formatUsageRecordForDisplay(fieldValue);
-      }
-    }
-    return formatted;
-  }
-
-  return value;
-}
-
-/**
- * formatUsageJson：把用量记录展示副本格式化为 JSON。
- *
- * @param value 中心服务返回的用量记录或聚合记录。
- * @returns 不含 ISO 时间直出的 JSON 字符串。
- */
-function formatUsageJson(value: unknown): string {
-  return JSON.stringify(formatUsageRecordForDisplay(value), null, 2);
-}
-
-/**
- * isDisplayTimeField：判断字段是否需要按 UI 时间格式展示。
- *
- * @param fieldName 字段名。
- * @param value 字段值。
- * @returns 属于时间字段且可解析为时间时返回 true。
- */
-function isDisplayTimeField(fieldName: string, value: string): boolean {
-  const normalizedName = fieldName.toLowerCase();
-  const isTimeName = normalizedName.endsWith("at")
-    || normalizedName.endsWith("date")
-    || normalizedName.includes("time");
-  if (!isTimeName) {
-    return false;
-  }
-
-  return !Number.isNaN(new Date(value).getTime());
-}
-
-/**
  * onMounted：用量统计页加载中心服务统计数据。
  *
  * @returns 没有返回值。
@@ -326,8 +239,34 @@ onMounted(() => {
         </el-button>
       </div>
       <section class="management-form usage-filter-panel">
-        <span>筛选来源：providerId、model、projectId、sessionId、startedAt、endedAt 来自 appStore.usageFilters。</span>
-        <span>当前筛选：{{ appStore.usageFilters.providerId || "全部供应商" }} / {{ appStore.usageFilters.model || "全部模型" }} / {{ appStore.usageFilters.projectId || "全部项目" }}</span>
+        <el-form
+            label-position="top"
+            class="usage-filter-form"
+        >
+          <el-form-item label="供应商名称">
+            <el-input
+                v-model="appStore.usageFilters.providerName"
+                clearable
+                placeholder="按供应商配置名称筛选"
+            />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input
+                v-model="appStore.usageFilters.modelName"
+                clearable
+                placeholder="按模型名称筛选"
+            />
+          </el-form-item>
+          <el-form-item label="项目名称">
+            <el-input
+                v-model="appStore.usageFilters.projectName"
+                clearable
+                placeholder="按项目文件夹名筛选"
+            />
+          </el-form-item>
+        </el-form>
+        <span>筛选来源：providerName 来自供应商配置，modelName 来自 usage_records.model，projectName 来自 projects.display_name。</span>
+        <span>当前筛选：{{ appStore.usageFilters.providerName || "全部供应商" }} / {{ appStore.usageFilters.modelName || "全部模型" }} / {{ appStore.usageFilters.projectName || "全部项目" }}</span>
       </section>
       <section class="usage-chart-grid">
         <article class="usage-chart-card">
@@ -426,24 +365,6 @@ onMounted(() => {
           </div>
         </article>
       </section>
-      <h2 class="section-title">
-        聚合统计
-      </h2>
-      <el-scrollbar class="usage-list">
-        <pre
-            v-for="(record, index) in appStore.usageAggregate"
-            :key="`aggregate-${index}`"
-        >{{ formatUsageJson(record) }}</pre>
-      </el-scrollbar>
-      <h2 class="section-title">
-        原始记录
-      </h2>
-      <el-scrollbar class="usage-list">
-        <pre
-            v-for="(record, index) in appStore.usageRecords"
-            :key="`record-${index}`"
-        >{{ formatUsageJson(record) }}</pre>
-      </el-scrollbar>
     </section>
   </section>
 </template>

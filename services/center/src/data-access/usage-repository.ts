@@ -178,9 +178,13 @@ export class UsageRepository {
      * refreshUsageDailyStats：刷新日聚合统计。
      *
      * @param updatedAt 更新时间 ISO 字符串。
+     * @param filters 当前查询筛选条件；为空时返回全部刷新行。
      * @returns 刷新的日统计源行。
      */
-    refreshUsageDailyStats(updatedAt: string): unknown[] {
+    refreshUsageDailyStats(
+        updatedAt: string,
+        filters?: UsageQueryFilters,
+    ): unknown[] {
         const rows = this.database.connection()
             .prepare(`
                 SELECT provider_id                     AS providerId,
@@ -218,7 +222,52 @@ export class UsageRepository {
                 );
         }
 
-        return rows;
+        if (!filters) {
+            return rows;
+        }
+
+        const projectNamesById = filters.projectName === null
+            ? new Map<string, string>()
+            : new Map(
+                this.database.connection()
+                    .prepare("SELECT id, display_name AS displayName FROM projects")
+                    .all()
+                    .map((project) => {
+                        const row = project as {
+                            id: string;
+                            displayName: string;
+                        };
+                        return [
+                            row.id,
+                            row.displayName,
+                        ] as const;
+                    }),
+            );
+        // refreshedDailyStats: 返回值也按本次查询条件过滤，避免筛选接口在副产物字段里暴露全量统计。
+        return rows.filter((row) => {
+            if (filters.providerId !== null && row.providerId !== filters.providerId) {
+                return false;
+            }
+            if (filters.model !== null && row.model !== filters.model) {
+                return false;
+            }
+            if (filters.modelName !== null && row.model !== filters.modelName) {
+                return false;
+            }
+            if (filters.projectId !== null && row.projectId !== filters.projectId) {
+                return false;
+            }
+            if (filters.projectName !== null && (row.projectId === null || projectNamesById.get(row.projectId) !== filters.projectName)) {
+                return false;
+            }
+            if (filters.startedAt !== null && row.statDate < filters.startedAt.slice(0, 10)) {
+                return false;
+            }
+            if (filters.endedAt !== null && row.statDate > filters.endedAt.slice(0, 10)) {
+                return false;
+            }
+            return true;
+        });
     }
 
     /**
@@ -304,9 +353,17 @@ export class UsageRepository {
             whereParts.push("model = ?");
             params.push(filters.model);
         }
+        if (filters.modelName !== null) {
+            whereParts.push("model = ?");
+            params.push(filters.modelName);
+        }
         if (filters.projectId !== null) {
             whereParts.push("project_id = ?");
             params.push(filters.projectId);
+        }
+        if (filters.projectName !== null) {
+            whereParts.push("EXISTS (SELECT 1 FROM projects WHERE projects.id = usage_records.project_id AND projects.display_name = ?)");
+            params.push(filters.projectName);
         }
         if (filters.sessionId !== null) {
             whereParts.push("session_id = ?");

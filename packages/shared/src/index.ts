@@ -660,6 +660,78 @@ export interface EventRecord {
 }
 
 /**
+ * 统一工具能力类型。
+ *
+ * 来源：中心服务工具能力注册表。
+ * 含义：命令、插件、MCP 和 skill 在发现、权限、执行和审计链路中的统一分类。
+ * 格式：固定字符串枚举。
+ * 默认值：无。
+ * 约束：前端过程卡片按该字段展示，不再为每类工具猜测多套状态模型。
+ */
+export type UnifiedToolKind =
+  | "command"
+  | "plugin"
+  | "mcp"
+  | "skill";
+
+/**
+ * 统一工具能力状态。
+ *
+ * 来源：中心服务能力发现和权限筛选结果。
+ * 含义：描述工具当前是否可执行或为何不可用。
+ * 格式：固定字符串枚举。
+ * 默认值：available。
+ * 约束：不可用原因必须进入事件 payload，供 UI 和审计查看。
+ */
+export type UnifiedToolAvailability =
+  | "available"
+  | "unavailable";
+
+/**
+ * 统一工具能力。
+ *
+ * 来源：中心服务注册表、插件安装、MCP 配置和 skill 扫描。
+ * 含义：Agent 在当前会话窗口内可发现的工具能力。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：权限枚举来源于架构权限模型。
+ */
+export interface UnifiedToolCapability {
+  /** toolId: 工具能力 ID，中心服务注册表内唯一。 */
+  toolId: string;
+  /** toolKind: 工具类型。 */
+  toolKind: UnifiedToolKind;
+  /** displayName: 用户可见名称。 */
+  displayName: string;
+  /** requiredPermission: 执行该工具需要的权限。 */
+  requiredPermission: string;
+  /** availability: 当前可用状态。 */
+  availability: UnifiedToolAvailability;
+  /** unavailableReason: 不可用原因；可用时为 null。 */
+  unavailableReason: string | null;
+}
+
+/**
+ * 统一工具调用意图。
+ *
+ * 来源：Agent 工具规划。
+ * 含义：把自然语言请求解析成明确工具、输入摘要和结构化参数。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：中心服务只能执行注册表里存在且可用的工具。
+ */
+export interface UnifiedToolCallIntent {
+  /** toolId: 目标工具能力 ID。 */
+  toolId: string;
+  /** toolKind: 目标工具类型。 */
+  toolKind: UnifiedToolKind;
+  /** inputSummary: 调用用途摘要。 */
+  inputSummary: string;
+  /** arguments: 工具结构化参数，不包含敏感明文。 */
+  arguments: Record<string, unknown>;
+}
+
+/**
  * 附件记录。
  *
  * 来源：SQLite `attachments` 表。

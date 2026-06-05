@@ -13,7 +13,7 @@ import { join } from "node:path";
 import {
   CENTER_DATA_DIR_NAME,
   type ApiResponse,
-} from "@zhixin/shared";
+} from "../packages/shared/src/index";
 
 import {
   type CenterService,
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     const step = stepCreateResponse.json<ApiResponse<{
       stepId: string;
     }>>();
-    assert(step.success, "任务步骤创建失败");
+    assert(step.success, `任务步骤创建失败：${JSON.stringify(step.error)}`);
 
     const stepUpdateResponse = await service.app.inject({
       method: "POST",
@@ -146,6 +146,7 @@ async function main(): Promise<void> {
         status: string;
       }>;
       taskSteps: Array<{
+        title: string;
         status: string;
         summary: string | null;
       }>;
@@ -155,8 +156,98 @@ async function main(): Promise<void> {
     assert(typeof detail.data?.turns[0]?.endedAt === "string", "轮次完成后没有结束时间");
     assert(typeof detail.data?.turns[0]?.durationMs === "number", "轮次完成后没有持续时长");
     assert(detail.data?.tasks[0]?.status === "completed", "轮次完成后默认任务没有完成");
-    assert(detail.data?.taskSteps[0]?.status === "completed", "任务步骤最终状态不是 completed");
-    assert(detail.data?.taskSteps[0]?.summary === "上下文读取完成", "任务步骤摘要没有保存");
+    const manualStep = detail.data?.taskSteps.find((currentStep) => {
+      return currentStep.title === "读取上下文";
+    });
+    assert(manualStep?.status === "completed", "任务步骤最终状态不是 completed");
+    assert(manualStep.summary === "上下文读取完成", "任务步骤摘要没有保存");
+
+    const commandSessionResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/create",
+      payload: {
+        sessionType: "normal",
+        projectId: null,
+        title: "命令工具检查会话",
+      },
+    });
+    const commandSession = commandSessionResponse.json<ApiResponse<{
+      sessionId: string;
+    }>>();
+    assert(commandSession.success, "命令工具检查会话创建失败");
+
+    const commandSendResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/message/send",
+      payload: {
+        sessionId: commandSession.data?.sessionId,
+        contentMarkdown: "请调用命令行查看 node 版本",
+      },
+    });
+    const commandSent = commandSendResponse.json<ApiResponse<{
+      turnId: string;
+      taskId: string;
+    }>>();
+    assert(commandSent.success, "命令工具检查消息发送失败");
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 80);
+    });
+
+    const commandDetailResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/detail",
+      payload: {
+        sessionId: commandSession.data?.sessionId,
+      },
+    });
+    const commandDetail = commandDetailResponse.json<ApiResponse<{
+      tasks: Array<{
+        status: string;
+      }>;
+      taskSteps: Array<{
+        title: string;
+        status: string;
+        summary: string | null;
+      }>;
+    }>>();
+    assert(commandDetail.success, "命令工具检查详情读取失败");
+    assert(commandDetail.data?.tasks[0]?.status === "completed", "命令工具轮次任务没有完成");
+    assert((commandDetail.data?.taskSteps ?? []).some((step) => {
+      return step.title === "思考与上下文整理" && step.status === "completed";
+    }), "命令工具轮次缺少真实思考任务步骤");
+    assert((commandDetail.data?.taskSteps ?? []).some((step) => {
+      return step.title === "命令工具执行" && step.status === "completed";
+    }), "命令工具轮次缺少真实命令工具任务步骤");
+
+    const commandEventResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/event/list",
+      payload: {
+        sessionId: commandSession.data?.sessionId,
+        turnId: commandSent.data?.turnId,
+        afterSequence: 0,
+      },
+    });
+    const commandEvents = commandEventResponse.json<ApiResponse<{
+      events: Array<{
+        eventType: string;
+        taskId: string | null;
+        summary: string;
+        payload: unknown;
+      }>;
+    }>>();
+    assert(commandEvents.success, "命令工具事件读取失败");
+    const commandEventTypes = (commandEvents.data?.events ?? []).map((event) => {
+      return event.eventType;
+    });
+    assert(commandEventTypes.includes("tool.plan.created"), "命令工具轮次缺少工具计划事件");
+    assert(commandEventTypes.includes("tool.command.started"), "命令工具轮次缺少命令开始事件");
+    assert(commandEventTypes.includes("tool.command.output"), "命令工具轮次缺少命令输出事件");
+    assert(commandEventTypes.includes("tool.command.completed"), "命令工具轮次缺少命令完成事件");
+    assert(commandEventTypes.includes("tool.plugin.unavailable"), "命令工具轮次缺少插件不可用事件");
+    assert(commandEventTypes.includes("tool.mcp.unavailable"), "命令工具轮次缺少 MCP 不可用事件");
+    assert(commandEventTypes.includes("tool.skill.unavailable"), "命令工具轮次缺少 skill 不可用事件");
   } finally {
     await service?.close().catch(() => {
       // ignore: 检查失败时仍继续清理临时目录。

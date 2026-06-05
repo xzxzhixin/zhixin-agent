@@ -1,4 +1,7 @@
 import type {
+    AgentStatusTreeNode,
+} from "@stores/app";
+import type {
     ConversationMessage,
     ConversationSession,
     ConversationTurn,
@@ -24,6 +27,58 @@ export interface NavigationStatusMeta {
     title: string;
     /** tone: CSS 状态色名称。 */
     tone: string;
+}
+
+/**
+ * formatConnectionState：把连接状态协议值转成中文。
+ *
+ * @param state 当前连接状态。
+ * @returns 中文状态。
+ */
+export function formatConnectionState(state: string): string {
+    const labels: Record<string, string> = {
+        connecting: "连接中",
+        open: "已连接",
+        retrying: "重连中",
+        stopped: "已停止",
+    };
+
+    return labels[state] ?? "未知状态";
+}
+
+/**
+ * AgentStatusTreeRow：智能体状态树扁平展示行。
+ */
+export interface AgentStatusTreeRow {
+    /** node: 智能体树节点。 */
+    node: AgentStatusTreeNode;
+    /** level: 当前节点层级，根节点为 0。 */
+    level: number;
+}
+
+/**
+ * flattenAgentTreeRows：把子智能体树转换为渲染行。
+ *
+ * @param nodes 当前层级节点数组。
+ * @param level 当前层级，根节点为 0。
+ * @returns 带层级信息的渲染行。
+ */
+export function flattenAgentTreeRows(
+    nodes: AgentStatusTreeNode[],
+    level: number,
+): AgentStatusTreeRow[] {
+    return nodes.flatMap((node) => {
+        return [
+            {
+                node,
+                level,
+            },
+            ...flattenAgentTreeRows(
+                node.children,
+                level + 1,
+            ),
+        ];
+    });
 }
 
 /**
@@ -295,9 +350,15 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         return [
             "model.stream.delta",
             "model.stream.completed",
+            "model.failed",
+            "message.turn.failed",
+            "worker.task.failed",
             "tool.command.started",
             "tool.command.output",
             "tool.command.completed",
+            "tool.call.started",
+            "tool.call.output",
+            "tool.call.completed",
             "tool.plugin.unavailable",
             "tool.mcp.unavailable",
             "tool.skill.unavailable",
@@ -339,7 +400,7 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         const isRunning = statusEntries.some((entry) => {
             return entry.statusMeta.status === "running";
         }) && !hasCompleted && !hasFailed;
-        const kind = latestEvent.eventType.startsWith("model.stream.")
+        const kind = latestEvent.eventType.startsWith("model.")
             ? "stream"
             : "tool";
         const title = resolveProcessGroupTitle(latestEvent);
@@ -353,7 +414,7 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
                     ? "执行中"
                     : "已完成",
             traceId: latestEvent.traceId,
-            summary: latestEvent.summary,
+            summary: resolveProcessSummary(latestEvent),
             logs: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
@@ -395,11 +456,17 @@ function resolveProcessGroupKey(event: EventRecord): string {
  * @returns 用户可见标题。
  */
 function resolveProcessGroupTitle(event: EventRecord): string {
-    if (event.eventType.startsWith("model.stream.")) {
+    if (event.eventType.startsWith("model.")) {
         return "模型流式输出";
+    }
+    if (event.eventType === "message.turn.failed" || event.eventType === "worker.task.failed") {
+        return "对话执行失败";
     }
     if (event.eventType.startsWith("tool.command.")) {
         return "命令工具调用";
+    }
+    if (event.eventType.startsWith("tool.call.")) {
+        return "工具调用过程";
     }
     if (event.eventType.startsWith("tool.mcp.")) {
         return "MCP 调用过程";
@@ -411,6 +478,25 @@ function resolveProcessGroupTitle(event: EventRecord): string {
         return "skill 调用过程";
     }
     return "工具调用过程";
+}
+
+/**
+ * resolveProcessSummary：生成过程卡片摘要。
+ *
+ * @param event 同组最新事件。
+ * @returns 可展示摘要。
+ */
+function resolveProcessSummary(event: EventRecord): string {
+    return readEventText(
+        event,
+        "failureReason",
+    ) || readEventText(
+        event,
+        "errorMessage",
+    ) || readEventText(
+        event,
+        "outputSummary",
+    ) || event.summary;
 }
 
 /**

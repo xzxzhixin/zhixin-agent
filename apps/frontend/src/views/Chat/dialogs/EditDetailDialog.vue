@@ -10,52 +10,29 @@ const props = defineProps<{
   files: ComposerEditFile[];
   /** activeFile: 当前选中的编辑文件。 */
   activeFile: ComposerEditFile | null;
-  /** canDeleteConversation: 当前是否有中心服务真实会话可进入删除确认。 */
-  canDeleteConversation: boolean;
 }>();
 
 const emit = defineEmits<{
-  /** update:modelValue: Element Plus 弹框关闭时回写显隐状态。 */
-  "update:modelValue": [
-    value: boolean,
-  ];
   /** select-file: 用户选择某个编辑文件。 */
   "select-file": [
     file: ComposerEditFile,
   ];
-  /** request-delete-conversation: 用户请求打开会话删除确认。 */
-  "request-delete-conversation": [];
 }>();
 </script>
 
 <template>
-  <el-dialog
-      :model-value="props.modelValue"
-      append-to-body
+  <section
+      v-if="props.modelValue"
       class="composer-mini-dialog edit-detail-dialog"
-      title="编辑"
-      width="720px"
-      @update:model-value="emit('update:modelValue', $event)"
   >
     <section class="composer-mini-dialog-body composer-edit-panel">
+      <p class="composer-edit-description">
+        本次对话编辑的文件列表；点击文件查看本次编辑与上一次编辑之间的 diff。
+      </p>
       <el-empty
           v-if="props.files.length === 0"
           description="暂无本次编辑"
       />
-      <section class="conversation-delete-section">
-        <header>
-          <strong>会话删除</strong>
-          <span>点击后只打开确认弹框；复测取消路径不会执行不可逆删除。</span>
-        </header>
-        <el-button
-            type="danger"
-            plain
-            :disabled="!props.canDeleteConversation"
-            @click="emit('request-delete-conversation')"
-        >
-          确认删除对话
-        </el-button>
-      </section>
       <button
           v-for="file in props.files"
           :key="file.filePath"
@@ -79,20 +56,22 @@ const emit = defineEmits<{
       >{{ line.content }}
 </code></pre>
     </section>
-  </el-dialog>
+  </section>
 </template>
 
 <style scoped>
-:deep(.composer-mini-dialog .el-dialog__body) {
-  max-height: min(68vh, 620px);
-  overflow: hidden;
+.composer-mini-dialog {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .composer-mini-dialog-body,
 .composer-edit-panel {
   display: flex;
   min-height: 0;
-  max-height: min(58vh, 520px);
+  max-height: min(34vh, 320px);
   flex: 1 1 auto;
   flex-direction: column;
   gap: 10px;
@@ -112,27 +91,11 @@ const emit = defineEmits<{
   cursor: pointer;
 }
 
-.conversation-delete-section {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--zhixin-border);
-  border-radius: 8px;
-  background: var(--zhixin-soft-bg);
-}
-
-.conversation-delete-section header {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.conversation-delete-section span {
+.composer-edit-description {
+  margin: 0;
   color: var(--zhixin-text-soft);
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .composer-edit-file.active,

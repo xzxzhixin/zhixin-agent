@@ -43,9 +43,12 @@ function assertMatches(text, pattern, message) {
 const sessionDomain = readText("services/center/src/session-domain.ts");
 const workflowDomain = readText("services/center/src/workflow-domain.ts");
 const usageDomain = readText("services/center/src/usage-domain.ts");
+const usageRoutes = readText("services/center/src/usage-routes.ts");
+const usageRepository = readText("services/center/src/data-access/usage-repository.ts");
 const usagePage = readText("apps/frontend/src/views/Usage/RouterIndex.vue");
 const appStore = readText("apps/frontend/src/stores/app.ts");
 const managementActions = readText("apps/frontend/src/stores/app-management-actions.ts");
+const apiClient = readText("packages/api-client/src/index.ts");
 
 assertIncludes(
   sessionDomain,
@@ -73,17 +76,17 @@ assertIncludes(
   "用量写入必须追加 usage.recorded 事件，便于审计和前端断线补齐。",
 );
 assertIncludes(
-  usageDomain,
+  usageDomain + usageRepository,
   "summaryType",
   "用量聚合接口必须返回总量、供应商维度和项目维度，不能只返回单一分组。",
 );
 assertIncludes(
-  usageDomain,
+  usageDomain + usageRepository,
   "provider-summary",
   "用量聚合接口必须包含供应商维度分组。",
 );
 assertIncludes(
-  usageDomain,
+  usageDomain + usageRepository,
   "project-summary",
   "用量聚合接口必须包含项目维度分组。",
 );
@@ -117,6 +120,16 @@ assertIncludes(
   "usage-empty-state",
   "用量统计页无真实数据时必须显示空状态，不能展示静态占位图。",
 );
+for (const forbiddenText of [
+  "<h2 class=\"section-title\">\n        聚合统计",
+  "<h2 class=\"section-title\">\n        原始记录",
+  "formatUsageJson",
+]) {
+  if (usagePage.includes(forbiddenText)) {
+    console.error(`用量统计页不得继续展示面向开发排查的 JSON 列表或标题：${forbiddenText}`);
+    process.exit(1);
+  }
+}
 assertMatches(
   usagePage,
   /v-for="\([\s\S]*providerUsageSummaries/u,
@@ -126,6 +139,27 @@ assertMatches(
   usagePage,
   /v-for="\([\s\S]*projectUsageSummaries/u,
   "项目维度图表区域必须循环渲染真实项目聚合数据。",
+);
+for (const signal of [
+  "providerName",
+  "modelName",
+  "projectName",
+]) {
+  assertIncludes(
+    apiClient + usageRoutes + usageDomain + usageRepository + usagePage + managementActions,
+    signal,
+    `用量统计必须支持 ${signal} 单一来源筛选。`,
+  );
+}
+assertIncludes(
+  usageRoutes,
+  "resolveProviderIdByProviderName",
+  "供应商名称筛选必须在服务端解析为明确 providerId，不能让前端猜 ID。",
+);
+assertIncludes(
+  usageRepository,
+  "projects.display_name = ?",
+  "项目名称筛选必须使用 projects.display_name 单一事实源。",
 );
 
 console.log("用量统计回归检查通过。");

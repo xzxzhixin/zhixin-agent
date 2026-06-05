@@ -80,6 +80,25 @@ async function waitForFrontend() {
 }
 
 /**
+ * isFrontendAlreadyAvailable：判断本机 Vite 前端服务是否已经可访问。
+ *
+ * 关键逻辑：开发期可能已经手动启动过 `5173`，此时不能再用 strictPort 强行启动第二个 Vite，
+ * 否则 pnpm 会退出并连带阻断 Electron 与中心服务 `8866` 启动。
+ *
+ * @returns 已存在前端服务可访问时返回 true，否则返回 false。
+ */
+async function isFrontendAlreadyAvailable() {
+  try {
+    // response: 只校验本机开发入口是否可建立 HTTP 响应，不解析页面内容以减少耦合。
+    const response = await fetch(frontendDevUrl);
+    return response.ok;
+  } catch {
+    // 连接失败说明当前没有可复用的前端开发服务器，后续由本脚本启动 Vite。
+    return false;
+  }
+}
+
+/**
  * shutdown：停止当前脚本管理的开发子进程。
  *
  * @param exitCode 当前编排脚本退出码。
@@ -138,21 +157,25 @@ process.on("SIGTERM", () => {
   shutdown(0);
 });
 
-startProcess(
-  "前端开发服务器",
-  "pnpm",
-  [
-    "--filter",
-    "@zhixin/frontend",
-    "dev",
-      "--",
-      "--host",
-      "127.0.0.1",
-      "--strictPort",
-    ],
-);
-
 try {
+  if (await isFrontendAlreadyAvailable()) {
+    console.log(`复用已存在的前端开发服务器：${frontendDevUrl}`);
+  } else {
+    startProcess(
+      "前端开发服务器",
+      "pnpm",
+      [
+        "--filter",
+        "@zhixin/frontend",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--strictPort",
+      ],
+    );
+  }
+
   await waitForFrontend();
   startProcess(
     "Electron 桌面壳",

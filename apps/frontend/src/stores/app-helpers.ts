@@ -400,8 +400,11 @@ export function mergeAgentStatusTree(
 export function createUsageFilters(): UsageFilters {
     return {
         providerId: null,
+        providerName: null,
         model: null,
+        modelName: null,
         projectId: null,
+        projectName: null,
         sessionId: null,
         startedAt: null,
         endedAt: null,

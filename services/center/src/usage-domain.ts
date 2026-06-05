@@ -16,14 +16,29 @@ export interface UsageQueryFilters {
     providerId: string | null;
 
     /**
+     * providerName: 供应商名称，来源于中心目录供应商配置 providerName。
+     */
+    providerName: string | null;
+
+    /**
      * model: 模型名称。
      */
     model: string | null;
 
     /**
+     * modelName: 模型名称筛选展示字段，和 model 使用同一 usage_records.model 来源。
+     */
+    modelName: string | null;
+
+    /**
      * projectId: 项目 ID；null 表示不限制项目。
      */
     projectId: string | null;
+
+    /**
+     * projectName: 项目文件夹主名称，来源于 projects.display_name。
+     */
+    projectName: string | null;
 
     /**
      * sessionId: 会话 ID；对应 SQLite usage_records.session_id。
@@ -84,6 +99,10 @@ export function appendUsageWhereClause(
         whereParts.push("model = ?");
         params.push(filters.model);
     }
+    if (filters.modelName !== null) {
+        whereParts.push("model = ?");
+        params.push(filters.modelName);
+    }
     if (filters.projectId !== null) {
         whereParts.push("project_id = ?");
         params.push(filters.projectId);
@@ -102,8 +121,21 @@ export function appendUsageWhereClause(
     }
 }
 
-export function refreshUsageDailyStats(database: CenterDatabase): unknown[] {
-    return createDataAccess(database).usage.refreshUsageDailyStats(new Date().toISOString());
+/**
+ * refreshUsageDailyStats：刷新日聚合并按当前查询条件返回可见日统计。
+ *
+ * @param database 中心服务数据库。
+ * @param filters 用量筛选条件；为空时返回全部刷新结果。
+ * @returns 刷新后的日统计行。
+ */
+export function refreshUsageDailyStats(
+    database: CenterDatabase,
+    filters?: UsageQueryFilters,
+): unknown[] {
+    return createDataAccess(database).usage.refreshUsageDailyStats(
+        new Date().toISOString(),
+        filters,
+    );
 }
 
 export function saveNotificationConfig(

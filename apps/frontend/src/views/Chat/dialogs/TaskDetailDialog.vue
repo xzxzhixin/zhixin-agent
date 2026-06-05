@@ -49,22 +49,12 @@ const props = defineProps<{
   /** tasks: 当前任务详情行；没有真实任务时由 MainView 传入明确空态行。 */
   tasks: TaskPanelRow[];
 }>();
-
-const emit = defineEmits<{
-  /** update:modelValue: Element Plus 弹框关闭时回写显隐状态。 */
-  "update:modelValue": [
-    value: boolean,
-  ];
-}>();
 </script>
 
 <template>
-  <el-dialog
-      :model-value="props.modelValue"
-      append-to-body
+  <section
+      v-if="props.modelValue"
       class="composer-mini-dialog task-detail-dialog"
-      title="任务编排详情"
-      @update:model-value="emit('update:modelValue', $event)"
   >
     <section class="composer-mini-dialog-body composer-task-panel">
       <article
@@ -76,42 +66,23 @@ const emit = defineEmits<{
           <strong>{{ task.title }}</strong>
           <span>{{ task.status }}</span>
         </header>
-        <small>{{ task.summary }}</small>
-        <small>{{ task.scopeHint }}</small>
-        <small>{{ task.currentTurnNotice }}</small>
-        <small>耗时：{{ task.elapsed }} · 排查 ID：{{ task.traceId }}</small>
-        <small v-if="task.traceIdUnavailableReason">{{ task.traceIdUnavailableReason }}</small>
-        <small v-if="task.failureReason">失败原因：{{ task.failureReason }}</small>
-        <div
-            v-if="task.steps.length > 0"
-            class="composer-task-step-list"
-        >
-          <article
-              v-for="step in task.steps"
-              :key="step.id"
-              class="composer-task-step-row"
-          >
-            <strong>{{ step.title }}</strong>
-            <span>{{ step.status }}</span>
-            <small>{{ step.elapsed }} · {{ step.summary }}</small>
-            <small>步骤排查 ID：{{ step.traceId }}</small>
-          </article>
-        </div>
       </article>
     </section>
-  </el-dialog>
+  </section>
 </template>
 
 <style scoped>
-:deep(.composer-mini-dialog .el-dialog__body) {
-  max-height: min(68vh, 620px);
-  overflow: hidden;
+.composer-mini-dialog {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .composer-mini-dialog-body {
   display: flex;
   min-height: 0;
-  max-height: min(58vh, 520px);
+  max-height: min(34vh, 320px);
   flex-direction: column;
   gap: 10px;
   overflow-x: hidden;
@@ -123,56 +94,35 @@ const emit = defineEmits<{
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
 .composer-panel-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--zhixin-border);
-  border-radius: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--zhixin-border);
   background: var(--zhixin-soft-bg);
 }
 
-.composer-task-row-header,
-.composer-task-step-row {
+.composer-panel-row:last-child {
+  border-bottom: 0;
+}
+
+.composer-task-row-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px 10px;
 }
 
-.composer-task-step-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.composer-task-step-row {
-  padding: 7px 8px;
-  border: 1px dashed var(--zhixin-border);
-  border-radius: 7px;
-}
-
 .composer-panel-row strong,
-.composer-panel-row span,
-.composer-panel-row small,
-.composer-task-step-row strong,
-.composer-task-step-row span,
-.composer-task-step-row small {
+.composer-panel-row span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.composer-panel-row small {
-  grid-column: 1 / -1;
-  color: var(--zhixin-text-soft);
-  font-size: 12px;
 }
 </style>

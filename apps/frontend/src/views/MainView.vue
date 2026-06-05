@@ -281,7 +281,11 @@ function formatConnectionState(state: string): string {
 }
 
 .top-menu-item {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 6px;
@@ -290,6 +294,7 @@ function formatConnectionState(state: string): string {
   color: var(--text-secondary);
   cursor: pointer;
   font-weight: 500;
+  line-height: 1;
 }
 
 .top-menu-item.active {
@@ -306,6 +311,7 @@ function formatConnectionState(state: string): string {
   align-items: center;
   gap: 10px;
   color: var(--text-secondary);
+  line-height: 1;
 }
 
 .theme-toggle {
@@ -319,6 +325,16 @@ function formatConnectionState(state: string): string {
   background: var(--panel-bg);
   color: var(--text-primary);
   cursor: pointer;
+  line-height: 1;
+}
+
+.theme-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
 }
 
 .workspace-slot {

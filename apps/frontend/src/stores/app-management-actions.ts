@@ -137,8 +137,11 @@ export function createManagementActions() {
         normalizedUsageFilters(): UsageFilters {
             return {
                 providerId: normalizeOptionalText(this.usageFilters.providerId),
+                providerName: normalizeOptionalText(this.usageFilters.providerName),
                 model: normalizeOptionalText(this.usageFilters.model),
+                modelName: normalizeOptionalText(this.usageFilters.modelName),
                 projectId: normalizeOptionalText(this.usageFilters.projectId),
+                projectName: normalizeOptionalText(this.usageFilters.projectName),
                 sessionId: normalizeOptionalText(this.usageFilters.sessionId),
                 startedAt: normalizeOptionalText(this.usageFilters.startedAt),
                 endedAt: normalizeOptionalText(this.usageFilters.endedAt),
@@ -438,6 +441,25 @@ export function createManagementActions() {
          * @returns 没有返回值。
          */
         async updateComposerContextUsage(): Promise<void> {
+            const usageKey = JSON.stringify({
+                sessionId: this.activeSessionId,
+                draftText: this.draft.text,
+                referenceSummaries: this.draft.references.map((reference) => {
+                    return reference.displayName;
+                }),
+                attachmentSummaries: this.draft.attachments.map((attachment) => {
+                    return attachment.fileName;
+                }),
+                modelId: this.composerSettings.selectedModel,
+                windowLimitTokens: this.composerSelectedModelContextWindowTokens,
+            });
+            if (usageKey === this.composerContextUsageState.lastComposerContextUsageKey) {
+                return;
+            }
+
+            this.composerContextUsageState.lastComposerContextUsageKey = usageKey;
+            this.composerContextUsageState.composerContextUsageRequestSerial += 1;
+            const requestSerial = this.composerContextUsageState.composerContextUsageRequestSerial;
             const result = await this.api().countComposerContextTokens({
                 sessionId: this.activeSessionId,
                 draftText: this.draft.text,
@@ -450,9 +472,28 @@ export function createManagementActions() {
                 modelId: this.composerSettings.selectedModel,
                 windowLimitTokens: this.composerSelectedModelContextWindowTokens,
             });
+            if (requestSerial !== this.composerContextUsageState.composerContextUsageRequestSerial) {
+                return;
+            }
             this.composerSettings.contextUsedTokens = result.usedTokens;
             this.composerSettings.contextTokenizerName = result.tokenizerName;
             this.composerSettings.contextTokenizerSource = result.source;
+        },
+
+        /**
+         * scheduleComposerContextUsageUpdate：节流刷新输入区上下文用量。
+         *
+         * @returns 没有返回值。
+         */
+        scheduleComposerContextUsageUpdate(): void {
+            if (this.composerContextUsageState.composerContextUsageTimer !== null) {
+                window.clearTimeout(this.composerContextUsageState.composerContextUsageTimer);
+            }
+            // 延迟请求是为了把连续输入、引用和附件变化合并成一次中心服务 tokenizer 调用。
+            this.composerContextUsageState.composerContextUsageTimer = window.setTimeout(() => {
+                this.composerContextUsageState.composerContextUsageTimer = null;
+                void this.updateComposerContextUsage();
+            }, 500);
         },
 
         /**

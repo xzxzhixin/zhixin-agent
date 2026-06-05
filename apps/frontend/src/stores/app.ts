@@ -1,5 +1,8 @@
 import {defineStore} from "pinia";
 import {marked} from "marked";
+import {
+    ElMessageBox,
+} from "element-plus";
 
 import {
     CenterApiClient,
@@ -70,6 +73,7 @@ import type {
     ProxyDraft,
     RuntimeDraft,
     SkillDraft,
+    ComposerContextUsageState,
 } from "./app-types";
 
 /**
@@ -271,6 +275,18 @@ export const useAppStore = defineStore("app", {
             contextTokenizerSource: "",
             reasoningEffort: "medium",
         } as ComposerSettings,
+
+        /**
+         * composerContextUsageState: 输入区上下文统计节流状态。
+         *
+         * 来源：本地输入、附件、引用和模型选择变化。
+         * 默认值：无待执行请求，最近请求键为空，序号从 0 开始。
+         */
+        composerContextUsageState: {
+            composerContextUsageTimer: null,
+            lastComposerContextUsageKey: "",
+            composerContextUsageRequestSerial: 0,
+        } as ComposerContextUsageState,
 
         /**
          * projectReferenceQuery: 输入框内 @ 后面的检索词。
@@ -963,12 +979,12 @@ export const useAppStore = defineStore("app", {
          * @returns 登记并切换到项目对话草稿后没有返回值。
          */
         async createDefaultBrowserProjectConversation(): Promise<void> {
-            // projectId: 默认浏览器项目只用于本轮 Web 端项目对话入口，固定 UUID 保证刷新后仍指向同一项目。
-            const projectId = "00000000-0000-4000-8000-000000000101";
+            // projectId: 默认浏览器项目固定绑定“项目对话测试”目录，保证本轮项目对话闭环使用同一测试项目。
+            const projectId = "00000000-0000-4000-8000-000000000102";
             const project = await this.api().registerProject({
                 projectId,
-                displayName: "对话测试",
-                latestPath: "对话测试",
+                displayName: "项目对话测试",
+                latestPath: "项目对话测试",
             });
             await this.loadProjects();
             this.startProjectConversationDraft(project);
@@ -1087,6 +1103,32 @@ export const useAppStore = defineStore("app", {
         },
 
         /**
+         * requestDeleteConversation：按会话类型弹出确认后删除会话。
+         *
+         * @param session 会话记录。
+         * @returns 确认删除、取消或失败处理完成后没有返回值。
+         */
+        async requestDeleteConversation(session: ConversationSession): Promise<void> {
+            const label = session.sessionType === "project"
+                ? "项目对话删除"
+                : "普通对话删除";
+            try {
+                await ElMessageBox.confirm(
+                    `确认删除“${session.title}”？`,
+                    label,
+                    {
+                        confirmButtonText: "确认删除",
+                        cancelButtonText: "取消",
+                        type: "warning",
+                    },
+                );
+                await this.deleteConversation(session.sessionId);
+            } catch {
+                // 用户取消删除时不写错误，避免取消路径被误判为删除失败。
+            }
+        },
+
+        /**
          * deleteProjectPlaceholder：项目删除 UI 占位。
          *
          * @param projectId 项目 UUID。
@@ -1115,7 +1157,7 @@ export const useAppStore = defineStore("app", {
                 await this.loadProjectCapabilitySources();
             }
             this.applyDefaultComposerModelSettings();
-            void this.updateComposerContextUsage();
+            this.scheduleComposerContextUsageUpdate();
         },
 
         ...createConversationActions(),
@@ -1238,7 +1280,7 @@ export const useAppStore = defineStore("app", {
             if (!this.canUseProjectReferences) {
                 this.showProjectReferencePopover = false;
                 this.projectReferenceQuery = "";
-                void this.updateComposerContextUsage();
+                this.scheduleComposerContextUsageUpdate();
                 return;
             }
 
@@ -1251,7 +1293,7 @@ export const useAppStore = defineStore("app", {
             this.projectReferenceQuery = this.showProjectReferencePopover
                 ? afterAt
                 : "";
-            void this.updateComposerContextUsage();
+            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1265,7 +1307,7 @@ export const useAppStore = defineStore("app", {
             this.draft.text = this.removeActiveAtQuery(this.draft.text);
             this.showProjectReferencePopover = false;
             this.projectReferenceQuery = "";
-            void this.updateComposerContextUsage();
+            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1276,7 +1318,7 @@ export const useAppStore = defineStore("app", {
          */
         removeReference(index: number): void {
             this.draft.references.splice(index, 1);
-            void this.updateComposerContextUsage();
+            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1287,7 +1329,7 @@ export const useAppStore = defineStore("app", {
          */
         removeAttachment(index: number): void {
             this.draft.attachments.splice(index, 1);
-            void this.updateComposerContextUsage();
+            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1302,6 +1344,7 @@ export const useAppStore = defineStore("app", {
             }
 
             this.draft.references.push(convertIdePayloadToReference(payload));
+            this.scheduleComposerContextUsageUpdate();
         },
 
         /**

@@ -2,6 +2,7 @@
 import {
   ArrowDown,
   ArrowRight,
+  ArrowUp,
   ChatDotRound,
   Delete,
   Folder,
@@ -10,11 +11,9 @@ import {
   Plus,
 } from "@element-plus/icons-vue";
 import {
-  ElMessageBox,
-} from "element-plus";
-import {
   computed,
   onBeforeUnmount,
+  onMounted,
   ref,
   watch,
 } from "vue";
@@ -26,18 +25,21 @@ import {
 } from "@stores/app";
 import TaskDetailDialog from "@views/Chat/dialogs/TaskDetailDialog.vue";
 import AgentStatusDialog from "@views/Chat/dialogs/AgentStatusDialog.vue";
+import AgentConversationDialog from "@views/Chat/dialogs/AgentConversationDialog.vue";
 import EditDetailDialog from "@views/Chat/dialogs/EditDetailDialog.vue";
 import ProjectCapabilityDialog from "@views/Chat/dialogs/ProjectCapabilityDialog.vue";
 import {
   createMessageTimelineNodes,
+  flattenAgentTreeRows,
+  formatConnectionState,
   formatContextUsageTooltip,
   formatContextWindowLimit,
   formatDisplayTime,
   formatDurationMs,
-  formatTaskStatus,
   formatTurnTimeFooter,
   projectTooltipContent,
   resolveTaskStatusMeta,
+  type AgentStatusTreeRow,
   type NavigationStatusMeta,
   type ThinkingProcessRow,
   type ProcessMessageGroupRow,
@@ -55,23 +57,15 @@ import type {
 import {
   useChatConversation,
 } from "./useChatConversation";
+import {
+  useComposerPanelResize,
+} from "./useComposerPanelResize";
+import {
+  useMessageListAutoScroll,
+} from "./useMessageListAutoScroll";
+import StatusSummaryPanel from "./StatusSummaryPanel.vue";
 import "./style.css";
 type ComposerEntryKind = "task" | "agentStatus" | "edit";
-/**
- * AgentStatusTreeRow：智能体状态树扁平展示行。
- *
- * 来源：store 中的智能体状态树。
- * 含义：把两级树节点转换成可渲染列表，同时保留层级缩进。
- * 格式：节点和层级数字。
- * 默认值：无。
- * 约束：只转换单一临时约定，不兼容候选字段。
- */
-interface AgentStatusTreeRow {
-  /** node: 智能体树节点。 */
-  node: AgentStatusTreeNode;
-  /** level: 当前节点层级，根节点为 0。 */
-  level: number;
-}
 // appStore：主界面读取运行时、会话、消息、任务和桌面能力状态。
 const appStore = useAppStore();
 // chatConversation：普通对话、项目对话和智能体对话弹框共用的完整对话组合能力。
@@ -80,8 +74,16 @@ const chatConversation = useChatConversation(appStore);
 const activeComposerEntry = ref<ComposerEntryKind>("task");
 // composerMiniDialogVisible：输入框三段入口小弹框显隐。
 const composerMiniDialogVisible = ref(false);
+// composerEntriesVisible：输入区外部三入口条是否展开，默认展开以保持任务、智能体和编辑状态可见。
+const composerEntriesVisible = ref(true);
+// composerRootRef：输入区根节点，用于判断点击是否落在输入区内部。
+const composerRootRef = ref<HTMLElement | null>(null);
+// composerMiniDialogRef：输入区小弹框节点，用于判断点击是否落在浮层内部。
+const composerMiniDialogRef = ref<HTMLElement | null>(null);
 // selectedAgentStatusNode：当前被点开的智能体状态节点。
 const selectedAgentStatusNode = ref<AgentStatusTreeNode | null>(null);
+// agentConversationDialogVisible：智能体完整对话弹窗显隐。
+const agentConversationDialogVisible = ref(false);
 // agentConversationDraft：智能体对话详情输入草稿，发送时仍写入当前会话。
 const agentConversationDraft = ref("");
 // selectedComposerEditFilePath：输入框“编辑”入口当前选中文件路径，空字符串表示等待默认选中第一项。
@@ -90,6 +92,20 @@ const selectedComposerEditFilePath = ref("");
 const projectCapabilityDialogVisible = ref(false);
 // composerFocused：输入框整体聚焦状态，只影响浏览器当前视觉，不写入中心服务事实源。
 const composerFocused = ref(false);
+const {
+  messageListRef,
+  updateMessageListPinnedState,
+  requestAutoScrollToBottom,
+  pauseAutoScrollForHistoryView,
+  disposeMessageListAutoScroll,
+} = useMessageListAutoScroll();
+const {
+  isComposerResizing,
+  composerPanelStyle,
+  composerResizeHandleLabel,
+  startComposerResize,
+  stopComposerResize,
+} = useComposerPanelResize();
 // messages：当前会话消息列表。
 const messages = chatConversation.messages;
 // messageTimelineNodes：对话时间线只从用户消息生成，不伪造发送内容。
@@ -137,24 +153,21 @@ const selectedAgentConversationMessages = computed(() => {
 });
 // taskProgressText：任务入口外部数字，语义为已完成任务数/总任务数；没有真实任务时按明确空态展示 0/0。
 const taskProgressText = computed(() => {
-  const total = chatConversation.activeTasks.value.length;
+  const total = chatConversation.currentTurnTasks.value.length;
   if (total === 0) {
     return "0/0";
   }
 
-  const completed = chatConversation.activeTasks.value.filter((task) => {
+  const completed = chatConversation.currentTurnTasks.value.filter((task) => {
     return task.status === "completed";
   }).length;
   return `${completed}/${total}`;
 });
 // agentStatusProgressText：智能体状态入口外部数字，语义为运行中数量/总数；没有真实树节点时按明确空态展示 0/0。
 const agentStatusProgressText = computed(() => {
-  // longTermNodes: 入口计数只统计当前窗口一级长期节点，主智能体和子智能体都不计入分母。
+  // longTermNodes: 入口计数只统计当前窗口一级长期节点，主智能体计入分母，子智能体不计入分母。
   const longTermNodes = appStore.agentStatusTree.filter((node) => {
-    if (node.nodeKind === "主智能体") {
-      return false;
-    }
-    return node.nodeKind === "长期智能体";
+    return node.nodeKind === "主智能体" || node.nodeKind === "长期智能体";
   });
   const total = longTermNodes.length;
   if (total === 0) {
@@ -165,6 +178,33 @@ const agentStatusProgressText = computed(() => {
     return node.status === "工作中" || node.status === "执行中";
   }).length;
   return `${running}/${total}`;
+});
+// editProgressText：编辑入口外部摘要，来源于本轮真实编辑 diff 行，协议未返回时保持空态。
+const editProgressText = computed(() => {
+  const totals = appStore.composerEditFiles.reduce(
+    (
+      summary,
+      file,
+    ) => {
+      for (const line of file.diffLines) {
+        if (line.kind === "added") {
+          summary.added += 1;
+        }
+        if (line.kind === "removed") {
+          summary.removed += 1;
+        }
+      }
+      return summary;
+    },
+    {
+      added: 0,
+      removed: 0,
+    },
+  );
+  if (totals.added === 0 && totals.removed === 0) {
+    return "";
+  }
+  return ` +${totals.added} -${totals.removed}`;
 });
 // activeTaskPanelRows：输入框“任务”入口展示当前任务，没有任务时给出当前会话内空闲说明。
 const activeTaskPanelRows = computed(() => {
@@ -237,6 +277,18 @@ const contextUsageTooltip = computed(() => {
       : "中心服务 token 统计待返回",
   });
 });
+// executionModeLabel：智能体完整对话弹窗复用当前输入区执行模式标签。
+const executionModeLabel = computed(() => {
+  return executionModeOptions.find((option) => {
+    return option.value === appStore.composerSettings.executionMode;
+  })?.label ?? appStore.composerSettings.executionMode;
+});
+// reasoningEffortLabel：智能体完整对话弹窗复用当前输入区推理深度标签。
+const reasoningEffortLabel = computed(() => {
+  return reasoningEffortOptions.find((option) => {
+    return option.value === appStore.composerSettings.reasoningEffort;
+  })?.label ?? appStore.composerSettings.reasoningEffort;
+});
 // projectCapabilityDialogRows：项目能力详情弹框直接使用 store 中的结构化能力项，避免硬编码伪造启用状态。
 const projectCapabilityDialogRows = computed(() => {
   const summary = appStore.projectCapabilitySummary;
@@ -251,37 +303,17 @@ const projectCapabilityDialogRows = computed(() => {
   ];
 });
 /**
- * flattenAgentTreeRows：把子智能体树转换为渲染行。
- *
- * @param nodes 当前层级节点数组。
- * @param level 当前层级，根节点为 0。
- * @returns 带层级信息的渲染行。
- */
-function flattenAgentTreeRows(
-    nodes: AgentStatusTreeNode[],
-    level: number,
-): AgentStatusTreeRow[] {
-  return nodes.flatMap((node) => {
-    return [
-      {
-        node,
-        level,
-      },
-      ...flattenAgentTreeRows(
-        node.children,
-        level + 1,
-      ),
-    ];
-  });
-}
-
-/**
- * openComposerMiniDialog：打开输入区三段入口小弹框。
+ * openComposerMiniDialog：切换输入区三段入口小弹框。
  *
  * @param entry 入口类型。
  * @returns 没有返回值。
  */
 function openComposerMiniDialog(entry: ComposerEntryKind): void {
+  if (composerMiniDialogVisible.value && activeComposerEntry.value === entry) {
+    composerMiniDialogVisible.value = false;
+    return;
+  }
+
   activeComposerEntry.value = entry;
   composerMiniDialogVisible.value = true;
   if (entry === "agentStatus" && !selectedAgentStatusNode.value) {
@@ -289,6 +321,38 @@ function openComposerMiniDialog(entry: ComposerEntryKind): void {
       firstNode,
     ] = agentStatusTreeRows.value;
     selectedAgentStatusNode.value = firstNode?.node ?? null;
+  }
+}
+
+/**
+ * toggleComposerEntries：收起或展开输入区外部三入口按钮。
+ *
+ * @returns 没有返回值。
+ */
+function toggleComposerEntries(): void {
+  composerEntriesVisible.value = !composerEntriesVisible.value;
+  if (!composerEntriesVisible.value) {
+    composerMiniDialogVisible.value = false;
+  }
+}
+
+/**
+ * handleComposerOutsidePointerDown：点击输入区弹层外部时关闭小弹框。
+ *
+ * @param event 浏览器指针事件。
+ * @returns 没有返回值。
+ */
+function handleComposerOutsidePointerDown(event: PointerEvent): void {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+
+  const clickedInsideComposer = composerRootRef.value?.contains(target) ?? false;
+  const clickedInsideDialog = composerMiniDialogRef.value?.contains(target) ?? false;
+  // 小弹层只在点击入口再次切换，或点击输入区外部时关闭；输入区内部编辑不打断用户输入。
+  if (!clickedInsideComposer && !clickedInsideDialog) {
+    composerMiniDialogVisible.value = false;
   }
 }
 
@@ -301,6 +365,19 @@ function openComposerMiniDialog(entry: ComposerEntryKind): void {
 function selectAgentStatusNode(node: AgentStatusTreeNode): void {
   selectedAgentStatusNode.value = node;
 }
+
+/**
+ * openAgentConversationDialog：打开智能体完整对话弹窗。
+ *
+ * @param node 被点击的智能体节点。
+ * @returns 没有返回值。
+ */
+function openAgentConversationDialog(node: AgentStatusTreeNode): void {
+  selectedAgentStatusNode.value = node;
+  agentConversationDialogVisible.value = true;
+  composerMiniDialogVisible.value = false;
+}
+
 /**
  * sendAgentConversationDraft：向当前智能体发送消息。
  *
@@ -340,6 +417,17 @@ async function sendAgentGuidanceDraft(): Promise<void> {
   agentConversationDraft.value = "";
   await chatConversation.sendGuidanceForConversation(selectedAgentStatusNode.value);
 }
+
+/**
+ * updateAgentConversationDraft：更新智能体完整对话弹窗草稿。
+ *
+ * @param value 输入框新值。
+ * @returns 没有返回值。
+ */
+function updateAgentConversationDraft(value: string): void {
+  agentConversationDraft.value = value;
+}
+
 /**
  * selectComposerEditFile：切换输入框“编辑”入口当前 diff 文件。
  *
@@ -361,6 +449,7 @@ function scrollToMessageAnchor(messageId: string): void {
   if (!anchor) {
     return;
   }
+  pauseAutoScrollForHistoryView();
   // scrollIntoView: 滚动仍发生在消息列表主滚动容器内，避免制造页面级滚动。
   anchor.scrollIntoView({
     behavior: "smooth",
@@ -384,22 +473,6 @@ function setComposerFocused(focused: boolean): void {
   composerFocused.value = focused;
 }
 
-/**
- * formatConnectionState：把连接状态协议值转成中文。
- *
- * @param state 当前连接状态。
- * @returns 中文状态。
- */
-function formatConnectionState(state: string): string {
-  const labels: Record<string, string> = {
-    connecting: "连接中",
-    open: "已连接",
-    retrying: "重连中",
-    stopped: "已停止",
-  };
-
-  return labels[state] ?? "未知状态";
-}
 /**
  * sessionTooltipContent：生成对话行 tooltip。
  *
@@ -578,34 +651,6 @@ function submitGuidanceForQueuedMessage(message: ConversationMessage): void {
   void appStore.sendDraft();
 }
 
-/**
- * requestDeleteActiveConversation：打开当前会话删除确认。
- *
- * @returns 用户确认后删除会话；取消路径不执行删除。
- */
-async function requestDeleteActiveConversation(): Promise<void> {
-  const sessionId = appStore.activeSessionId;
-  if (!sessionId) {
-    appStore.lastError = "当前没有可删除的真实会话。";
-    return;
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      "确认删除对话？取消不会执行删除，确认后将从中心服务删除当前会话。",
-      "确认删除对话",
-      {
-        confirmButtonText: "确认删除",
-        cancelButtonText: "取消",
-        type: "warning",
-      },
-    );
-    await appStore.deleteConversation(sessionId);
-  } catch {
-    // 用户取消删除时不写错误，确保复测取消路径不会造成误报。
-  }
-}
-
 watch(
   () => appStore.composerEditFiles,
   (files) => {
@@ -631,8 +676,45 @@ watch(
   },
 );
 
+watch(
+  () => [
+    appStore.activeSessionId,
+    appStore.sessionDetail?.session.sessionId,
+  ],
+  () => {
+    requestAutoScrollToBottom(true);
+  },
+  {
+    flush: "post",
+  },
+);
+
+watch(
+  () => [
+    messages.value.length,
+    messages.value.map((message) => message.contentMarkdown.length).join(":"),
+    processMessageRows.value.length,
+    thinkingProcessRows.value.length,
+    appStore.events.length,
+  ],
+  () => {
+    requestAutoScrollToBottom(false);
+  },
+  {
+    flush: "post",
+  },
+);
+
+onMounted(() => {
+  requestAutoScrollToBottom(true);
+  document.addEventListener("pointerdown", handleComposerOutsidePointerDown);
+});
+
 onBeforeUnmount(() => {
   window.clearInterval(elapsedTimer);
+  stopComposerResize();
+  disposeMessageListAutoScroll();
+  document.removeEventListener("pointerdown", handleComposerOutsidePointerDown);
 });
 </script>
 
@@ -774,16 +856,6 @@ onBeforeUnmount(() => {
                         <button
                             class="conversation-icon-button"
                             type="button"
-                            title="删除项目"
-                            @click="stopNavigationAction($event); appStore.deleteProjectPlaceholder(group.project.projectId)"
-                        >
-                          <el-icon>
-                            <Delete/>
-                          </el-icon>
-                        </button>
-                        <button
-                            class="conversation-icon-button"
-                            type="button"
                             title="新增项目对话"
                             @click="stopNavigationAction($event); handleProjectRowCreate(group.project)"
                         >
@@ -851,7 +923,7 @@ onBeforeUnmount(() => {
                               class="conversation-icon-button"
                               type="button"
                               title="删除对话"
-                              @click="stopNavigationAction($event); appStore.deleteConversation(session.sessionId)"
+                              @click="stopNavigationAction($event); appStore.requestDeleteConversation(session)"
                           >
                             <el-icon>
                               <Delete/>
@@ -916,7 +988,7 @@ onBeforeUnmount(() => {
                           class="conversation-icon-button"
                           type="button"
                           title="删除对话"
-                          @click="stopNavigationAction($event); appStore.deleteConversation(session.sessionId)"
+                          @click="stopNavigationAction($event); appStore.requestDeleteConversation(session)"
                       >
                         <el-icon>
                           <Delete/>
@@ -1039,38 +1111,6 @@ onBeforeUnmount(() => {
               :rows="projectCapabilityDialogRows"
           />
 
-          <TaskDetailDialog
-              v-if="activeComposerEntry === 'task'"
-              v-model="composerMiniDialogVisible"
-              :tasks="activeTaskPanelRows"
-          />
-
-          <AgentStatusDialog
-              v-if="activeComposerEntry === 'agentStatus'"
-              v-model="composerMiniDialogVisible"
-              :rows="agentStatusTreeRows"
-              :selected-node="selectedAgentStatusNode"
-              :messages="selectedAgentConversationMessages"
-              :tasks="activeTaskPanelRows"
-              :draft="agentConversationDraft"
-              :current-turn-notice="chatConversation.currentTurnNotice.value"
-              :render-markdown="appStore.renderMarkdown"
-              @select-node="selectAgentStatusNode"
-              @update:draft="agentConversationDraft = $event"
-              @send="sendAgentConversationDraft"
-              @guide="sendAgentGuidanceDraft"
-          />
-
-          <EditDetailDialog
-              v-if="activeComposerEntry === 'edit'"
-              v-model="composerMiniDialogVisible"
-              :files="appStore.composerEditFiles"
-              :active-file="activeComposerEditFile"
-              :can-delete-conversation="Boolean(appStore.activeSessionId)"
-              @select-file="selectComposerEditFile"
-              @request-delete-conversation="requestDeleteActiveConversation"
-          />
-
           <section class="conversation-body">
             <aside
                 v-if="messageTimelineNodes.length > 0"
@@ -1092,7 +1132,12 @@ onBeforeUnmount(() => {
                 </button>
               </el-tooltip>
             </aside>
-            <section class="message-list">
+            <section
+                ref="messageListRef"
+                class="message-list"
+                data-auto-scroll="pinned-to-bottom"
+                @scroll="updateMessageListPinnedState"
+            >
             <article
                 v-for="row in thinkingProcessRows"
                 :key="row.rowId"
@@ -1187,36 +1232,94 @@ onBeforeUnmount(() => {
             >
               当前轮次已耗时 {{ activeTurnElapsedText }}
             </div>
-            <section
-                class="composer-shell"
-                :class="{ 'is-focused': composerFocused }"
-            >
-              <section class="composer-entry-tabs">
+              <section
+                  ref="composerRootRef"
+                  class="composer-frame"
+              >
                 <button
-                    class="composer-entry-tab"
-                    :class="{ active: activeComposerEntry === 'task' && composerMiniDialogVisible }"
+                    class="composer-entry-toggle"
                     type="button"
-                    @click="openComposerMiniDialog('task')"
+                    :title="composerEntriesVisible ? '收起任务、智能体和编辑入口' : '展开任务、智能体和编辑入口'"
+                    :aria-label="composerEntriesVisible ? '收起任务、智能体和编辑入口' : '展开任务、智能体和编辑入口'"
+                    @click="toggleComposerEntries"
                 >
-                  任务 {{ taskProgressText }}
+                  <el-icon>
+                    <ArrowUp v-if="composerEntriesVisible"/>
+                    <ArrowDown v-else/>
+                  </el-icon>
                 </button>
+                <section
+                    v-if="composerEntriesVisible"
+                    class="composer-entry-strip"
+                >
+                  <button
+                      class="composer-entry-tab"
+                      :class="{ active: activeComposerEntry === 'task' && composerMiniDialogVisible }"
+                      type="button"
+                      @click="openComposerMiniDialog('task')"
+                  >
+                    任务 {{ taskProgressText }}
+                  </button>
+                  <button
+                      class="composer-entry-tab"
+                      :class="{ active: activeComposerEntry === 'agentStatus' && composerMiniDialogVisible }"
+                      type="button"
+                      @click="openComposerMiniDialog('agentStatus')"
+                  >
+                    智能体 {{ agentStatusProgressText }}
+                  </button>
+                  <button
+                      class="composer-entry-tab"
+                      :class="{ active: activeComposerEntry === 'edit' && composerMiniDialogVisible }"
+                      type="button"
+                      @click="openComposerMiniDialog('edit')"
+                  >
+                    编辑<span class="composer-edit-summary">{{ editProgressText }}</span>
+                  </button>
+                </section>
+
+                <section
+                    v-if="composerMiniDialogVisible"
+                    ref="composerMiniDialogRef"
+                    class="composer-mini-popover"
+                >
+                  <TaskDetailDialog
+                      v-if="activeComposerEntry === 'task'"
+                      v-model="composerMiniDialogVisible"
+                      :tasks="activeTaskPanelRows"
+                  />
+
+                  <AgentStatusDialog
+                      v-if="activeComposerEntry === 'agentStatus'"
+                      v-model="composerMiniDialogVisible"
+                      :rows="agentStatusTreeRows"
+                      :selected-node="selectedAgentStatusNode"
+                      @select-node="openAgentConversationDialog"
+                  />
+
+                  <EditDetailDialog
+                      v-if="activeComposerEntry === 'edit'"
+                      v-model="composerMiniDialogVisible"
+                      :files="appStore.composerEditFiles"
+                      :active-file="activeComposerEditFile"
+                      @select-file="selectComposerEditFile"
+                  />
+                </section>
+
+                <section
+                    class="composer-shell"
+                    :class="{ 'is-focused': composerFocused }"
+                    :style="composerPanelStyle"
+                >
                 <button
-                    class="composer-entry-tab"
-                    :class="{ active: activeComposerEntry === 'agentStatus' && composerMiniDialogVisible }"
+                    class="composer-resize-handle"
                     type="button"
-                    @click="openComposerMiniDialog('agentStatus')"
+                    :aria-label="composerResizeHandleLabel"
+                    :title="composerResizeHandleLabel"
+                    @pointerdown="startComposerResize"
                 >
-                  智能体状态 {{ agentStatusProgressText }}
+                  <span></span>
                 </button>
-                <button
-                    class="composer-entry-tab"
-                    :class="{ active: activeComposerEntry === 'edit' && composerMiniDialogVisible }"
-                    type="button"
-                    @click="openComposerMiniDialog('edit')"
-                >
-                  编辑
-                </button>
-              </section>
 
               <div
                   v-if="appStore.draft.attachments.length > 0 || appStore.draft.references.length > 0"
@@ -1263,7 +1366,8 @@ onBeforeUnmount(() => {
                     v-model="appStore.draft.text"
                     class="composer-textarea"
                     type="textarea"
-                    :autosize="{ minRows: 4, maxRows: 8 }"
+                    :autosize="false"
+                    :rows="5"
                     placeholder="输入消息，Enter 发送，@ 引用项目上下文"
                     @paste="appStore.handleComposerPaste"
                     @input="appStore.updateProjectReferenceQuery"
@@ -1357,61 +1461,36 @@ onBeforeUnmount(() => {
                 <span>连接：{{ formatConnectionState(appStore.connectionState) }}</span>
                 <span>任务：{{ activeTaskPanelRows[0].status }}</span>
                 <span>{{ chatConversation.currentTurnNotice.value }}</span>
-                <span>智能体状态：{{ agentStatusTreeRows.length > 0 ? `${agentStatusTreeRows.length} 个` : "暂无智能体状态" }}</span>
+                <span>智能体：{{ agentStatusTreeRows.length > 0 ? `${agentStatusTreeRows.length} 个` : "暂无智能体" }}</span>
               </section>
+            </section>
             </section>
           </footer>
         </article>
 
-        <aside
-            v-if="appStore.entryMode !== 'plugin-compact'"
-            class="config-panel"
-        >
-          <h2>任务状态</h2>
-          <p class="panel-muted status-scope-note">
-            多个对话框可并发执行；排队中仅表示当前对话内等待上一项处理。引导/审批/需要用户确认属于当前对话当前轮次。
-          </p>
-          <p class="panel-muted status-scope-note">
-            当前对话内排队中：连续发送或提交引导时，本区域只展示当前会话内任务等待关系，不会阻塞其他对话框。
-          </p>
-          <el-empty
-              v-if="chatConversation.activeTasks.value.length === 0"
-              description="暂无任务"
-          />
-          <el-scrollbar
-              v-else
-              class="status-list"
-          >
-            <article
-                v-for="task in chatConversation.activeTasks.value"
-                :key="task.taskId"
-                class="status-item"
-            >
-              <strong>{{ task.title }}</strong>
-              <span :title="resolveTaskStatusMeta(task.status).title">{{ formatTaskStatus(task.status) }}</span>
-            </article>
-          </el-scrollbar>
+        <AgentConversationDialog
+            v-model="agentConversationDialogVisible"
+            :node="selectedAgentStatusNode"
+            :messages="selectedAgentConversationMessages"
+            :draft="agentConversationDraft"
+            :task-text="`任务 ${taskProgressText}`"
+            :agent-text="`智能体 ${agentStatusProgressText}`"
+            :edit-text="`编辑${editProgressText}`"
+            :context-usage-text="composerContextUsageText"
+            :context-usage-tooltip="contextUsageTooltip"
+            :selected-model="appStore.composerSettings.selectedModel"
+            :execution-mode-label="executionModeLabel"
+            :reasoning-effort-label="reasoningEffortLabel"
+            :render-markdown="appStore.renderMarkdown"
+            @update:draft="updateAgentConversationDraft"
+            @send="sendAgentConversationDraft"
+        />
 
-          <h2>智能体状态</h2>
-          <el-empty
-              v-if="agentStatusTreeRows.length === 0"
-              description="暂无智能体状态"
-          />
-          <el-scrollbar
-              v-else
-              class="status-list"
-          >
-            <article
-                v-for="row in agentStatusTreeRows"
-                :key="row.node.agentId"
-                class="status-item status-item-column"
-            >
-              <strong>{{ row.node.name }}</strong>
-              <span>{{ row.node.nodeKind }} · {{ row.node.status }}</span>
-              <small>{{ row.node.taskSummary }}</small>
-            </article>
-          </el-scrollbar>
-        </aside>
+        <StatusSummaryPanel
+            v-if="appStore.entryMode !== 'plugin-compact'"
+            :tasks="activeTaskPanelRows"
+            :agent-rows="agentStatusTreeRows"
+        />
       </section>
   </section>
 </template>

@@ -40,6 +40,12 @@ const desktopPreloadPath = join(
   "src",
   "preload.cjs",
 );
+// desktopDevRuntimePath: 桌面壳开发编排脚本，必须能复用已存在的 Vite 服务。
+const desktopDevRuntimePath = join(
+  process.cwd(),
+  "scripts",
+  "dev-desktop-shell.mjs",
+);
 // rootPackage: 根 package.json 用结构化解析，避免脚本顺序检查受缩进影响。
 const rootPackage = JSON.parse(readFileSync(
   rootPackagePath,
@@ -86,6 +92,11 @@ const desktopPreloadSource = readFileSync(
   desktopPreloadPath,
   "utf-8",
 );
+// desktopDevRuntimeSource: 桌面壳开发编排脚本文本。
+const desktopDevRuntimeSource = readFileSync(
+  desktopDevRuntimePath,
+  "utf-8",
+);
 // centerConfigSource: 中心服务配置读取源码文本。
 const centerConfigSource = readFileSync(
   centerConfigPath,
@@ -109,6 +120,21 @@ if (desktopDevScript.includes("build:frontend")) {
 
 if (!desktopDevScript.includes("dev-desktop-shell")) {
   console.error("dev:desktop-shell 应使用桌面端开发编排脚本统一启动前端 dev server 和 Electron 壳。");
+  process.exitCode = 1;
+}
+
+if (!desktopDevRuntimeSource.includes("isFrontendAlreadyAvailable")) {
+  console.error("桌面端开发编排脚本必须先探测 5173 是否已有可访问前端，避免 strictPort 直接退出导致 8866 不启动。");
+  process.exitCode = 1;
+}
+
+if (!desktopDevRuntimeSource.includes("复用已存在的前端开发服务器")) {
+  console.error("桌面端开发编排脚本复用已有 5173 时必须输出明确提示，方便在 IDEA 运行窗口排查。");
+  process.exitCode = 1;
+}
+
+if (!desktopDevRuntimeSource.includes("await isFrontendAlreadyAvailable()")) {
+  console.error("桌面端开发编排脚本必须在启动 Vite 前执行前端可用性探测。");
   process.exitCode = 1;
 }
 

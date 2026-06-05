@@ -548,6 +548,24 @@ export interface ComposerSettings {
     reasoningEffort: "low" | "medium" | "high" | "xhigh";
 }
 
+/**
+ * ComposerContextUsageState：输入区上下文统计调度状态。
+ *
+ * 来源：前端本地输入区。
+ * 含义：用于节流 tokenizer 请求、去重相同请求，并防止旧响应覆盖新状态。
+ * 格式：定时器 ID、最近请求键和递增序号。
+ * 默认值：timer 为 null，key 为空，serial 为 0。
+ * 约束：只影响 UI 刷新频率，不替代中心服务 tokenizer 事实。
+ */
+export interface ComposerContextUsageState {
+    /** composerContextUsageTimer: 浏览器 setTimeout 返回的定时器 ID；没有待执行统计时为 null。 */
+    composerContextUsageTimer: number | null;
+    /** lastComposerContextUsageKey: 最近一次已经发送到中心服务的统计请求签名。 */
+    lastComposerContextUsageKey: string;
+    /** composerContextUsageRequestSerial: 统计请求递增序号，用于忽略较早返回的旧响应。 */
+    composerContextUsageRequestSerial: number;
+}
+
 import type {
     AgentConfigView,
     ProviderCapabilityDeclaration,

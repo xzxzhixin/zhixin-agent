@@ -92,6 +92,8 @@ export interface ChatConversationContext {
     events: ComputedRef<EventRecord[]>;
     /** activeTasks: 当前会话任务列表。 */
     activeTasks: ComputedRef<TaskRecord[]>;
+    /** currentTurnTasks: 当前轮次任务编排列表，不包含历史轮次任务。 */
+    currentTurnTasks: ComputedRef<TaskRecord[]>;
     /** taskPanelRows: 任务详情统一展示行。 */
     taskPanelRows: ComputedRef<TaskPanelRow[]>;
     /** thinkingProcessRows: 按轮次合并后的思考过程。 */
@@ -155,12 +157,18 @@ export function useChatConversation(appStore: {
     const activeTasks = computed(() => {
         return appStore.sessionDetail?.tasks ?? [];
     });
+    const currentTurnTasks = computed(() => {
+        return resolveCurrentTurnTaskScope(
+            turns.value,
+            activeTasks.value,
+        );
+    });
     const currentTurnNotice = computed(() => {
         return resolveCurrentTurnNotice(turns.value);
     });
     const taskPanelRows = computed<TaskPanelRow[]>(() => {
         return createTaskPanelRows(
-            activeTasks.value,
+            currentTurnTasks.value,
             appStore.sessionDetail?.taskSteps ?? [],
             events.value,
             currentTurnNotice.value,
@@ -182,6 +190,7 @@ export function useChatConversation(appStore: {
         turns,
         events,
         activeTasks,
+        currentTurnTasks,
         taskPanelRows,
         thinkingProcessRows,
         processMessageRows,
@@ -202,6 +211,35 @@ export function useChatConversation(appStore: {
         },
         composerEditFiles,
     };
+}
+
+/**
+ * resolveCurrentTurnTaskScope：解析输入区应展示的当前轮次任务。
+ *
+ * @param turns 当前会话轮次列表。
+ * @param tasks 当前会话任务列表。
+ * @returns 当前运行轮次任务；没有运行轮次时返回最新一轮任务。
+ */
+function resolveCurrentTurnTaskScope(
+    turns: ConversationTurn[],
+    tasks: TaskRecord[],
+): TaskRecord[] {
+    const latestActiveTurn = [...turns].reverse().find((turn) => {
+        return turn.endedAt === null
+            && (turn.status === "queued"
+                || turn.status === "running"
+                || turn.status === "waiting_user");
+    });
+    // latestTurn: 没有运行轮次时只展示最新一轮的编排结果，避免把历史对话次数累计成任务数量。
+    const latestTurn = latestActiveTurn ?? [...turns].reverse()[0] ?? null;
+    const currentTurnId = latestTurn?.turnId ?? null;
+    if (!currentTurnId) {
+        return [];
+    }
+
+    return tasks.filter((task) => {
+        return task.turnId === currentTurnId;
+    });
 }
 
 /**

@@ -12,7 +12,6 @@ import {
 import type {
     EventRecord,
 } from "@zhixin/shared";
-
 /**
  * createConversationActions：创建对话发送、附件和实时同步相关 Pinia actions。
  *
@@ -74,7 +73,7 @@ export function createConversationActions() {
             await this.loadNavigationData();
             await this.loadActiveSessionDetail();
             await this.refreshEvents();
-            void this.updateComposerContextUsage();
+            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -133,39 +132,7 @@ export function createConversationActions() {
                     updatedAt: now,
                 });
             }
-            const optimisticEvents: EventRecord[] = [
-                {
-                    eventId: `optimistic-thinking-${sent.turnId}`,
-                    eventType: "thinking.delta",
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                    sequence: -2,
-                    occurredAt: now,
-                    summary: "已收到用户消息，正在准备上下文和模型输出。",
-                    payload: {
-                        thinkingText: "正在准备上下文、任务状态和流式输出。",
-                    },
-                    traceId: "浏览器首包占位",
-                },
-                {
-                    eventId: `optimistic-stream-${sent.turnId}`,
-                    eventType: "model.stream.delta",
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                    sequence: -1,
-                    occurredAt: now,
-                    summary: "模型输出准备中。",
-                    payload: {
-                        deltaText: "模型输出准备中。",
-                    },
-                    traceId: "浏览器首包占位",
-                },
-            ];
-            for (const event of optimisticEvents) {
-                if (!this.events.some((existing) => existing.eventId === event.eventId)) {
-                    this.events.push(event);
-                }
-            }
+            // 过程事件只能来自中心服务 sequence 事实源；浏览器不再插入负 sequence 占位，避免命令开始、输出和完成顺序被本地假事件打乱。
         },
 
         /**
@@ -207,6 +174,9 @@ export function createConversationActions() {
                 onMessage: (message) => {
                     if (message.type === "event.appended") {
                         this.events.push(message.payload as EventRecord);
+                        this.events.sort((left: EventRecord, right: EventRecord) => {
+                            return left.sequence - right.sequence;
+                        });
                         void this.refreshActiveConversationState();
                     }
                     if (message.type === "agent.state.changed") {

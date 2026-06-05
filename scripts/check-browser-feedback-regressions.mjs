@@ -74,6 +74,8 @@ for (const pathInProject of dialogSources) {
 
 const chatPage = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
 const chatHelpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
+const chatConversation = readProjectFile("apps/frontend/src/views/Chat/useChatConversation.ts");
+const taskDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
@@ -114,7 +116,7 @@ for (const signal of [
   "步骤排查 ID",
 ]) {
   assertIncludes(
-    chatPage,
+    chatPage + chatConversation + taskDialog,
     signal,
     `任务详情缺少 traceId 不可用原因或步骤排查信息：${signal}`,
   );

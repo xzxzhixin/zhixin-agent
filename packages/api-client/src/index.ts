@@ -450,10 +450,16 @@ export interface RuntimeConfigView {
 export interface UsageFilters {
   /** providerId: 供应商 ID。 */
   providerId: string | null;
+  /** providerName: 供应商名称，来源于中心目录供应商配置 providerName。 */
+  providerName: string | null;
   /** model: 模型名称。 */
   model: string | null;
+  /** modelName: 模型名称筛选展示字段，和 model 使用同一 usage_records.model 来源。 */
+  modelName: string | null;
   /** projectId: 项目 ID。 */
   projectId: string | null;
+  /** projectName: 项目文件夹主名称，来源于 projects.display_name。 */
+  projectName: string | null;
   /** sessionId: 会话 ID。 */
   sessionId: string | null;
   /** startedAt: 开始时间 ISO 字符串。 */

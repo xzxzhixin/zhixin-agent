@@ -61,6 +61,18 @@ const sessionDomain = readFileSync(
   ),
   "utf-8",
 );
+// sessionRepository: 会话事实表删除 SQL 位于数据访问层。
+const sessionRepository = readFileSync(
+  join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "data-access",
+    "session-repository.ts",
+  ),
+  "utf-8",
+);
 // apiClient: 前端 API 客户端源码，必须暴露正式删除方法。
 const apiClient = readFileSync(
   join(
@@ -97,6 +109,17 @@ const chatPage = readFileSync(
   ),
   "utf-8",
 );
+// sharedTypes: 共享协议源码，项目删除结果需要成为跨端明确协议。
+const sharedTypes = readFileSync(
+  join(
+    process.cwd(),
+    "packages",
+    "shared",
+    "src",
+    "index.ts",
+  ),
+  "utf-8",
+);
 
 assertIncludes(
   centerRoutes,
@@ -123,7 +146,7 @@ assertIncludes(
   "DELETE FROM sessions WHERE id = ?",
 ].forEach((fragment) => {
   assertIncludes(
-    sessionDomain,
+    sessionDomain + sessionRepository,
     fragment,
     `会话删除缺少相关事实表清理：${fragment}`,
   );
@@ -165,8 +188,8 @@ assertIncludes(
 );
 assertIncludes(
   chatPage,
-  "appStore.deleteConversation(session.sessionId)",
-  "对话页删除按钮没有调用真实删除动作。",
+  "appStore.requestDeleteConversation(session)",
+  "对话页删除按钮没有调用带确认的删除动作。",
 );
 assertNotIncludes(
   chatPage,
@@ -178,5 +201,76 @@ assertNotIncludes(
   "deleteConversationPlaceholder",
   "前端 store 仍保留删除占位函数。",
 );
+assertIncludes(
+  centerRoutes,
+  'app.post("/api/project/delete"',
+  "中心服务缺少 /api/project/delete 路由。",
+);
+assertIncludes(
+  centerRoutes,
+  "PROJECT_DELETE_INVALID",
+  "项目删除接口缺少空 projectId 错误处理。",
+);
+assertIncludes(
+  sessionDomain,
+  "export function deleteProject",
+  "会话领域缺少 deleteProject 函数。",
+);
+[
+  "DELETE FROM task_steps",
+  "DELETE FROM tasks",
+  "DELETE FROM conversation_turns",
+  "DELETE FROM pending_messages",
+  "DELETE FROM attachments",
+  "DELETE FROM messages",
+  "DELETE FROM sessions WHERE project_id = ?",
+  "DELETE FROM projects WHERE id = ?",
+].forEach((fragment) => {
+  assertIncludes(
+    sessionDomain + sessionRepository,
+    fragment,
+    `项目删除缺少相关事实表清理：${fragment}`,
+  );
+});
+assertIncludes(
+  sharedTypes,
+  "export interface DeleteProjectResult",
+  "共享协议缺少 DeleteProjectResult。",
+);
+assertIncludes(
+  apiClient,
+  "deleteProject(payload:",
+  "API 客户端缺少 deleteProject 方法。",
+);
+assertIncludes(
+  apiClient,
+  'return this.post("/api/project/delete", payload);',
+  "API 客户端 deleteProject 没有调用中心服务删除接口。",
+);
+assertIncludes(
+  appStore,
+  "async deleteProject(projectId: string): Promise<void>",
+  "前端 store 缺少真实 deleteProject 动作。",
+);
+assertIncludes(
+  appStore,
+  "await this.api().deleteProject",
+  "前端 store 删除项目没有调用 API 客户端。",
+);
+assertIncludes(
+  appStore,
+  "requestDeleteProject(project",
+  "前端 store 缺少项目删除确认动作。",
+);
+assertIncludes(
+  chatPage,
+  "appStore.requestDeleteProject(group.project)",
+  "对话页项目删除按钮没有调用带确认的项目删除动作。",
+);
+assertNotIncludes(
+  appStore,
+  "deleteProjectPlaceholder",
+  "前端 store 仍保留项目删除占位函数。",
+);
 
-console.log("会话删除回归检查通过。");
+console.log("会话和项目删除回归检查通过。");

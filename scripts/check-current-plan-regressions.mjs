@@ -196,9 +196,24 @@ assertIncludes(
   "通用命令工具必须使用统一运行入口。",
 );
 assertIncludes(
-  "services/center/src/workflow-domain.ts",
-  "planCommandToolForUserText",
-  "Agent 编排必须按用户语义规划通用命令工具。",
+  "services/center/src/tool-runtime.ts",
+  "UNIFIED_TOOL_CAPABILITY_REGISTRY",
+  "必须建立统一工具能力注册表。",
+);
+assertIncludes(
+  "services/center/src/tool-runtime.ts",
+  "planUnifiedToolCallForUserText",
+  "Agent 编排必须按用户语义规划统一工具调用意图。",
+);
+assertIncludes(
+  "services/center/src/session-domain.ts",
+  "formatAssistantTextWithCommandResult",
+  "命令工具真实执行结果必须进入助手最终回复。",
+);
+assertNotIncludes(
+  "services/center/src/session-domain.ts",
+  "export function planCommandToolForUserText",
+  "session-domain 不得保留重复命令工具规划函数。",
 );
 assertIncludes(
   "services/center/src/data-access/schema.ts",
@@ -216,14 +231,44 @@ assertIncludes(
   "智能体状态弹框必须使用可折叠树形结构。",
 );
 assertIncludes(
-  "apps/frontend/src/views/Chat/dialogs/AgentStatusDialog.vue",
-  "composer-entry-tabs",
+  "apps/frontend/src/views/Chat/dialogs/AgentConversationDialog.vue",
+  "agent-dialog-entry-strip",
   "智能体对话区域必须复用完整输入框入口能力。",
 );
 assertIncludes(
   "apps/frontend/src/views/Chat/RouterIndex.vue",
   "submitGuidanceForQueuedMessage",
   "排队消息后方必须存在限定作用域的引导提交入口。",
+);
+assertIncludes(
+  "apps/frontend/src/views/Chat/useMessageListAutoScroll.ts",
+  "isMessageListPinnedToBottom",
+  "消息列表必须维护用户是否在底部状态，支持历史查看时暂停自动贴底。",
+);
+assertIncludes(
+  "apps/frontend/src/views/Chat/RouterIndex.vue",
+  "data-auto-scroll=\"pinned-to-bottom\"",
+  "消息列表必须声明贴底滚动容器，避免页面级滚动。",
+);
+assertIncludes(
+  "apps/frontend/src/views/Usage/RouterIndex.vue",
+  "providerName 来自供应商配置",
+  "用量统计必须展示供应商名称筛选来源。",
+);
+assertIncludes(
+  "services/center/src/data-access/usage-repository.ts",
+  "projects.display_name = ?",
+  "用量统计项目名称筛选必须使用 projects.display_name 单一来源。",
+);
+assertNotIncludes(
+  "apps/frontend/src/views/Usage/RouterIndex.vue",
+  "<h2 class=\"section-title\">\n        聚合统计",
+  "用量统计页不得继续展示聚合统计 JSON 列表标题。",
+);
+assertNotIncludes(
+  "apps/frontend/src/views/Usage/RouterIndex.vue",
+  "<h2 class=\"section-title\">\n        原始记录",
+  "用量统计页不得继续展示原始记录 JSON 列表标题。",
 );
 
 const scriptText = readText("scripts/check-no-type-compiler.mjs");
