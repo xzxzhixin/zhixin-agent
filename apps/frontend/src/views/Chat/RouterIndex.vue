@@ -146,6 +146,7 @@ const conversationRenderRows = computed<ConversationRenderRow[]>(() => {
     messages.value,
     thinkingProcessRows.value,
     processMessageRows.value,
+    appStore.events,
   );
 });
 // selectedAgentConversationMessages：智能体对话列表复用当前会话消息，后续独立 API 明确后可替换来源。
@@ -1176,12 +1177,7 @@ onBeforeUnmount(() => {
                   <strong>{{ row.process.title }}</strong>
                   <small>{{ row.process.statusLabel }}</small>
                 </header>
-                <div
-                    v-if="row.process.contentMarkdown"
-                    class="process-stream-markdown markdown-body"
-                    v-html="appStore.renderMarkdown(row.process.contentMarkdown)"
-                />
-                <p v-else>{{ row.process.summary }}</p>
+                <p>{{ row.process.summary }}</p>
                 <div class="process-log-list">
                   <p
                       v-for="log in row.process.logs"

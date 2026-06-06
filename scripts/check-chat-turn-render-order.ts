@@ -9,9 +9,7 @@
 import {
   createGroupedProcessRows,
   createConversationRenderRows,
-  createStreamOutputRows,
   createThinkingProcessRows,
-  type ThinkingProcessRow,
 } from "../apps/frontend/src/views/Chat/chat-view-helpers";
 import type {
   ConversationMessage,
@@ -259,6 +257,80 @@ const commandEvents: EventRecord[] = [
     traceId: "trace-python-failed",
   },
 ];
+const unavailableEvents: EventRecord[] = [
+  {
+    eventId: "event-plugin-unavailable",
+    eventType: "tool.plugin.unavailable",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 9,
+    status: "completed",
+    occurredAt: now,
+    title: "插件不可用",
+    summary: "当前会话未解析到可执行插件工具。",
+    payload: {
+      toolKind: "plugin",
+      unavailableReason: "当前会话未解析到可执行插件工具。",
+    },
+    errorCode: null,
+    traceId: "trace-plugin-unavailable",
+  },
+  {
+    eventId: "event-mcp-unavailable",
+    eventType: "tool.mcp.unavailable",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 10,
+    status: "completed",
+    occurredAt: now,
+    title: "MCP 不可用",
+    summary: "当前会话未解析到可执行 MCP 工具。",
+    payload: {
+      toolKind: "mcp",
+      unavailableReason: "当前会话未解析到可执行 MCP 工具。",
+    },
+    errorCode: null,
+    traceId: "trace-mcp-unavailable",
+  },
+  {
+    eventId: "event-skill-unavailable",
+    eventType: "tool.skill.unavailable",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 11,
+    status: "completed",
+    occurredAt: now,
+    title: "skill 不可用",
+    summary: "当前会话未解析到可执行 skill。",
+    payload: {
+      toolKind: "skill",
+      unavailableReason: "当前会话未解析到可执行 skill。",
+    },
+    errorCode: null,
+    traceId: "trace-skill-unavailable",
+  },
+];
 const streamEvents: EventRecord[] = [
   {
     eventId: "event-stream-1-delta-1",
@@ -272,7 +344,7 @@ const streamEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 9,
+    sequence: 12,
     status: "running",
     occurredAt: now,
     title: "模型流式片段",
@@ -296,7 +368,7 @@ const streamEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 10,
+    sequence: 13,
     status: "running",
     occurredAt: now,
     title: "模型流式片段",
@@ -320,7 +392,7 @@ const streamEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 11,
+    sequence: 14,
     status: "running",
     occurredAt: now,
     title: "模型流式片段",
@@ -344,7 +416,7 @@ const streamEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 12,
+    sequence: 15,
     status: "completed",
     occurredAt: now,
     title: "模型流式完成",
@@ -358,8 +430,11 @@ const streamEvents: EventRecord[] = [
   },
 ];
 const thinkingRows = createThinkingProcessRows(thinkingEvents);
-const processRows = createGroupedProcessRows(commandEvents);
-const streamRows = createStreamOutputRows(streamEvents);
+const processRows = createGroupedProcessRows([
+  ...commandEvents,
+  ...unavailableEvents,
+  ...streamEvents,
+]);
 
 assert(
   thinkingRows.length === 2,
@@ -370,17 +445,13 @@ assert(
   "思考完成后必须默认折叠，仍在思考时必须默认展开。",
 );
 assert(
-  streamRows.length === 2,
-  `两个 streamId 必须渲染为两个独立模型输出段，当前为 ${streamRows.length} 个。`,
-);
-assert(
-  streamRows[0].contentMarkdown === "Node.js 版本已读取。",
-  "同一模型输出段的 SSE delta 必须拼接成连续 Markdown 文本。",
+  processRows.every((row) => row.kind !== "stream"),
+  "模型 SSE 流必须进入助手最终回复气泡，不能在对话区渲染为模型输出过程卡片。",
 );
 
 assert(
   processRows.length === 2,
-  `两个命令工具调用及其失败事件必须渲染为两个独立卡片，当前为 ${processRows.length} 个。`,
+  `只有真实工具调用才允许渲染过程卡片，当前为 ${processRows.length} 个。`,
 );
 assert(
   processRows.some((row) => row.logs.some((log) => log.text === "v20.18.0")),
@@ -391,17 +462,24 @@ assert(
   "Python 命令输出必须保留在对应命令卡片内。",
 );
 assert(
-  processRows.some((row) => row.title === "命令：python -V" && row.logs.some((log) => log.text === "COMMAND_EXIT_NON_ZERO")),
+  processRows.some((row) => row.title === "python -V" && row.logs.some((log) => log.text === "COMMAND_EXIT_NON_ZERO")),
   "命令失败事件必须保留在对应命令卡片内，不能单独渲染为工具调用过程。",
+);
+assert(
+  processRows.every((row) => ![
+    "插件调用过程",
+    "MCP 调用过程",
+    "skill 调用过程",
+    "工具调用过程",
+    "模型输出",
+  ].includes(row.title)),
+  "对话区过程卡片不能显示系统分类标题，只显示具体动作或内容。",
 );
 
 const rows = createConversationRenderRows(
   messages,
   thinkingRows,
-  [
-    ...processRows,
-    ...streamRows,
-  ],
+  processRows,
 );
 const order = rows.map((row) => {
   if (row.rowKind === "message") {
@@ -411,6 +489,38 @@ const order = rows.map((row) => {
 });
 
 assert(
-  order.join(">") === "user>thinking>process>process>thinking>process>process>assistant",
+  order.join(">") === "user>thinking>process>process>thinking>assistant",
   `同一轮渲染顺序错误：${order.join(">")}`,
+);
+
+const streamingRows = createConversationRenderRows(
+  [
+    messages[0],
+  ],
+  thinkingRows,
+  processRows,
+  streamEvents,
+);
+const streamingOrder = streamingRows.map((row) => {
+  if (row.rowKind === "message") {
+    return row.message.role;
+  }
+  return row.rowKind;
+});
+const streamingAssistantRow = streamingRows.find((row) => {
+  return row.rowKind === "message" && row.message.role === "assistant";
+});
+
+assert(
+  streamingOrder.join(">") === "user>thinking>process>process>thinking>assistant",
+  `运行中模型流必须拼接为临时助手回复并保持轮次顺序，当前为 ${streamingOrder.join(">")}`,
+);
+assert(
+  streamingAssistantRow?.rowKind === "message"
+    && streamingAssistantRow.message.contentMarkdown === "Node.js 版本已读取。Python ",
+  "运行中模型 SSE delta 必须拼接到助手回复气泡，completed 事件不能重复追加正文。",
+);
+assert(
+  streamingAssistantRow?.rowId === "streaming-assistant-turn-order",
+  "临时助手回复必须使用稳定轮次 ID，避免流式更新时整条消息重新挂载。",
 );

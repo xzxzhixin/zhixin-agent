@@ -710,6 +710,16 @@ export async function completeCreatedTurn(
             "插件、MCP 和 skill 未解析到可执行实例，已按统一工具注册表写入不可用事件。",
         );
         const assistantText = finalModelResult.assistantText;
+        if (isIncompleteToolIntentReply(assistantText)) {
+            markTurnIncompleteToolIntent(
+                database,
+                events,
+                sent,
+                turnSessionId,
+                assistantText,
+            );
+            return;
+        }
         new SessionRepository(database).insertAssistantMessageForTurn({
             messageId: assistantMessageId,
             turnId: sent.turnId,
@@ -773,6 +783,84 @@ export async function completeCreatedTurn(
             errorMessage: message,
         });
     }
+}
+
+/**
+ * isIncompleteToolIntentReply：识别模型把“准备继续执行工具”当正文输出的半截回复。
+ *
+ * @param assistantText 模型返回正文。
+ * @returns 命中继续执行但缺少工具调用时返回 true。
+ */
+function isIncompleteToolIntentReply(assistantText: string): boolean {
+    const normalized = assistantText.replace(/\s+/gu, "");
+    if (normalized.length === 0) {
+        return false;
+    }
+
+    const continuationHints = [
+        "我改用",
+        "我将使用",
+        "我会使用",
+        "接下来使用",
+        "重新查询",
+        "继续查询",
+        "执行命令",
+        "运行命令",
+        "调用工具",
+    ];
+    const hasContinuationHint = continuationHints.some((hint) => {
+        return normalized.includes(hint);
+    });
+    const mentionsToolOrCommand = /PowerShell|命令|工具|查询/u.test(assistantText);
+
+    return hasContinuationHint && mentionsToolOrCommand;
+}
+
+/**
+ * markTurnIncompleteToolIntent：标记模型半截工具意图，阻止固化最终助手消息。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param sent 当前轮次身份。
+ * @param sessionId 当前轮次所属会话 ID。
+ * @param assistantText 被拦截的模型正文。
+ * @returns 没有返回值。
+ */
+function markTurnIncompleteToolIntent(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    sent: SendMessageResponse,
+    sessionId: string | null,
+    assistantText: string,
+): void {
+    const reason = "模型输出了继续执行工具的半截话术，但没有携带结构化工具调用。";
+    events.append({
+        eventType: "message.turn.incomplete",
+        scopeType: "turn",
+        scopeId: sent.turnId,
+        sessionId,
+        turnId: sent.turnId,
+        taskId: sent.taskId,
+        status: "failed",
+        title: "模型回复不完整",
+        summary: reason,
+        payload: {
+            taskId: sent.taskId,
+            turnId: sent.turnId,
+            interceptedAssistantText: assistantText,
+            reason: "INCOMPLETE_TOOL_INTENT_REPLY",
+        },
+        errorCode: "INCOMPLETE_TOOL_INTENT_REPLY",
+    });
+    updateTurnStatus(
+        database,
+        events,
+        sent.turnId,
+        "failed",
+    );
+    handleWorkerMessage(database, events, "task.failed", sent.taskId, {
+        errorMessage: reason,
+    });
 }
 
 /**

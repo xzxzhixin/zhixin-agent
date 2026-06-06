@@ -683,10 +683,14 @@ export function appendThinkingEvents(
     turnId: string,
     userText: string,
 ): void {
+    // thinkingId: 同一次公开思考过程的稳定聚合键，前端依赖它把 delta 和 completed 合成一张卡片。
+    const thinkingId = `${turnId}:context-planning`;
+    // thinkingText: 当前公开思考摘要，delta 与 completed 共用同一语义，避免完成事件没有正文时被渲染为空段。
+    const thinkingText = "读取当前会话、任务状态、可用供应商和扩展能力后组织回复。";
     events.append({
         eventType: "thinking.delta",
         scopeType: "thinking",
-        scopeId: taskId,
+        scopeId: thinkingId,
         sessionId,
         turnId,
         taskId,
@@ -694,13 +698,15 @@ export function appendThinkingEvents(
         title: "思考片段",
         summary: `正在分析用户输入：${userText.slice(0, 80)}`,
         payload: {
-            thinkingText: "读取当前会话、任务状态、可用供应商和扩展能力后组织回复。",
+            thinkingId,
+            phase: "上下文整理",
+            thinkingText,
         },
     });
     events.append({
         eventType: "thinking.completed",
         scopeType: "thinking",
-        scopeId: taskId,
+        scopeId: thinkingId,
         sessionId,
         turnId,
         taskId,
@@ -709,6 +715,9 @@ export function appendThinkingEvents(
         summary: "思考过程已完成，进入模型输出和工具过程记录。",
         payload: {
             taskId,
+            thinkingId,
+            phase: "上下文整理",
+            thinkingText,
         },
     });
 }

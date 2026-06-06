@@ -180,13 +180,33 @@ assertIncludes(
 );
 assertIncludes(
   chatHelpers,
-  "createStreamOutputRows",
-  "模型 SSE 输出必须聚合为连续模型输出段。",
+  "createStreamingAssistantRows",
+  "模型 SSE 流必须通过 helper 拼接为运行中助手回复气泡。",
 );
 assertIncludes(
   chatHelpers,
-  "contentMarkdown",
-  "模型 SSE delta 必须拼接到同一个 Markdown 输出区域。",
+  "streaming-assistant",
+  "运行中助手回复必须使用稳定临时行 ID，避免流式更新整条消息重新挂载。",
+);
+assertNotIncludes(
+  chatHelpers,
+  "kind: \"stream\"",
+  "模型 SSE 流不能渲染为 stream 过程卡片，必须进入助手回复气泡。",
+);
+assertNotIncludes(
+  chatHelpers,
+  "\"tool.plugin.unavailable\"",
+  "插件不可用占位事件不能渲染为对话区过程卡片。",
+);
+assertNotIncludes(
+  chatHelpers,
+  "\"tool.mcp.unavailable\"",
+  "MCP 不可用占位事件不能渲染为对话区过程卡片。",
+);
+assertNotIncludes(
+  chatHelpers,
+  "\"tool.skill.unavailable\"",
+  "skill 不可用占位事件不能渲染为对话区过程卡片。",
 );
 assertIncludes(
   chatHelpers,
@@ -217,11 +237,6 @@ assertIncludes(
   conversationActions,
   "applySentMessageOptimisticState",
   "发送消息后必须立即写入用户消息、轮次、任务和初始过程事件。",
-);
-assertIncludes(
-  chatHelpers,
-  "model.stream.delta",
-  "浏览器端过程聚合必须识别中心服务推送的模型流式事件类型。",
 );
 assertIncludes(
   managementActions,

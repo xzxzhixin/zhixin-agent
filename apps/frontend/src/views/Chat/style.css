@@ -166,15 +166,6 @@
   white-space: pre-wrap;
 }
 
-.chat-page-host .process-stream-markdown {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.chat-page-host .message-row.process.stream .process-log-list {
-  display: none;
-}
-
 .chat-page-host .process-card header small {
   flex: 0 0 auto;
 }

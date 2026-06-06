@@ -109,7 +109,6 @@ export interface ProcessMessageRow {
     /** kind: 过程类型。 */
     kind:
         | "thinking"
-        | "stream"
         | "tool";
     /** event: 原始事件记录。 */
     event: EventRecord;
@@ -132,9 +131,7 @@ export interface ProcessMessageGroupRow {
     /** taskId: 所属任务 ID，来自中心服务事件；无任务时为 null。 */
     taskId: string | null;
     /** kind: 过程类型。 */
-    kind:
-        | "stream"
-        | "tool";
+    kind: "tool";
     /** title: 展示标题。 */
     title: string;
     /** statusLabel: 当前聚合过程状态。 */
@@ -145,8 +142,6 @@ export interface ProcessMessageGroupRow {
     summary: string;
     /** orderSequence: 当前过程在轮次内首次出现的事件序号。 */
     orderSequence: number;
-    /** contentMarkdown: 模型输出段拼接后的 Markdown；非模型输出过程为 null。 */
-    contentMarkdown: string | null;
     /** logs: 同一过程内按 sequence 排列的日志。 */
     logs: Array<{
         /** eventId: 事件 ID。 */
@@ -208,6 +203,8 @@ export type ConversationRenderRow =
         rowId: string;
         /** message: 中心服务固化消息。 */
         message: ConversationMessage;
+        /** temporary: 是否为浏览器从流式事件派生的临时消息。 */
+        temporary?: boolean;
     }
     | {
         /** rowKind: 思考过程行。 */
@@ -225,6 +222,20 @@ export type ConversationRenderRow =
         /** process: 聚合后的过程卡片。 */
         process: ProcessMessageGroupRow;
     };
+
+/**
+ * StreamingAssistantRow：运行中模型流式回复派生的临时助手消息。
+ */
+interface StreamingAssistantRow {
+    /** rowId: 临时助手行唯一 ID，按轮次固定。 */
+    rowId: string;
+    /** turnId: 所属轮次 ID，来自模型流事件。 */
+    turnId: string;
+    /** orderSequence: 首个模型 delta 的事件序号。 */
+    orderSequence: number;
+    /** message: 渲染层临时助手消息，不写入中心服务消息事实源。 */
+    message: ConversationMessage;
+}
 
 /**
  * MessageTimelineNode：用户消息时间线节点。
@@ -358,22 +369,6 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
         };
     }
 
-    if (event.eventType.startsWith("model.stream.")) {
-        return {
-            rowId: event.eventId,
-            kind: "stream",
-            event,
-            title: statusMeta.status === "completed"
-                ? "流式输出完成"
-                : "流式输出中",
-            summary: readEventText(
-                event,
-                "deltaText",
-            ) || event.summary,
-            statusLabel: statusMeta.label,
-        };
-    }
-
     return {
         rowId: event.eventId,
         kind: "tool",
@@ -393,8 +388,6 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
 export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageGroupRow[] {
     const processEvents = events.filter((event) => {
         return [
-            "model.stream.delta",
-            "model.stream.completed",
             "model.failed",
             "message.turn.failed",
             "worker.task.failed",
@@ -404,9 +397,6 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
             "tool.call.started",
             "tool.call.output",
             "tool.call.completed",
-            "tool.plugin.unavailable",
-            "tool.mcp.unavailable",
-            "tool.skill.unavailable",
             "tool.call.failed",
         ].includes(event.eventType);
     });
@@ -445,15 +435,12 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         const isRunning = statusEntries.some((entry) => {
             return entry.statusMeta.status === "running";
         }) && !hasCompleted && !hasFailed;
-        const kind = latestEvent.eventType.startsWith("model.")
-            ? "stream"
-            : "tool";
         const title = resolveProcessGroupTitle(latestEvent);
         return {
             rowId: `process-${groupKey}`,
             turnId: latestEvent.turnId,
             taskId: latestEvent.taskId,
-            kind,
+            kind: "tool",
             title,
             statusLabel: hasFailed
                 ? "失败"
@@ -463,9 +450,6 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
             traceId: latestEvent.traceId,
             summary: resolveProcessSummary(latestEvent),
             orderSequence: sortedEvents[0].sequence,
-            contentMarkdown: kind === "stream"
-                ? buildStreamContentMarkdown(sortedEvents)
-                : null,
             logs: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
@@ -500,51 +484,14 @@ function resolveProcessGroupKey(event: EventRecord): string {
             commandGroupId,
         ].join(":");
     }
-    if (event.eventType.startsWith("model.stream.")) {
-        return [
-            event.turnId ?? "no-turn",
-            event.taskId ?? "no-task",
-            "model-stream",
-            resolveModelStreamGroupId(
-                event,
-                payload,
-            ),
-        ].join(":");
-    }
     const toolKind = typeof payload.toolKind === "string"
         ? payload.toolKind
-        : event.eventType.startsWith("model.stream.")
-            ? "model-stream"
-            : "tool";
+        : "tool";
     return [
         event.turnId ?? "no-turn",
         event.taskId ?? "no-task",
         toolKind,
     ].join(":");
-}
-
-/**
- * resolveModelStreamGroupId：生成模型输出段聚合 ID。
- *
- * @param event 中心服务模型流事件。
- * @param payload 事件载荷。
- * @returns 模型输出段 ID。
- */
-function resolveModelStreamGroupId(
-    event: EventRecord,
-    payload: Record<string, unknown>,
-): string {
-    for (const key of [
-        "streamId",
-        "modelCallId",
-        "assistantMessageId",
-    ]) {
-        const value = payload[key];
-        if (typeof value === "string" && value.length > 0) {
-            return value;
-        }
-    }
-    return event.scopeId || event.eventId;
 }
 
 /**
@@ -589,9 +536,6 @@ function resolveProcessGroupTitle(event: EventRecord): string {
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
-    if (event.eventType.startsWith("model.")) {
-        return "模型输出";
-    }
     if (event.eventType === "message.turn.failed" || event.eventType === "worker.task.failed") {
         return "对话执行失败";
     }
@@ -600,23 +544,42 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             event,
             "command",
         );
-        return command
-            ? `命令：${command}`
-            : "命令";
+        return command || "命令";
     }
     if (event.eventType.startsWith("tool.call.")) {
-        return "工具调用过程";
+        return readEventText(
+            event,
+            "toolName",
+        ) || "工具";
     }
     if (event.eventType.startsWith("tool.mcp.")) {
-        return "MCP 调用过程";
+        const mcpName = readEventText(
+            event,
+            "mcpName",
+        );
+        return mcpName
+            ? `MCP：${mcpName}`
+            : "MCP";
     }
     if (event.eventType.startsWith("tool.plugin.")) {
-        return "插件调用过程";
+        const pluginName = readEventText(
+            event,
+            "pluginName",
+        );
+        return pluginName
+            ? `插件：${pluginName}`
+            : "插件";
     }
     if (event.eventType.startsWith("tool.skill.")) {
-        return "skill 调用过程";
+        const skillName = readEventText(
+            event,
+            "skillName",
+        );
+        return skillName
+            ? `skill：${skillName}`
+            : "skill";
     }
-    return "工具调用过程";
+    return "工具";
 }
 
 /**
@@ -658,33 +621,6 @@ function resolveProcessLogText(event: EventRecord): string {
         event,
         "failureReason",
     ) || event.summary;
-}
-
-/**
- * createStreamOutputRows：把模型 SSE/token 事件聚合为连续模型输出段。
- *
- * @param events 中心服务事件数组。
- * @returns 模型输出过程卡片数组。
- */
-export function createStreamOutputRows(events: EventRecord[]): ProcessMessageGroupRow[] {
-    return createGroupedProcessRows(events).filter((row) => {
-        return row.kind === "stream";
-    });
-}
-
-/**
- * buildStreamContentMarkdown：拼接同一模型输出段的 delta 文本。
- *
- * @param events 同一 streamId/modelCallId 下的模型流事件。
- * @returns 连续 Markdown 文本。
- */
-function buildStreamContentMarkdown(events: EventRecord[]): string {
-    return events.map((event) => {
-        return readEventText(
-            event,
-            "deltaText",
-        );
-    }).join("");
 }
 
 /**
@@ -858,11 +794,17 @@ export function createConversationRenderRows(
     messages: ConversationMessage[],
     thinkingRows: ThinkingProcessRow[],
     processRows: ProcessMessageGroupRow[],
+    events: EventRecord[] = [],
 ): ConversationRenderRow[] {
     const processRowsByTurn = groupRowsByTurn(processRows);
     const thinkingRowsByTurn = groupRowsByTurn(thinkingRows);
+    const streamingAssistantRowsByTurn = groupRowsByTurn(createStreamingAssistantRows(
+        messages,
+        events,
+    ));
     const consumedThinkingRowIds = new Set<string>();
     const consumedProcessRowIds = new Set<string>();
+    const consumedStreamingAssistantRowIds = new Set<string>();
     const rows: ConversationRenderRow[] = [];
 
     for (const message of messages) {
@@ -877,8 +819,10 @@ export function createConversationRenderRows(
                 message.turnId,
                 thinkingRowsByTurn,
                 processRowsByTurn,
+                streamingAssistantRowsByTurn,
                 consumedThinkingRowIds,
                 consumedProcessRowIds,
+                consumedStreamingAssistantRowIds,
             );
             continue;
         }
@@ -889,8 +833,10 @@ export function createConversationRenderRows(
                 message.turnId,
                 thinkingRowsByTurn,
                 processRowsByTurn,
+                streamingAssistantRowsByTurn,
                 consumedThinkingRowIds,
                 consumedProcessRowIds,
+                consumedStreamingAssistantRowIds,
             );
         }
         rows.push({
@@ -904,10 +850,76 @@ export function createConversationRenderRows(
         rows,
         thinkingRows,
         processRows,
+        streamingAssistantRowsByTurn,
         consumedThinkingRowIds,
         consumedProcessRowIds,
+        consumedStreamingAssistantRowIds,
     );
     return rows;
+}
+
+/**
+ * createStreamingAssistantRows：从模型 SSE delta 事件派生运行中助手消息。
+ *
+ * @param messages 当前会话固化消息。
+ * @param events 当前会话事件数组。
+ * @returns 仅包含尚未固化助手消息的临时助手行。
+ */
+function createStreamingAssistantRows(
+    messages: ConversationMessage[],
+    events: EventRecord[],
+): StreamingAssistantRow[] {
+    const assistantTurnIds = new Set(messages.filter((message) => {
+        return message.role === "assistant" && message.turnId !== null;
+    }).map((message) => {
+        return message.turnId as string;
+    }));
+    const groups = new Map<string, EventRecord[]>();
+
+    for (const event of events) {
+        if (event.eventType !== "model.stream.delta" || !event.turnId || assistantTurnIds.has(event.turnId)) {
+            continue;
+        }
+        groups.set(
+            event.turnId,
+            [
+                ...(groups.get(event.turnId) ?? []),
+                event,
+            ],
+        );
+    }
+
+    return Array.from(groups.entries()).map(([
+        turnId,
+        groupEvents,
+    ]) => {
+        const sortedEvents = [...groupEvents].sort((left, right) => {
+            return left.sequence - right.sequence;
+        });
+        const firstEvent = sortedEvents[0];
+        const contentMarkdown = sortedEvents.map((event) => {
+            return readEventText(
+                event,
+                "deltaText",
+            );
+        }).join("");
+
+        return {
+            rowId: `streaming-assistant-${turnId}`,
+            turnId,
+            orderSequence: firstEvent.sequence,
+            message: {
+                messageId: `streaming-assistant-${turnId}`,
+                sessionId: firstEvent.sessionId,
+                turnId,
+                role: "assistant",
+                contentMarkdown,
+                createdAt: firstEvent.occurredAt,
+            },
+        };
+    }).filter((row) => {
+        return row.message.contentMarkdown.length > 0;
+    });
 }
 
 /**
@@ -945,8 +957,10 @@ function appendTurnProcessRows(
     turnId: string | null,
     thinkingRowsByTurn: Map<string, ThinkingProcessRow[]>,
     processRowsByTurn: Map<string, ProcessMessageGroupRow[]>,
+    streamingAssistantRowsByTurn: Map<string, StreamingAssistantRow[]>,
     consumedThinkingRowIds: Set<string>,
     consumedProcessRowIds: Set<string>,
+    consumedStreamingAssistantRowIds: Set<string>,
 ): void {
     if (!turnId) {
         return;
@@ -966,6 +980,13 @@ function appendTurnProcessRows(
                 row: process,
             };
         }),
+        ...(streamingAssistantRowsByTurn.get(turnId) ?? []).map((assistant) => {
+            return {
+                kind: "streaming-assistant" as const,
+                orderSequence: assistant.orderSequence,
+                row: assistant,
+            };
+        }),
     ].sort((left, right) => {
         return left.orderSequence - right.orderSequence;
     });
@@ -980,6 +1001,20 @@ function appendTurnProcessRows(
                 rowKind: "thinking",
                 rowId: item.row.rowId,
                 thinking: item.row,
+            });
+            continue;
+        }
+
+        if (item.kind === "streaming-assistant") {
+            if (consumedStreamingAssistantRowIds.has(item.row.rowId)) {
+                continue;
+            }
+            consumedStreamingAssistantRowIds.add(item.row.rowId);
+            rows.push({
+                rowKind: "message",
+                rowId: item.row.rowId,
+                message: item.row.message,
+                temporary: true,
             });
             continue;
         }
@@ -1010,8 +1045,10 @@ function appendUnconsumedProcessRows(
     rows: ConversationRenderRow[],
     thinkingRows: ThinkingProcessRow[],
     processRows: ProcessMessageGroupRow[],
+    streamingAssistantRowsByTurn: Map<string, StreamingAssistantRow[]>,
     consumedThinkingRowIds: Set<string>,
     consumedProcessRowIds: Set<string>,
+    consumedStreamingAssistantRowIds: Set<string>,
 ): void {
     for (const thinking of thinkingRows) {
         if (consumedThinkingRowIds.has(thinking.rowId)) {
@@ -1022,6 +1059,19 @@ function appendUnconsumedProcessRows(
             rowId: thinking.rowId,
             thinking,
         });
+    }
+    for (const assistants of streamingAssistantRowsByTurn.values()) {
+        for (const assistant of assistants) {
+            if (consumedStreamingAssistantRowIds.has(assistant.rowId)) {
+                continue;
+            }
+            rows.push({
+                rowKind: "message",
+                rowId: assistant.rowId,
+                message: assistant.message,
+                temporary: true,
+            });
+        }
     }
     for (const process of processRows) {
         if (consumedProcessRowIds.has(process.rowId)) {
