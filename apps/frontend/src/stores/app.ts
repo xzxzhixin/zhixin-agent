@@ -55,6 +55,9 @@ import {
 import {
     createConversationActions,
 } from "./app-conversation-actions";
+import {
+    createProjectActions,
+} from "./app-project-actions";
 import type {
     AgentStatusTreeNode,
     AgentDraft,
@@ -1212,6 +1215,7 @@ export const useAppStore = defineStore("app", {
             this.scheduleComposerContextUsageUpdate();
         },
 
+        ...createProjectActions(),
         ...createConversationActions(),
 
         /**

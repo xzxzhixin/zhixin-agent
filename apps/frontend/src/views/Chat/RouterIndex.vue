@@ -539,18 +539,12 @@ function handleProjectRowCreate(project: ProjectRecord): void {
 }
 
 /**
- * handleProjectHeaderCreate：从项目对话标题新增入口创建对话。
+ * handleProjectGroupCreate：从项目对话标题新增入口选择文件夹并创建项目对话。
  *
  * @returns 没有返回值。
  */
-function handleProjectHeaderCreate(): void {
-  const firstProject = appStore.projects[0];
-  if (!firstProject) {
-    void appStore.createDefaultBrowserProjectConversation();
-    return;
-  }
-
-  void appStore.createProjectConversationForProject(firstProject);
+function handleProjectGroupCreate(): void {
+  void appStore.createProjectConversationFromDirectorySelection();
 }
 
 /**
@@ -793,7 +787,7 @@ onBeforeUnmount(() => {
                   class="conversation-icon-button create-project-entry-button"
                   type="button"
                   title="新增项目对话"
-                  @click="handleProjectHeaderCreate"
+                  @click="handleProjectGroupCreate"
               >
                 <el-icon>
                   <FolderAdd/>

@@ -17,7 +17,6 @@ import type {CenterEventStore} from "./events.js";
 import type {SendMessageResponse, TaskStepRecord} from "./types.js";
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
-    appendModelStreamEvent,
     appendThinkingEvents,
     handleWorkerMessage,
     recordUsage,
@@ -613,8 +612,14 @@ export async function completeCreatedTurn(
             },
             "模型流式输出",
         );
-        const modelResult = invokeProviderModelGateway(database, events, sent.taskId, sent.turnId, userText);
-        appendModelStreamEvent(events, sent.sessionId, sent.taskId, sent.turnId, modelResult);
+        const modelResult = await invokeProviderModelGateway(
+            database,
+            events,
+            sent.sessionId,
+            sent.taskId,
+            sent.turnId,
+            userText,
+        );
         updateTaskStep(
             database,
             events,
@@ -896,7 +901,7 @@ async function runModelRequestedToolLoop(
         };
     }
 
-    const finalModelResult = continueProviderModelGatewayWithToolResults(
+    const finalModelResult = await continueProviderModelGatewayWithToolResults(
         database,
         events,
         sent.sessionId,

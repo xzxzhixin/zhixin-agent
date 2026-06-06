@@ -1,4 +1,3 @@
-import {spawnSync} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {existsSync, readdirSync} from "node:fs";
 import {join} from "node:path";
@@ -65,23 +64,36 @@ interface ProviderModelGatewayHttpResult {
     toolCalls: ModelToolCall[];
 }
 
+interface ProviderStreamEventContext {
+    /** events: 中心服务事件仓储，收到供应商 delta 时立即追加事件。 */
+    events: CenterEventStore;
+    /** sessionId: 当前会话 ID，用于 WebSocket 精确推送。 */
+    sessionId: string;
+    /** taskId: 当前任务 ID，用于过程卡片聚合。 */
+    taskId: string;
+    /** turnId: 当前轮次 ID，用于过程卡片排序。 */
+    turnId: string;
+}
+
 /**
  * invokeProviderModelGateway：基于中心服务供应商配置执行最小模型调用。
  *
  * @param database 中心服务数据库。
  * @param events 事件日志仓储。
+ * @param sessionId 会话 ID。
  * @param taskId 任务 ID。
  * @param turnId 轮次 ID。
  * @param userText 用户输入。
  * @returns 模型网关执行结果。
  */
-export function invokeProviderModelGateway(
+export async function invokeProviderModelGateway(
     database: CenterDatabase,
     events: CenterEventStore,
+    sessionId: string,
     taskId: string,
     turnId: string,
     userText: string,
-): ProviderModelGatewayResult {
+): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const requestPayload = buildModelRequestPayload(
         userText,
@@ -90,7 +102,12 @@ export function invokeProviderModelGateway(
         runtime.modelSelection.reasoningEffort,
         listAvailableModelToolSpecs(),
     );
-    const result = sendProviderModelRequest(runtime, requestPayload);
+    const result = await sendProviderModelRequest(runtime, requestPayload, {
+        events,
+        sessionId,
+        taskId,
+        turnId,
+    });
 
     events.append({
         eventType: "model.orchestrated",
@@ -136,7 +153,7 @@ export function continueProviderModelGatewayWithToolResult(
     userText: string,
     toolCall: ModelToolCall,
     toolResultText: string,
-): ProviderModelGatewayResult {
+): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const requestPayload = buildModelRequestPayload(
         userText,
@@ -187,7 +204,12 @@ export function continueProviderModelGatewayWithToolResult(
         },
     });
 
-    return sendProviderModelRequest(runtime, requestPayload);
+    return sendProviderModelRequest(runtime, requestPayload, {
+        events,
+        sessionId,
+        taskId,
+        turnId,
+    });
 }
 
 /**
@@ -213,7 +235,7 @@ export function continueProviderModelGatewayWithToolResults(
         toolCall: ModelToolCall;
         resultText: string;
     }>,
-): ProviderModelGatewayResult {
+): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const requestPayload = buildModelRequestPayload(
         userText,
@@ -268,7 +290,12 @@ export function continueProviderModelGatewayWithToolResults(
         },
     });
 
-    return sendProviderModelRequest(runtime, requestPayload);
+    return sendProviderModelRequest(runtime, requestPayload, {
+        events,
+        sessionId,
+        taskId,
+        turnId,
+    });
 }
 
 /**
@@ -303,12 +330,14 @@ function resolveProviderModelRuntime(database: CenterDatabase, taskId: string): 
  *
  * @param runtime 模型调用运行时上下文。
  * @param requestPayload 内部模型请求。
+ * @param streamContext 当前会话事件上下文。
  * @returns 模型网关执行结果。
  */
 function sendProviderModelRequest(
     runtime: ResolvedProviderModelRuntime,
     requestPayload: ModelRequest,
-): ProviderModelGatewayResult {
+    streamContext: ProviderStreamEventContext,
+): Promise<ProviderModelGatewayResult> {
     const provider = runtime.provider;
     const modelSelection = runtime.modelSelection;
     const gatewayRequest = provider.protocolPluginId === "builtin-model-anthropic-messages"
@@ -318,28 +347,29 @@ function sendProviderModelRequest(
         runtime.centerDirectory,
         provider.apiKeySecretRef,
     );
-    const httpResult = sendModelRequest(
+    return sendModelRequest(
         provider.baseUrl,
         gatewayRequest.endpoint,
         gatewayRequest.body,
         apiKey,
         provider.protocolMode,
-    );
-
-    const textToolCalls = parseModelToolCallsFromText(httpResult.assistantText);
-    const toolCalls = [
-        ...httpResult.toolCalls,
-        ...textToolCalls,
-    ];
-    return {
-        providerId: provider.providerId,
-        model: modelSelection.model,
-        reasoningEffort: modelSelection.reasoningEffort,
-        assistantText: httpResult.assistantText,
-        usage: httpResult.usage ?? buildUsageSummary(readUserTextFromRequest(requestPayload), httpResult.assistantText, provider.protocolPluginId),
-        toolCall: toolCalls[0] ?? null,
-        toolCalls,
-    };
+        streamContext,
+    ).then((httpResult) => {
+        const textToolCalls = parseModelToolCallsFromText(httpResult.assistantText);
+        const toolCalls = [
+            ...httpResult.toolCalls,
+            ...textToolCalls,
+        ];
+        return {
+            providerId: provider.providerId,
+            model: modelSelection.model,
+            reasoningEffort: modelSelection.reasoningEffort,
+            assistantText: httpResult.assistantText,
+            usage: httpResult.usage ?? buildUsageSummary(readUserTextFromRequest(requestPayload), httpResult.assistantText, provider.protocolPluginId),
+            toolCall: toolCalls[0] ?? null,
+            toolCalls,
+        };
+    });
 }
 
 function extractCenterDirectory(database: CenterDatabase): string {
@@ -410,7 +440,7 @@ function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string) 
                 model: request.model,
                 input: request.messages.map(toProviderMessage),
                 tools: request.tools.map(toResponsesToolSpec),
-                stream: false,
+                stream: true,
             },
         }
         : {
@@ -419,7 +449,10 @@ function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string) 
                 model: request.model,
                 messages: request.messages.map(toChatCompletionMessage),
                 tools: request.tools.map(toChatCompletionToolSpec),
-                stream: false,
+                stream: true,
+                stream_options: {
+                    include_usage: true,
+                },
             },
         };
 }
@@ -431,31 +464,71 @@ function buildAnthropicGatewayRequest(request: ModelRequest) {
             model: request.model,
             messages: request.messages.map(toProviderMessage),
             tools: request.tools.map(toAnthropicToolSpec),
-            stream: false,
+            stream: true,
+            max_tokens: 4096,
         },
     };
 }
 
-function sendModelRequest(
+async function sendModelRequest(
     baseUrl: string,
     endpoint: string,
     body: Record<string, unknown>,
     apiKey: string | null,
     protocolMode: string,
-): ProviderModelGatewayHttpResult {
-    const response = executeFetchSync(joinProviderEndpoint(baseUrl, endpoint), {
+    streamContext: ProviderStreamEventContext,
+): Promise<ProviderModelGatewayHttpResult> {
+    const response = await fetch(joinProviderEndpoint(baseUrl, endpoint), {
         method: "POST",
-        headers: {
-            "content-type": "application/json",
-            ...(apiKey ? {authorization: `Bearer ${apiKey}`} : {}),
-        },
+        headers: buildProviderRequestHeaders(
+            apiKey,
+            protocolMode,
+        ),
         body: JSON.stringify(body),
     });
     if (!response.ok) {
-        throw new Error(buildProviderHttpErrorMessage(response.status, response.body));
+        throw new Error(buildProviderHttpErrorMessage(response.status, await response.text()));
     }
 
-    return parseProviderModelResponse(response.body, protocolMode);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/event-stream")) {
+        return readProviderSseStream(
+            response,
+            protocolMode,
+            streamContext,
+        );
+    }
+
+    return parseProviderModelResponse(
+        await response.text(),
+        protocolMode,
+    );
+}
+
+/**
+ * buildProviderRequestHeaders：按供应商协议构造认证请求头。
+ *
+ * @param apiKey 中心服务读取到的供应商密钥。
+ * @param protocolMode 供应商协议模式。
+ * @returns fetch 请求头。
+ */
+function buildProviderRequestHeaders(
+    apiKey: string | null,
+    protocolMode: string,
+): Record<string, string> {
+    const headers: Record<string, string> = {
+        "content-type": "application/json",
+    };
+    if (!apiKey) {
+        return headers;
+    }
+    if (protocolMode === "messages") {
+        headers["x-api-key"] = apiKey;
+        headers["anthropic-version"] = "2023-06-01";
+        return headers;
+    }
+    headers.authorization = `Bearer ${apiKey}`;
+    return headers;
 }
 
 function buildProviderHttpErrorMessage(status: number, body: string): string {
@@ -493,51 +566,6 @@ function joinProviderEndpoint(baseUrl: string, endpoint: string): string {
     return `${normalizedBaseUrl}${endpoint}`;
 }
 
-function executeFetchSync(
-    url: string,
-    requestInit: {
-        method: string;
-        headers: Record<string, string>;
-        body: string;
-    },
-) {
-    const script = [
-        "const input = JSON.parse(process.argv[1]);",
-        "(async () => {",
-        "const response = await fetch(input.url, input.init);",
-        "const body = await response.text();",
-        "process.stdout.write(JSON.stringify({status: response.status, ok: response.ok, body}));",
-        "})().catch((error) => {",
-        "process.stdout.write(JSON.stringify({status: 0, ok: false, body: error && error.message ? error.message : 'FETCH_FAILED'}));",
-        "process.exitCode = 1;",
-        "});",
-    ].join("");
-    const output = spawnSync(
-        process.execPath,
-        [
-            "-e",
-            script,
-            JSON.stringify({
-                url,
-                init: requestInit,
-            }),
-        ],
-        {
-            encoding: "utf-8",
-            windowsHide: true,
-        },
-    );
-    const parsed = JSON.parse(output.stdout || "{\"status\":0,\"ok\":false,\"body\":\"FETCH_OUTPUT_EMPTY\"}") as {
-        ok: boolean;
-        status: number;
-        body: string;
-    };
-    if (output.status !== 0 && parsed.status === 0) {
-        throw new Error(`PROVIDER_CONNECT_FAILED:${parsed.body}`);
-    }
-    return parsed;
-}
-
 function parseProviderModelResponse(body: string, protocolMode: string): ProviderModelGatewayHttpResult {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const assistantText = protocolMode === "responses"
@@ -556,6 +584,500 @@ function parseProviderModelResponse(body: string, protocolMode: string): Provide
         toolCall: toolCalls[0] ?? null,
         toolCalls,
     };
+}
+
+/**
+ * applyChatCompletionsSseEvent：解析 OpenAI 兼容 chat-completions 流式事件。
+ *
+ * @param parsed 单个 SSE JSON 对象。
+ * @param streamContext 当前事件上下文。
+ * @param state 流式累积状态。
+ * @returns 没有返回值。
+ */
+function applyChatCompletionsSseEvent(
+    parsed: Record<string, unknown>,
+    streamContext: ProviderStreamEventContext,
+    state: {
+        assistantText: string;
+        usage: ProviderModelGatewayResult["usage"];
+        toolCallParts: Map<number, {
+            toolCallId: string;
+            name: string;
+            argumentsText: string;
+        }>;
+    },
+): void {
+    if (typeof parsed.usage === "object" && parsed.usage !== null) {
+        state.usage = normalizeProviderUsage(parsed.usage);
+    }
+    const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
+    for (const choice of choices) {
+        if (typeof choice !== "object" || choice === null) {
+            continue;
+        }
+        const delta = (choice as { delta?: unknown }).delta;
+        if (typeof delta !== "object" || delta === null) {
+            continue;
+        }
+        const textDelta = (delta as { content?: unknown }).content;
+        if (typeof textDelta === "string") {
+            state.assistantText += textDelta;
+            appendProviderStreamDelta(
+                streamContext,
+                textDelta,
+            );
+        }
+        appendStreamingToolCallParts(
+            state.toolCallParts,
+            (delta as { tool_calls?: unknown }).tool_calls,
+        );
+    }
+}
+
+/**
+ * applyResponsesSseEvent：解析 OpenAI Responses 流式事件。
+ *
+ * @param parsed 单个 SSE JSON 对象。
+ * @param streamContext 当前事件上下文。
+ * @param state 流式累积状态。
+ * @returns 没有返回值。
+ */
+function applyResponsesSseEvent(
+    parsed: Record<string, unknown>,
+    streamContext: ProviderStreamEventContext,
+    state: {
+        assistantText: string;
+        usage: ProviderModelGatewayResult["usage"];
+        responsesToolCalls: ModelToolCall[];
+    },
+): void {
+    const eventType = typeof parsed.type === "string" ? parsed.type : "";
+    if (eventType === "response.output_text.delta") {
+        const deltaText = typeof parsed.delta === "string" ? parsed.delta : "";
+        state.assistantText += deltaText;
+        appendProviderStreamDelta(
+            streamContext,
+            deltaText,
+        );
+    }
+    if (eventType === "response.completed") {
+        const response = typeof parsed.response === "object" && parsed.response !== null
+            ? parsed.response as Record<string, unknown>
+            : null;
+        if (response && typeof response.usage === "object" && response.usage !== null) {
+            state.usage = normalizeProviderUsage(response.usage);
+        }
+        if (response) {
+            state.responsesToolCalls.push(...readResponsesToolCalls(response));
+        }
+    }
+}
+
+/**
+ * isAnthropicSseEvent：判断是否为 Anthropic Messages 流式事件。
+ *
+ * @param parsed 单个 SSE JSON 对象。
+ * @returns 是 Anthropic 事件时返回 true。
+ */
+function isAnthropicSseEvent(parsed: Record<string, unknown>): boolean {
+    const eventType = typeof parsed.type === "string" ? parsed.type : "";
+    return eventType === "message_start"
+        || eventType === "content_block_start"
+        || eventType === "content_block_delta"
+        || eventType === "message_delta"
+        || eventType === "message_stop";
+}
+
+/**
+ * applyAnthropicMessagesSseEvent：解析 Anthropic Messages 流式事件。
+ *
+ * @param parsed 单个 SSE JSON 对象。
+ * @param streamContext 当前事件上下文。
+ * @param state 流式累积状态。
+ * @returns 没有返回值。
+ */
+function applyAnthropicMessagesSseEvent(
+    parsed: Record<string, unknown>,
+    streamContext: ProviderStreamEventContext,
+    state: {
+        assistantText: string;
+        usage: ProviderModelGatewayResult["usage"];
+    },
+): void {
+    const eventType = typeof parsed.type === "string" ? parsed.type : "";
+    if (eventType === "content_block_delta") {
+        const delta = typeof parsed.delta === "object" && parsed.delta !== null
+            ? parsed.delta as Record<string, unknown>
+            : null;
+        const textDelta = typeof delta?.text === "string" ? delta.text : "";
+        state.assistantText += textDelta;
+        appendProviderStreamDelta(
+            streamContext,
+            textDelta,
+        );
+    }
+    if (eventType === "message_delta") {
+        const usage = typeof parsed.usage === "object" && parsed.usage !== null
+            ? parsed.usage
+            : typeof (parsed.delta as { usage?: unknown } | undefined)?.usage === "object"
+                ? (parsed.delta as { usage: unknown }).usage
+                : null;
+        if (usage) {
+            state.usage = normalizeProviderUsage(usage);
+        }
+    }
+}
+
+/**
+ * appendStreamingToolCallParts：累积 chat-completions 流式工具调用片段。
+ *
+ * @param toolCallParts 当前工具调用片段表。
+ * @param rawToolCalls delta.tool_calls 原始字段。
+ * @returns 没有返回值。
+ */
+function appendStreamingToolCallParts(
+    toolCallParts: Map<number, {
+        toolCallId: string;
+        name: string;
+        argumentsText: string;
+    }>,
+    rawToolCalls: unknown,
+): void {
+    const toolCalls = Array.isArray(rawToolCalls) ? rawToolCalls : [];
+    for (const toolCall of toolCalls) {
+        if (typeof toolCall !== "object" || toolCall === null) {
+            continue;
+        }
+        const index = typeof (toolCall as { index?: unknown }).index === "number"
+            ? (toolCall as { index: number }).index
+            : toolCallParts.size;
+        const existing = toolCallParts.get(index) ?? {
+            toolCallId: randomUUID(),
+            name: "",
+            argumentsText: "",
+        };
+        const functionValue = typeof (toolCall as { function?: unknown }).function === "object"
+            && (toolCall as { function?: unknown }).function !== null
+            ? (toolCall as { function: Record<string, unknown> }).function
+            : {};
+        const nextId = typeof (toolCall as { id?: unknown }).id === "string"
+            ? (toolCall as { id: string }).id
+            : existing.toolCallId;
+        const nextName = typeof functionValue.name === "string"
+            ? `${existing.name}${functionValue.name}`
+            : existing.name;
+        const nextArgumentsText = typeof functionValue.arguments === "string"
+            ? `${existing.argumentsText}${functionValue.arguments}`
+            : existing.argumentsText;
+        toolCallParts.set(
+            index,
+            {
+                toolCallId: nextId,
+                name: nextName,
+                argumentsText: nextArgumentsText,
+            },
+        );
+    }
+}
+
+/**
+ * readStreamingChatCompletionToolCalls：把累积的工具片段转为内部工具调用。
+ *
+ * @param toolCallParts 工具片段表。
+ * @returns 工具调用数组。
+ */
+function readStreamingChatCompletionToolCalls(toolCallParts: Map<number, {
+    toolCallId: string;
+    name: string;
+    argumentsText: string;
+}>): ModelToolCall[] {
+    return Array.from(toolCallParts.values()).map((part) => {
+        const argumentsJson = readToolArgumentsJson(part.argumentsText);
+        if (!part.name || !argumentsJson) {
+            return null;
+        }
+        return {
+            toolCallId: part.toolCallId,
+            name: part.name,
+            argumentsJson,
+        };
+    }).filter((toolCall): toolCall is ModelToolCall => {
+        return toolCall !== null;
+    });
+}
+
+/**
+ * readResponsesToolCalls：解析 Responses 完成事件中的函数调用。
+ *
+ * @param response Responses 完整 response 对象。
+ * @returns 工具调用数组。
+ */
+function readResponsesToolCalls(response: Record<string, unknown>): ModelToolCall[] {
+    const output = Array.isArray(response.output) ? response.output : [];
+    return output.map((item) => {
+        if (typeof item !== "object" || item === null) {
+            return null;
+        }
+        const type = typeof (item as { type?: unknown }).type === "string"
+            ? (item as { type: string }).type
+            : "";
+        if (type !== "function_call") {
+            return null;
+        }
+        const name = typeof (item as { name?: unknown }).name === "string"
+            ? (item as { name: string }).name
+            : "";
+        const callId = typeof (item as { call_id?: unknown }).call_id === "string"
+            ? (item as { call_id: string }).call_id
+            : typeof (item as { id?: unknown }).id === "string"
+                ? (item as { id: string }).id
+                : randomUUID();
+        const argumentsJson = readToolArgumentsJson((item as { arguments?: unknown }).arguments);
+        if (!name || !argumentsJson) {
+            return null;
+        }
+        return {
+            toolCallId: callId,
+            name,
+            argumentsJson,
+        };
+    }).filter((toolCall): toolCall is ModelToolCall => {
+        return toolCall !== null;
+    });
+}
+
+/**
+ * readProviderSseStream：读取供应商 SSE 流并汇总最终模型结果。
+ *
+ * @param response 供应商 fetch 响应。
+ * @param protocolMode 供应商协议模式。
+ * @param streamContext 当前会话事件上下文。
+ * @returns 完整助手文本、工具调用和用量。
+ */
+async function readProviderSseStream(
+    response: Response,
+    protocolMode: string,
+    streamContext: ProviderStreamEventContext,
+): Promise<ProviderModelGatewayHttpResult> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error("PROVIDER_STREAM_BODY_EMPTY");
+    }
+
+    const decoder = new TextDecoder();
+    const state: {
+        assistantText: string;
+        usage: ProviderModelGatewayResult["usage"];
+        toolCallParts: Map<number, {
+            toolCallId: string;
+            name: string;
+            argumentsText: string;
+        }>;
+        responsesToolCalls: ModelToolCall[];
+    } = {
+        assistantText: "",
+        usage: null,
+        toolCallParts: new Map(),
+        responsesToolCalls: [],
+    };
+    let buffer = "";
+
+    while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+            break;
+        }
+        buffer += decoder.decode(
+            chunk.value,
+            {
+                stream: true,
+            },
+        );
+        const splitResult = splitSseFrames(buffer);
+        buffer = splitResult.remainder;
+        for (const frame of splitResult.frames) {
+            applyProviderSseFrame(
+                frame,
+                protocolMode,
+                streamContext,
+                state,
+            );
+        }
+    }
+
+    buffer += decoder.decode();
+    const finalSplitResult = splitSseFrames(`${buffer}\n\n`);
+    for (const frame of finalSplitResult.frames) {
+        applyProviderSseFrame(
+            frame,
+            protocolMode,
+            streamContext,
+            state,
+        );
+    }
+
+    const toolCalls = [
+        ...readStreamingChatCompletionToolCalls(state.toolCallParts),
+        ...state.responsesToolCalls,
+    ];
+    if (!state.assistantText && toolCalls.length === 0) {
+        throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
+    }
+
+    appendProviderStreamCompleted(
+        streamContext,
+        state.usage,
+    );
+
+    return {
+        assistantText: state.assistantText,
+        usage: state.usage,
+        toolCall: toolCalls[0] ?? null,
+        toolCalls,
+    };
+}
+
+/**
+ * splitSseFrames：把 SSE 文本缓冲拆成完整帧和剩余半帧。
+ *
+ * @param buffer 当前累积缓冲。
+ * @returns 完整帧和剩余缓冲。
+ */
+function splitSseFrames(buffer: string): {
+    frames: string[];
+    remainder: string;
+} {
+    const normalized = buffer.replace(/\r\n/gu, "\n");
+    const parts = normalized.split("\n\n");
+    const remainder = parts.pop() ?? "";
+    return {
+        frames: parts.filter((frame) => {
+            return frame.trim().length > 0;
+        }),
+        remainder,
+    };
+}
+
+/**
+ * applyProviderSseFrame：解析并应用单个供应商 SSE 帧。
+ *
+ * @param frame SSE 原始帧。
+ * @param protocolMode 协议模式。
+ * @param streamContext 当前事件上下文。
+ * @param state 流式累积状态。
+ * @returns 没有返回值。
+ */
+function applyProviderSseFrame(
+    frame: string,
+    protocolMode: string,
+    streamContext: ProviderStreamEventContext,
+    state: {
+        assistantText: string;
+        usage: ProviderModelGatewayResult["usage"];
+        toolCallParts: Map<number, {
+            toolCallId: string;
+            name: string;
+            argumentsText: string;
+        }>;
+        responsesToolCalls: ModelToolCall[];
+    },
+): void {
+    const dataLines = frame.split("\n")
+        .filter((line) => {
+            return line.startsWith("data:");
+        })
+        .map((line) => {
+            return line.slice(5).trim();
+        });
+    for (const dataLine of dataLines) {
+        if (dataLine === "[DONE]") {
+            continue;
+        }
+        const parsed = tryParseJsonObject(dataLine);
+        if (!parsed) {
+            continue;
+        }
+        if (protocolMode === "responses") {
+            applyResponsesSseEvent(
+                parsed,
+                streamContext,
+                state,
+            );
+            continue;
+        }
+        if (isAnthropicSseEvent(parsed)) {
+            applyAnthropicMessagesSseEvent(
+                parsed,
+                streamContext,
+                state,
+            );
+            continue;
+        }
+        applyChatCompletionsSseEvent(
+            parsed,
+            streamContext,
+            state,
+        );
+    }
+}
+
+/**
+ * appendProviderStreamDelta：追加真实供应商 token/SSE 片段。
+ *
+ * @param streamContext 当前会话事件上下文。
+ * @param deltaText 本次增量文本。
+ * @returns 没有返回值。
+ */
+function appendProviderStreamDelta(
+    streamContext: ProviderStreamEventContext,
+    deltaText: string,
+): void {
+    if (deltaText.length === 0) {
+        return;
+    }
+    streamContext.events.append({
+        eventType: "model.stream.delta",
+        scopeType: "model",
+        scopeId: streamContext.taskId,
+        sessionId: streamContext.sessionId,
+        turnId: streamContext.turnId,
+        taskId: streamContext.taskId,
+        status: "running",
+        title: "模型流式片段",
+        summary: deltaText.slice(0, 120),
+        payload: {
+            deltaText,
+            streamSource: "provider-sse",
+        },
+    });
+}
+
+/**
+ * appendProviderStreamCompleted：追加真实供应商流式结束事件。
+ *
+ * @param streamContext 当前会话事件上下文。
+ * @param usage 供应商返回用量。
+ * @returns 没有返回值。
+ */
+function appendProviderStreamCompleted(
+    streamContext: ProviderStreamEventContext,
+    usage: ProviderModelGatewayResult["usage"],
+): void {
+    streamContext.events.append({
+        eventType: "model.stream.completed",
+        scopeType: "model",
+        scopeId: streamContext.taskId,
+        sessionId: streamContext.sessionId,
+        turnId: streamContext.turnId,
+        taskId: streamContext.taskId,
+        status: "completed",
+        title: "模型流式结束",
+        summary: "真实供应商 SSE 流式输出已结束。",
+        payload: {
+            usage,
+            streamSource: "provider-sse",
+        },
+    });
 }
 
 function readResponsesText(parsed: Record<string, unknown>): string {

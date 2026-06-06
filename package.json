@@ -7,7 +7,6 @@
   "scripts": {
     "dev:frontend": "pnpm --filter @zhixin/frontend dev",
     "dev:desktop-shell": "node scripts/dev-desktop-shell.mjs",
-    "dev:center:new": "pnpm --filter @zhixin/center dev",
     "build:packages": "pnpm --filter \"./packages/*\" build",
     "build:center:new": "pnpm --filter @zhixin/center build",
     "build:frontend": "pnpm --filter @zhixin/frontend build",
