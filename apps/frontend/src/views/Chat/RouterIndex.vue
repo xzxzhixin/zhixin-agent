@@ -1151,7 +1151,7 @@ onBeforeUnmount(() => {
                   class="thinking-block"
                   :open="row.thinking.defaultOpen"
               >
-                <summary>{{ row.thinking.title }} · 阶段状态：{{ row.thinking.statusLabel }} · {{ row.thinking.traceId }}</summary>
+                <summary>{{ row.thinking.title }} · {{ row.thinking.statusLabel }}</summary>
                 <div class="thinking-segments">
                   <p
                       v-for="segment in row.thinking.segments"
@@ -1174,16 +1174,19 @@ onBeforeUnmount(() => {
               <section class="process-card">
                 <header>
                   <strong>{{ row.process.title }}</strong>
-                  <small>阶段状态：{{ row.process.statusLabel }} · {{ row.process.traceId }}</small>
+                  <small>{{ row.process.statusLabel }}</small>
                 </header>
-                <p>{{ row.process.summary }}</p>
+                <div
+                    v-if="row.process.contentMarkdown"
+                    class="process-stream-markdown markdown-body"
+                    v-html="appStore.renderMarkdown(row.process.contentMarkdown)"
+                />
+                <p v-else>{{ row.process.summary }}</p>
                 <div class="process-log-list">
                   <p
                       v-for="log in row.process.logs"
                       :key="log.eventId"
                   >
-                    <strong>{{ log.statusLabel }}</strong>
-                    <span>{{ log.occurredAt }}</span>
                     <code>{{ log.text }}</code>
                   </p>
                 </div>

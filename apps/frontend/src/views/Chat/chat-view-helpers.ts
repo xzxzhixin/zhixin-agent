@@ -143,6 +143,10 @@ export interface ProcessMessageGroupRow {
     traceId: string;
     /** summary: 聚合摘要。 */
     summary: string;
+    /** orderSequence: 当前过程在轮次内首次出现的事件序号。 */
+    orderSequence: number;
+    /** contentMarkdown: 模型输出段拼接后的 Markdown；非模型输出过程为 null。 */
+    contentMarkdown: string | null;
     /** logs: 同一过程内按 sequence 排列的日志。 */
     logs: Array<{
         /** eventId: 事件 ID。 */
@@ -157,10 +161,10 @@ export interface ProcessMessageGroupRow {
 }
 
 /**
- * ThinkingProcessRow：按轮次合并后的思考过程行。
+ * ThinkingProcessRow：单次思考过程行。
  */
 export interface ThinkingProcessRow {
-    /** rowId: 合并行唯一 ID，优先使用 turnId。 */
+    /** rowId: 思考卡片唯一 ID，优先使用 thinkingId。 */
     rowId: string;
     /** turnId: 所属轮次 ID，来自中心服务事件；无轮次时为 null。 */
     turnId: string | null;
@@ -174,6 +178,8 @@ export interface ThinkingProcessRow {
     defaultOpen: boolean;
     /** traceId: 最近事件排查 ID。 */
     traceId: string;
+    /** orderSequence: 当前思考过程在轮次内首次出现的事件序号。 */
+    orderSequence: number;
     /** segments: 思考阶段片段数组。 */
     segments: Array<{
         /** eventId: 片段事件 ID。 */
@@ -456,6 +462,10 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
                     : "已完成",
             traceId: latestEvent.traceId,
             summary: resolveProcessSummary(latestEvent),
+            orderSequence: sortedEvents[0].sequence,
+            contentMarkdown: kind === "stream"
+                ? buildStreamContentMarkdown(sortedEvents)
+                : null,
             logs: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
@@ -490,6 +500,17 @@ function resolveProcessGroupKey(event: EventRecord): string {
             commandGroupId,
         ].join(":");
     }
+    if (event.eventType.startsWith("model.stream.")) {
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "model-stream",
+            resolveModelStreamGroupId(
+                event,
+                payload,
+            ),
+        ].join(":");
+    }
     const toolKind = typeof payload.toolKind === "string"
         ? payload.toolKind
         : event.eventType.startsWith("model.stream.")
@@ -500,6 +521,30 @@ function resolveProcessGroupKey(event: EventRecord): string {
         event.taskId ?? "no-task",
         toolKind,
     ].join(":");
+}
+
+/**
+ * resolveModelStreamGroupId：生成模型输出段聚合 ID。
+ *
+ * @param event 中心服务模型流事件。
+ * @param payload 事件载荷。
+ * @returns 模型输出段 ID。
+ */
+function resolveModelStreamGroupId(
+    event: EventRecord,
+    payload: Record<string, unknown>,
+): string {
+    for (const key of [
+        "streamId",
+        "modelCallId",
+        "assistantMessageId",
+    ]) {
+        const value = payload[key];
+        if (typeof value === "string" && value.length > 0) {
+            return value;
+        }
+    }
+    return event.scopeId || event.eventId;
 }
 
 /**
@@ -545,13 +590,19 @@ function resolveProcessGroupTitle(event: EventRecord): string {
         ? event.payload as Record<string, unknown>
         : {};
     if (event.eventType.startsWith("model.")) {
-        return "模型流式输出";
+        return "模型输出";
     }
     if (event.eventType === "message.turn.failed" || event.eventType === "worker.task.failed") {
         return "对话执行失败";
     }
     if (event.eventType.startsWith("tool.command.") || payload.toolKind === "command") {
-        return "命令工具调用";
+        const command = readEventText(
+            event,
+            "command",
+        );
+        return command
+            ? `命令：${command}`
+            : "命令";
     }
     if (event.eventType.startsWith("tool.call.")) {
         return "工具调用过程";
@@ -610,6 +661,33 @@ function resolveProcessLogText(event: EventRecord): string {
 }
 
 /**
+ * createStreamOutputRows：把模型 SSE/token 事件聚合为连续模型输出段。
+ *
+ * @param events 中心服务事件数组。
+ * @returns 模型输出过程卡片数组。
+ */
+export function createStreamOutputRows(events: EventRecord[]): ProcessMessageGroupRow[] {
+    return createGroupedProcessRows(events).filter((row) => {
+        return row.kind === "stream";
+    });
+}
+
+/**
+ * buildStreamContentMarkdown：拼接同一模型输出段的 delta 文本。
+ *
+ * @param events 同一 streamId/modelCallId 下的模型流事件。
+ * @returns 连续 Markdown 文本。
+ */
+function buildStreamContentMarkdown(events: EventRecord[]): string {
+    return events.map((event) => {
+        return readEventText(
+            event,
+            "deltaText",
+        );
+    }).join("");
+}
+
+/**
  * readEventText：读取事件载荷中的字符串字段。
  *
  * @param event 中心服务事件。
@@ -628,19 +706,19 @@ export function readEventText(
 }
 
 /**
- * createMergedThinkingRows：把同一轮思考事件合并成单个展示块。
+ * createThinkingProcessRows：把思考事件拆成独立思考卡片。
  *
  * @param events 中心服务事件数组。
- * @returns 按轮次或任务合并后的思考块数组。
+ * @returns 按 thinkingId 或阶段拆分后的思考卡片数组。
  */
-export function createMergedThinkingRows(events: EventRecord[]): ThinkingProcessRow[] {
+export function createThinkingProcessRows(events: EventRecord[]): ThinkingProcessRow[] {
     const groups = new Map<string, EventRecord[]>();
     for (const event of events) {
         if (!event.eventType.startsWith("thinking.")) {
             continue;
         }
-        // groupKey: 优先使用 turnId，避免同一轮多个思考片段分散展示；无 turnId 时退到 taskId 或事件 ID。
-        const groupKey = event.turnId ?? event.taskId ?? event.eventId;
+        // groupKey: 优先使用 thinkingId，确保同一轮里的多次思考过程分别展示为独立卡片。
+        const groupKey = resolveThinkingGroupKey(event);
         groups.set(
             groupKey,
             [
@@ -686,6 +764,7 @@ export function createMergedThinkingRows(events: EventRecord[]): ThinkingProcess
                     : "已完成",
             defaultOpen: isRunning,
             traceId: latestEvent.traceId,
+            orderSequence: sortedEvents[0].sequence,
             segments: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
@@ -698,6 +777,51 @@ export function createMergedThinkingRows(events: EventRecord[]): ThinkingProcess
             }),
         };
     });
+}
+
+/**
+ * createMergedThinkingRows：兼容旧调用名称的思考过程入口。
+ *
+ * @param events 中心服务事件数组。
+ * @returns 独立思考卡片数组。
+ */
+export function createMergedThinkingRows(events: EventRecord[]): ThinkingProcessRow[] {
+    return createThinkingProcessRows(events);
+}
+
+/**
+ * resolveThinkingGroupKey：解析单次思考过程的聚合键。
+ *
+ * @param event 中心服务思考事件。
+ * @returns 思考过程聚合键。
+ */
+function resolveThinkingGroupKey(event: EventRecord): string {
+    const payload = typeof event.payload === "object" && event.payload !== null
+        ? event.payload as Record<string, unknown>
+        : {};
+    for (const key of [
+        "thinkingId",
+        "phaseId",
+    ]) {
+        const value = payload[key];
+        if (typeof value === "string" && value.length > 0) {
+            return [
+                event.turnId ?? "no-turn",
+                value,
+            ].join(":");
+        }
+    }
+    const phase = typeof payload.phase === "string"
+        ? payload.phase
+        : "";
+    if (phase.length > 0) {
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            phase,
+        ].join(":");
+    }
+    return event.eventId;
 }
 
 /**
@@ -827,26 +951,47 @@ function appendTurnProcessRows(
     if (!turnId) {
         return;
     }
-    for (const thinking of thinkingRowsByTurn.get(turnId) ?? []) {
-        if (consumedThinkingRowIds.has(thinking.rowId)) {
+    const orderedRows = [
+        ...(thinkingRowsByTurn.get(turnId) ?? []).map((thinking) => {
+            return {
+                kind: "thinking" as const,
+                orderSequence: thinking.orderSequence,
+                row: thinking,
+            };
+        }),
+        ...(processRowsByTurn.get(turnId) ?? []).map((process) => {
+            return {
+                kind: "process" as const,
+                orderSequence: process.orderSequence,
+                row: process,
+            };
+        }),
+    ].sort((left, right) => {
+        return left.orderSequence - right.orderSequence;
+    });
+
+    for (const item of orderedRows) {
+        if (item.kind === "thinking") {
+            if (consumedThinkingRowIds.has(item.row.rowId)) {
+                continue;
+            }
+            consumedThinkingRowIds.add(item.row.rowId);
+            rows.push({
+                rowKind: "thinking",
+                rowId: item.row.rowId,
+                thinking: item.row,
+            });
             continue;
         }
-        consumedThinkingRowIds.add(thinking.rowId);
-        rows.push({
-            rowKind: "thinking",
-            rowId: thinking.rowId,
-            thinking,
-        });
-    }
-    for (const process of processRowsByTurn.get(turnId) ?? []) {
-        if (consumedProcessRowIds.has(process.rowId)) {
+
+        if (consumedProcessRowIds.has(item.row.rowId)) {
             continue;
         }
-        consumedProcessRowIds.add(process.rowId);
+        consumedProcessRowIds.add(item.row.rowId);
         rows.push({
             rowKind: "process",
-            rowId: process.rowId,
-            process,
+            rowId: item.row.rowId,
+            process: item.row,
         });
     }
 }

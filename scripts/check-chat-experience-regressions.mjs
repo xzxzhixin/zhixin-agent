@@ -170,8 +170,23 @@ assertIncludes(
 );
 assertIncludes(
   chatHelpers,
-  "createMergedThinkingRows",
-  "思考事件必须通过 helper 合并为按轮次归并的思考块。",
+  "createThinkingProcessRows",
+  "思考事件必须通过 helper 拆成独立思考卡片。",
+);
+assertIncludes(
+  chatHelpers,
+  "resolveThinkingGroupKey",
+  "思考事件必须按 thinkingId 或阶段生成独立卡片聚合键。",
+);
+assertIncludes(
+  chatHelpers,
+  "createStreamOutputRows",
+  "模型 SSE 输出必须聚合为连续模型输出段。",
+);
+assertIncludes(
+  chatHelpers,
+  "contentMarkdown",
+  "模型 SSE delta 必须拼接到同一个 Markdown 输出区域。",
 );
 assertIncludes(
   chatHelpers,
@@ -190,7 +205,7 @@ assertIncludes(
 );
 assertIncludes(
   chatPage,
-  "row.statusLabel",
+  "row.process.statusLabel",
   "普通流式过程卡片必须消费 helper 推导后的状态文案。",
 );
 assertIncludes(
@@ -204,9 +219,9 @@ assertIncludes(
   "发送消息后必须立即写入用户消息、轮次、任务和初始过程事件。",
 );
 assertIncludes(
-  conversationActions,
+  chatHelpers,
   "model.stream.delta",
-  "发送链路必须有流式首包可见的事件类型。",
+  "浏览器端过程聚合必须识别中心服务推送的模型流式事件类型。",
 );
 assertIncludes(
   managementActions,

@@ -9,6 +9,8 @@
 import {
   createGroupedProcessRows,
   createConversationRenderRows,
+  createStreamOutputRows,
+  createThinkingProcessRows,
   type ThinkingProcessRow,
 } from "../apps/frontend/src/views/Chat/chat-view-helpers";
 import type {
@@ -48,22 +50,81 @@ const messages: ConversationMessage[] = [
     createdAt: now,
   },
 ];
-const thinkingRows: ThinkingProcessRow[] = [
+const thinkingEvents: EventRecord[] = [
   {
-    rowId: "thinking-turn-order",
+    eventId: "event-thinking-1-delta",
+    eventType: "thinking.delta",
+    scopeType: "thinking",
+    scopeId: "thinking-1",
+    sessionId: "session-order",
     turnId: "turn-order",
     taskId: "task-order",
-    title: "思考过程",
-    statusLabel: "执行中",
-    defaultOpen: false,
+    stepId: null,
+    agentId: "agent-main",
+    projectId: null,
+    clientId: null,
+    sequence: 1,
+    status: "running",
+    occurredAt: now,
+    title: "思考片段",
+    summary: "正在判断可用工具。",
+    payload: {
+      thinkingId: "thinking-1",
+      phase: "工具判断",
+      thinkingText: "正在判断可用工具。",
+    },
+    errorCode: null,
     traceId: "trace-thinking",
-    segments: [
-      {
-        eventId: "event-thinking",
-        statusLabel: "执行中",
-        summary: "正在判断可用工具。",
-      },
-    ],
+  },
+  {
+    eventId: "event-thinking-1-completed",
+    eventType: "thinking.completed",
+    scopeType: "thinking",
+    scopeId: "thinking-1",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: "agent-main",
+    projectId: null,
+    clientId: null,
+    sequence: 2,
+    status: "completed",
+    occurredAt: now,
+    title: "思考完成",
+    summary: "已经确认需要执行命令工具。",
+    payload: {
+      thinkingId: "thinking-1",
+      phase: "工具判断",
+      thinkingText: "已经确认需要执行命令工具。",
+    },
+    errorCode: null,
+    traceId: "trace-thinking-completed",
+  },
+  {
+    eventId: "event-thinking-2-delta",
+    eventType: "thinking.delta",
+    scopeType: "thinking",
+    scopeId: "thinking-2",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: "agent-main",
+    projectId: null,
+    clientId: null,
+    sequence: 7,
+    status: "running",
+    occurredAt: now,
+    title: "思考片段",
+    summary: "正在分析命令输出。",
+    payload: {
+      thinkingId: "thinking-2",
+      phase: "结果分析",
+      thinkingText: "正在分析命令输出。",
+    },
+    errorCode: null,
+    traceId: "trace-thinking-2",
   },
 ];
 const commandEvents: EventRecord[] = [
@@ -79,7 +140,7 @@ const commandEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 1,
+    sequence: 3,
     status: "running",
     occurredAt: now,
     title: "命令工具开始",
@@ -105,7 +166,7 @@ const commandEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 2,
+    sequence: 4,
     status: "completed",
     occurredAt: now,
     title: "命令工具完成",
@@ -131,7 +192,7 @@ const commandEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 3,
+    sequence: 5,
     status: "running",
     occurredAt: now,
     title: "命令工具开始",
@@ -157,7 +218,7 @@ const commandEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 4,
+    sequence: 6,
     status: "completed",
     occurredAt: now,
     title: "命令工具完成",
@@ -183,7 +244,7 @@ const commandEvents: EventRecord[] = [
     agentId: null,
     projectId: null,
     clientId: null,
-    sequence: 5,
+    sequence: 8,
     status: "failed",
     occurredAt: now,
     title: "命令工具失败",
@@ -198,7 +259,124 @@ const commandEvents: EventRecord[] = [
     traceId: "trace-python-failed",
   },
 ];
+const streamEvents: EventRecord[] = [
+  {
+    eventId: "event-stream-1-delta-1",
+    eventType: "model.stream.delta",
+    scopeType: "message",
+    scopeId: "stream-1",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 9,
+    status: "running",
+    occurredAt: now,
+    title: "模型流式片段",
+    summary: "Node.js ",
+    payload: {
+      streamId: "stream-1",
+      deltaText: "Node.js ",
+    },
+    errorCode: null,
+    traceId: "trace-stream-1",
+  },
+  {
+    eventId: "event-stream-1-delta-2",
+    eventType: "model.stream.delta",
+    scopeType: "message",
+    scopeId: "stream-1",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 10,
+    status: "running",
+    occurredAt: now,
+    title: "模型流式片段",
+    summary: "版本已读取。",
+    payload: {
+      streamId: "stream-1",
+      deltaText: "版本已读取。",
+    },
+    errorCode: null,
+    traceId: "trace-stream-1-2",
+  },
+  {
+    eventId: "event-stream-2-delta-1",
+    eventType: "model.stream.delta",
+    scopeType: "message",
+    scopeId: "stream-2",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 11,
+    status: "running",
+    occurredAt: now,
+    title: "模型流式片段",
+    summary: "Python ",
+    payload: {
+      streamId: "stream-2",
+      deltaText: "Python ",
+    },
+    errorCode: null,
+    traceId: "trace-stream-2",
+  },
+  {
+    eventId: "event-stream-2-completed",
+    eventType: "model.stream.completed",
+    scopeType: "message",
+    scopeId: "stream-2",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 12,
+    status: "completed",
+    occurredAt: now,
+    title: "模型流式完成",
+    summary: "Python 版本已读取。",
+    payload: {
+      streamId: "stream-2",
+      deltaText: "版本已读取。",
+    },
+    errorCode: null,
+    traceId: "trace-stream-2-completed",
+  },
+];
+const thinkingRows = createThinkingProcessRows(thinkingEvents);
 const processRows = createGroupedProcessRows(commandEvents);
+const streamRows = createStreamOutputRows(streamEvents);
+
+assert(
+  thinkingRows.length === 2,
+  `两个 thinkingId 必须渲染为两个独立思考卡片，当前为 ${thinkingRows.length} 个。`,
+);
+assert(
+  thinkingRows[0].defaultOpen === false && thinkingRows[1].defaultOpen === true,
+  "思考完成后必须默认折叠，仍在思考时必须默认展开。",
+);
+assert(
+  streamRows.length === 2,
+  `两个 streamId 必须渲染为两个独立模型输出段，当前为 ${streamRows.length} 个。`,
+);
+assert(
+  streamRows[0].contentMarkdown === "Node.js 版本已读取。",
+  "同一模型输出段的 SSE delta 必须拼接成连续 Markdown 文本。",
+);
 
 assert(
   processRows.length === 2,
@@ -213,14 +391,17 @@ assert(
   "Python 命令输出必须保留在对应命令卡片内。",
 );
 assert(
-  processRows.some((row) => row.title === "命令工具调用" && row.logs.some((log) => log.text === "COMMAND_EXIT_NON_ZERO")),
+  processRows.some((row) => row.title === "命令：python -V" && row.logs.some((log) => log.text === "COMMAND_EXIT_NON_ZERO")),
   "命令失败事件必须保留在对应命令卡片内，不能单独渲染为工具调用过程。",
 );
 
 const rows = createConversationRenderRows(
   messages,
   thinkingRows,
-  processRows,
+  [
+    ...processRows,
+    ...streamRows,
+  ],
 );
 const order = rows.map((row) => {
   if (row.rowKind === "message") {
@@ -230,6 +411,6 @@ const order = rows.map((row) => {
 });
 
 assert(
-  order.join(">") === "user>thinking>process>process>assistant",
+  order.join(">") === "user>thinking>process>process>thinking>process>process>assistant",
   `同一轮渲染顺序错误：${order.join(">")}`,
 );

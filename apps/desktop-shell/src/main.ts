@@ -391,6 +391,21 @@ function resolveCenterCommand(): CenterCommandResolution | null {
 }
 
 /**
+ * resolveCenterProcessPath：生成中心服务子进程 PATH。
+ *
+ * @param basePath 当前桌面壳进程 PATH。
+ * @returns 把中心服务 Node 可执行文件目录放到最前面的 PATH。
+ */
+function resolveCenterProcessPath(basePath: string | undefined): string {
+  // nodeDirectory: Windows 的 tsx.CMD 会按 PATH 查找 node，必须优先使用桌面壳显式传入的 Node 版本。
+  const nodeDirectory = dirname(centerNodeExecutable);
+  return [
+    nodeDirectory,
+    basePath ?? "",
+  ].filter((part) => part.length > 0).join(process.platform === "win32" ? ";" : ":");
+}
+
+/**
  * applyDesktopConfig：把本机配置应用到中心服务启动参数。
  *
  * @param config 桌面壳本机配置。
@@ -569,6 +584,8 @@ function startCenterService(): void {
     cwd: resolvedCommand.cwd,
     env: {
       ...process.env,
+      Path: resolveCenterProcessPath(process.env.Path),
+      PATH: resolveCenterProcessPath(process.env.PATH),
       ZHIXIN_CENTER_PORT: String(centerLaunchConfig.port),
       ZHIXIN_CENTER_DIR: centerLaunchConfig.centerDirectory,
       ZHIXIN_FRONTEND_DIST: frontendDistPath,

@@ -228,6 +228,11 @@ assertIncludes(
 );
 assertIncludes(
   desktopMain,
+  "resolveCenterProcessPath",
+  "桌面壳启动中心服务时必须把中心服务 Node 可执行文件目录放到 PATH 前面，避免 tsx.CMD 误用其他 Node 版本。",
+);
+assertIncludes(
+  desktopMain,
   "mainWindow.webContents.session.clearCache()",
   "桌面壳开发期加载 Vite 前端前必须清理 Electron 会话缓存，避免旧前端模块导致路由主体残留。",
 );
