@@ -241,33 +241,74 @@ async function sendMessageAndReadEvents(
     turnId: string;
   }>>();
   assert(sent.success, `消息发送失败：${JSON.stringify(sent.error)}`);
-  await new Promise((resolve) => {
-    setTimeout(resolve, 120);
-  });
-
-  const eventResponse = await service.app.inject({
-    method: "POST",
-    url: "/api/session/event/list",
-    payload: {
-      sessionId,
-      turnId: sent.data?.turnId,
-      afterSequence: 0,
-    },
-  });
-  const eventList = eventResponse.json<ApiResponse<{
-    events: Array<{
-      eventType: string;
-      payload: unknown;
-      summary: string;
-    }>;
-  }>>();
-  assert(eventList.success, `事件读取失败：${JSON.stringify(eventList.error)}`);
+  const events = await waitForTurnEvents(
+    service,
+    sessionId,
+    sent.data?.turnId ?? "",
+  );
 
   return {
     taskId: sent.data?.taskId ?? "",
     turnId: sent.data?.turnId ?? "",
-    events: eventList.data?.events ?? [],
+    events,
   };
+}
+
+/**
+ * waitForTurnEvents：轮询等待异步对话执行写入足够事件。
+ *
+ * @param service 中心服务实例。
+ * @param sessionId 会话 ID。
+ * @param turnId 轮次 ID。
+ * @returns 当前轮次事件列表。
+ */
+async function waitForTurnEvents(
+  service: CenterService,
+  sessionId: string,
+  turnId: string,
+): Promise<Array<{
+  eventType: string;
+  payload: unknown;
+  summary: string;
+}>> {
+  const startedAt = Date.now();
+  let latestEvents: Array<{
+    eventType: string;
+    payload: unknown;
+    summary: string;
+  }> = [];
+
+  while (Date.now() - startedAt < 5000) {
+    const eventResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/event/list",
+      payload: {
+        sessionId,
+        turnId,
+        afterSequence: 0,
+      },
+    });
+    const eventList = eventResponse.json<ApiResponse<{
+      events: Array<{
+        eventType: string;
+        payload: unknown;
+        summary: string;
+      }>;
+    }>>();
+    assert(eventList.success, `事件读取失败：${JSON.stringify(eventList.error)}`);
+    latestEvents = eventList.data?.events ?? [];
+    const eventTypes = latestEvents.map((event) => {
+      return event.eventType;
+    });
+    if (eventTypes.includes("model.tool.result.appended") || eventTypes.includes("turn.updated")) {
+      return latestEvents;
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 80);
+    });
+  }
+
+  return latestEvents;
 }
 
 /**

@@ -559,12 +559,12 @@ export function createMessageTurnAndTask(
  * @param userText 用户原始输入。
  * @returns 没有返回值。
  */
-export function completeCreatedTurn(
+export async function completeCreatedTurn(
     database: CenterDatabase,
     events: CenterEventStore,
     sent: SendMessageResponse,
     userText: string,
-): void {
+): Promise<void> {
     const assistantMessageId = randomUUID();
     const now = new Date().toISOString();
     const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
@@ -622,7 +622,7 @@ export function completeCreatedTurn(
             "completed",
             "模型流式输出完成并准备固化助手消息。",
         );
-        const toolLoopResult = runModelRequestedToolLoop(
+        const toolLoopResult = await runModelRequestedToolLoop(
             database,
             events,
             sent,
@@ -781,21 +781,21 @@ export function completeCreatedTurn(
  * @param now 当前轮次统一时间。
  * @returns 最终模型回复和已执行工具摘要。
  */
-function runModelRequestedToolLoop(
+async function runModelRequestedToolLoop(
     database: CenterDatabase,
     events: CenterEventStore,
     sent: SendMessageResponse,
     userText: string,
     modelResult: ProviderModelGatewayResult,
     now: string,
-): {
+): Promise<{
     finalModelResult: ProviderModelGatewayResult;
     executedTool: {
         toolId: string;
         toolKind: string;
         inputSummary: string;
     } | null;
-} {
+}> {
     if (modelResult.toolCalls.length === 0) {
         return {
             finalModelResult: modelResult,
@@ -861,12 +861,15 @@ function runModelRequestedToolLoop(
             },
             "命令工具执行",
         );
-        const commandResult = runCommandTool(
+        const commandResult = await runCommandTool(
             events,
             sent.sessionId,
             sent.taskId,
             sent.turnId,
-            commandRequestFromUnifiedToolIntent(unifiedToolIntent),
+            {
+                ...commandRequestFromUnifiedToolIntent(unifiedToolIntent),
+                toolCallId: toolCall.toolCallId,
+            },
         );
         updateTaskStep(
             database,

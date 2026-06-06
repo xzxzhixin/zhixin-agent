@@ -7,12 +7,13 @@
  * 返回值：检查通过时正常退出；任一断言失败时抛错。
  */
 import {
+  createGroupedProcessRows,
   createConversationRenderRows,
-  type ProcessMessageGroupRow,
   type ThinkingProcessRow,
 } from "../apps/frontend/src/views/Chat/chat-view-helpers";
 import type {
   ConversationMessage,
+  EventRecord,
 } from "../packages/shared/src/index";
 
 /**
@@ -65,26 +66,156 @@ const thinkingRows: ThinkingProcessRow[] = [
     ],
   },
 ];
-const processRows: ProcessMessageGroupRow[] = [
+const commandEvents: EventRecord[] = [
   {
-    rowId: "process-turn-order",
+    eventId: "event-node-started",
+    eventType: "tool.command.started",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
     turnId: "turn-order",
     taskId: "task-order",
-    kind: "tool",
-    title: "命令工具调用",
-    statusLabel: "已完成",
-    traceId: "trace-process",
-    summary: "命令工具已完成。",
-    logs: [
-      {
-        eventId: "event-command",
-        statusLabel: "已完成",
-        text: "v20.18.0",
-        occurredAt: "2026-06-06 08:00:01",
-      },
-    ],
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 1,
+    status: "running",
+    occurredAt: now,
+    title: "命令工具开始",
+    summary: "查看当前可用的 Node.js 版本",
+    payload: {
+      toolKind: "command",
+      toolCallId: "tool-call-node",
+      command: "node -v",
+      inputSummary: "查看当前可用的 Node.js 版本",
+    },
+    errorCode: null,
+    traceId: "trace-node-started",
+  },
+  {
+    eventId: "event-node-completed",
+    eventType: "tool.command.completed",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 2,
+    status: "completed",
+    occurredAt: now,
+    title: "命令工具完成",
+    summary: "v20.18.0",
+    payload: {
+      toolKind: "command",
+      toolCallId: "tool-call-node",
+      command: "node -v",
+      outputSummary: "v20.18.0",
+    },
+    errorCode: null,
+    traceId: "trace-node-completed",
+  },
+  {
+    eventId: "event-python-started",
+    eventType: "tool.command.started",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 3,
+    status: "running",
+    occurredAt: now,
+    title: "命令工具开始",
+    summary: "查看当前可用的 Python 版本",
+    payload: {
+      toolKind: "command",
+      toolCallId: "tool-call-python",
+      command: "python -V",
+      inputSummary: "查看当前可用的 Python 版本",
+    },
+    errorCode: null,
+    traceId: "trace-python-started",
+  },
+  {
+    eventId: "event-python-completed",
+    eventType: "tool.command.completed",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 4,
+    status: "completed",
+    occurredAt: now,
+    title: "命令工具完成",
+    summary: "Python 3.13.2",
+    payload: {
+      toolKind: "command",
+      toolCallId: "tool-call-python",
+      command: "python -V",
+      outputSummary: "Python 3.13.2",
+    },
+    errorCode: null,
+    traceId: "trace-python-completed",
+  },
+  {
+    eventId: "event-python-failed",
+    eventType: "tool.call.failed",
+    scopeType: "tool",
+    scopeId: "task-order",
+    sessionId: "session-order",
+    turnId: "turn-order",
+    taskId: "task-order",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 5,
+    status: "failed",
+    occurredAt: now,
+    title: "命令工具失败",
+    summary: "COMMAND_EXIT_NON_ZERO",
+    payload: {
+      toolKind: "command",
+      toolCallId: "tool-call-python",
+      command: "python -V",
+      failureReason: "COMMAND_EXIT_NON_ZERO",
+    },
+    errorCode: null,
+    traceId: "trace-python-failed",
   },
 ];
+const processRows = createGroupedProcessRows(commandEvents);
+
+assert(
+  processRows.length === 2,
+  `两个命令工具调用及其失败事件必须渲染为两个独立卡片，当前为 ${processRows.length} 个。`,
+);
+assert(
+  processRows.some((row) => row.logs.some((log) => log.text === "v20.18.0")),
+  "Node.js 命令输出必须保留在对应命令卡片内。",
+);
+assert(
+  processRows.some((row) => row.logs.some((log) => log.text === "Python 3.13.2")),
+  "Python 命令输出必须保留在对应命令卡片内。",
+);
+assert(
+  processRows.some((row) => row.title === "命令工具调用" && row.logs.some((log) => log.text === "COMMAND_EXIT_NON_ZERO")),
+  "命令失败事件必须保留在对应命令卡片内，不能单独渲染为工具调用过程。",
+);
 
 const rows = createConversationRenderRows(
   messages,
@@ -99,6 +230,6 @@ const order = rows.map((row) => {
 });
 
 assert(
-  order.join(">") === "user>thinking>process>assistant",
+  order.join(">") === "user>thinking>process>process>assistant",
   `同一轮渲染顺序错误：${order.join(">")}`,
 );

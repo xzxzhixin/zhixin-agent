@@ -17,12 +17,22 @@ export class CenterEventStore {
     private readonly sequenceByTurn = new Map<string, number>();
 
     /**
+     * onAppended: 单条事件落库后的可选回调，用于对话实时同步。
+     */
+    private readonly onAppended: ((event: EventRecord) => void) | null;
+
+    /**
      * constructor：绑定中心服务数据库。
      *
      * @param database 中心服务 SQLite 封装。
+     * @param onAppended 单条事件落库后的可选回调。
      */
-    constructor(database: CenterDatabase) {
+    constructor(
+        database: CenterDatabase,
+        onAppended: ((event: EventRecord) => void) | null = null,
+    ) {
         this.database = database;
+        this.onAppended = onAppended;
     }
 
     /**
@@ -78,7 +88,7 @@ export class CenterEventStore {
         // eventId: 事件持久化身份。
         const eventId = randomUUID();
 
-        return createDataAccess(this.database).events.insertEvent({
+        const event = createDataAccess(this.database).events.insertEvent({
             eventId,
             eventType: input.eventType,
             scopeType: input.scopeType,
@@ -99,5 +109,36 @@ export class CenterEventStore {
             errorCode: input.errorCode ?? null,
             traceId,
         });
+        this.onAppended?.(event);
+        return event;
     }
+
+    /**
+     * withAppendListener：派生带追加监听的事件仓储。
+     *
+     * @param onAppended 单条事件落库后的回调。
+     * @returns 共享数据库的新事件仓储。
+     */
+    withAppendListener(
+        onAppended: (event: EventRecord) => void,
+    ): CenterEventStore {
+        return new CenterEventStore(
+            this.database,
+            onAppended,
+        );
+    }
+}
+
+/**
+ * createBroadcastingEventStore：创建对话执行期实时事件仓储。
+ *
+ * @param base 原始中心事件仓储。
+ * @param onAppended 单条事件追加后的回调。
+ * @returns 带实时回调的事件仓储。
+ */
+export function createBroadcastingEventStore(
+    base: CenterEventStore,
+    onAppended: (event: EventRecord) => void,
+): CenterEventStore {
+    return base.withAppendListener(onAppended);
 }

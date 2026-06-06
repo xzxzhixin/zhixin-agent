@@ -66,6 +66,26 @@ function waitForMessage<TMessage>(
 }
 
 /**
+ * closeSocket：关闭 WebSocket 并等待 close 事件。
+ *
+ * @param socket WebSocket 客户端。
+ * @returns 关闭完成后没有返回值。
+ */
+async function closeSocket(socket: WebSocket | null): Promise<void> {
+  if (!socket || socket.readyState === WebSocket.CLOSED) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    socket.once("close", () => {
+      resolve();
+    });
+    socket.close();
+    setTimeout(resolve, 500);
+  });
+}
+
+/**
  * main：执行 WebSocket 检查。
  *
  * @returns 检查完成后没有返回值。
@@ -149,10 +169,17 @@ async function main(): Promise<void> {
       type: string;
       payload: {
         eventType: string;
+        turnId: string | null;
       };
-    }>(socket, (message) => message.type === "event.appended" && message.payload.eventType === "message.created");
+    }>(socket, (message) => {
+      return message.type === "event.appended"
+        && (
+          message.payload.eventType === "model.failed"
+          || message.payload.eventType === "turn.updated"
+        );
+    });
 
-    await service.app.inject({
+    const sendResponse = await service.app.inject({
       method: "POST",
       url: "/api/session/message/send",
       payload: {
@@ -160,10 +187,18 @@ async function main(): Promise<void> {
         contentMarkdown: "WebSocket 检查消息",
       },
     });
+    const sent = sendResponse.json<ApiResponse<{
+      turnId: string;
+    }>>();
+    assert(sent.success, `WebSocket 检查发送消息失败：${JSON.stringify(sent.error)}`);
 
-    await eventPromise;
+    const eventMessage = await eventPromise;
+    assert(eventMessage.payload.turnId === sent.data?.turnId, "WebSocket 检查收到的终态事件不属于当前轮次");
   } finally {
-    socket?.close();
+    await closeSocket(socket);
+    await service?.app.close().catch(() => {
+      // ignore: 本检查直接调用 app.listen，必须显式关闭 Fastify 监听句柄。
+    });
     await service?.close().catch(() => {
       // ignore: 检查失败时仍继续清理临时目录。
     });

@@ -478,6 +478,18 @@ function resolveProcessGroupKey(event: EventRecord): string {
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
+    const commandGroupId = resolveCommandProcessGroupId(
+        event,
+        payload,
+    );
+    if (commandGroupId) {
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "command",
+            commandGroupId,
+        ].join(":");
+    }
     const toolKind = typeof payload.toolKind === "string"
         ? payload.toolKind
         : event.eventType.startsWith("model.stream.")
@@ -491,19 +503,54 @@ function resolveProcessGroupKey(event: EventRecord): string {
 }
 
 /**
+ * resolveCommandProcessGroupId：生成单条命令过程的独立聚合 ID。
+ *
+ * @param event 中心服务事件。
+ * @param payload 事件载荷。
+ * @returns 命令聚合 ID；非命令事件返回空字符串。
+ */
+function resolveCommandProcessGroupId(
+    event: EventRecord,
+    payload: Record<string, unknown>,
+): string {
+    const isCommandEvent = event.eventType.startsWith("tool.command.")
+        || (
+            event.eventType === "tool.call.failed"
+            && payload.toolKind === "command"
+        );
+    if (!isCommandEvent) {
+        return "";
+    }
+    for (const key of [
+        "toolCallId",
+        "command",
+        "inputSummary",
+    ]) {
+        const value = payload[key];
+        if (typeof value === "string" && value.length > 0) {
+            return value;
+        }
+    }
+    return event.eventId;
+}
+
+/**
  * resolveProcessGroupTitle：生成过程卡片标题。
  *
  * @param event 同组最新事件。
  * @returns 用户可见标题。
  */
 function resolveProcessGroupTitle(event: EventRecord): string {
+    const payload = typeof event.payload === "object" && event.payload !== null
+        ? event.payload as Record<string, unknown>
+        : {};
     if (event.eventType.startsWith("model.")) {
         return "模型流式输出";
     }
     if (event.eventType === "message.turn.failed" || event.eventType === "worker.task.failed") {
         return "对话执行失败";
     }
-    if (event.eventType.startsWith("tool.command.")) {
+    if (event.eventType.startsWith("tool.command.") || payload.toolKind === "command") {
         return "命令工具调用";
     }
     if (event.eventType.startsWith("tool.call.")) {

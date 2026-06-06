@@ -16,6 +16,7 @@ import {
     readAccessConfig,
 } from "./helpers.js";
 import {broadcastEvents} from "./realtime.js";
+import {registerSessionMessageRoute} from "./session-message-route.js";
 import {registerCenterSyncRoute} from "./sync-route.js";
 import {createDataAccess} from "./data-access/index.js";
 import {
@@ -26,13 +27,10 @@ import {
     type HealthResponse,
     type MemoryQueueState,
     type RealtimeClientConnection,
-    type SendMessageResponse,
     type SessionDetailResponse,
     type SubAgentRuntimeRecord,
 } from "./types.js";
 import {
-    completeCreatedTurn,
-    createMessageTurnAndTask,
     createTaskStep,
     deleteProject,
     deleteSession,
@@ -450,72 +448,11 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         ));
     });
 
-    app.post("/api/session/message/send", async (request) => {
-        const body = request.body as {
-            sessionId?: string;
-            contentMarkdown?: string;
-        };
-        const session = findSession(database, body.sessionId ?? "");
-
-        if (!session) {
-            return createErrorResponse(
-                "SESSION_NOT_FOUND",
-                "发送消息时会话不存在",
-                "没有找到要发送消息的会话。",
-            );
-        }
-
-        if (!body.contentMarkdown) {
-            return createErrorResponse(
-                "MESSAGE_CONTENT_REQUIRED",
-                "发送消息缺少 contentMarkdown",
-                "消息内容不能为空。",
-            );
-        }
-
-        const sent = createMessageTurnAndTask(database, events, session, body.contentMarkdown);
-        const initialEventRows = listEvents(database, {
-            sessionId: session.sessionId,
-            turnId: sent.turnId,
-            afterSequence: 0,
-        });
-        broadcastEvents(realtimeClients, session, initialEventRows);
-
-        // 发送接口先返回已创建轮次，后续执行异步追加思考、流式、工具和完成事件，保证浏览器能看到增量过程。
-        setTimeout(() => {
-            try {
-                completeCreatedTurn(database, events, sent, body.contentMarkdown ?? "");
-                const completedEventRows = listEvents(database, {
-                    sessionId: session.sessionId,
-                    turnId: sent.turnId,
-                    afterSequence: 0,
-                });
-                broadcastEvents(realtimeClients, session, completedEventRows);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : "MESSAGE_TURN_ASYNC_FAILED";
-                events.append({
-                    eventType: "message.turn.failed",
-                    scopeType: "turn",
-                    scopeId: sent.turnId,
-                    sessionId: session.sessionId,
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                    projectId: session.projectId,
-                    status: "failed",
-                    title: "对话异步执行失败",
-                    summary: message,
-                    payload: {errorMessage: message},
-                });
-                const failedEventRows = listEvents(database, {
-                    sessionId: session.sessionId,
-                    turnId: sent.turnId,
-                    afterSequence: 0,
-                });
-                broadcastEvents(realtimeClients, session, failedEventRows);
-            }
-        }, 0);
-
-        return createSuccessResponse<SendMessageResponse>(sent);
+    registerSessionMessageRoute({
+        app,
+        database,
+        events,
+        realtimeClients,
     });
 
     app.post("/api/session/pending-message/save", async (request) => {
