@@ -80,12 +80,39 @@ interface DesktopBridge {
     }>;
 }
 
+/**
+ * IdePluginBridge：IDE 插件宿主桥接能力。
+ *
+ * 来源：IDEA 插件 WebView 注入对象。
+ * 含义：提供 Web 端无法完成的宿主级能力，例如打开 IDE 原生 diff。
+ * 格式：函数集合。
+ * 默认值：普通浏览器入口不存在。
+ * 约束：只能用于宿主 UI 能力，不绕过中心服务读写核心事实。
+ */
+interface IdePluginBridge {
+    /** openEditDiff: 打开 IDE 原生编辑前后对比视图。 */
+    openEditDiff: (payload: {
+        /** filePath: 被编辑文件路径。 */
+        filePath: string;
+        /** beforeContent: 编辑前内容。 */
+        beforeContent: string;
+        /** afterContent: 编辑后内容。 */
+        afterContent: string;
+        /** title: 对比窗口标题。 */
+        title: string;
+    }) => Promise<void>;
+}
+
 declare global {
     interface Window {
         /**
          * zhixinDesktop: Electron preload 暴露的桌面壳桥接对象。
          */
         zhixinDesktop?: DesktopBridge;
+        /**
+         * zhixinPlugin: IDE 插件 WebView 暴露的宿主桥接对象。
+         */
+        zhixinPlugin?: IdePluginBridge;
     }
 }
 
@@ -483,19 +510,23 @@ export interface ComposerEditDiffLine {
 }
 
 /**
- * ComposerEditFile：输入区“编辑”入口的临时文件编辑记录。
+ * ComposerEditFile：输入区“编辑”入口的真实待确认编辑记录。
  *
- * 来源：后续中心服务文件写入事件或编辑摘要协议。
- * 含义：描述真实文件路径、变更类型和与上一次编辑的 diff。
+ * 来源：中心服务 `pending_edit_records` 表。
+ * 含义：描述真实文件路径、保存/撤回状态和编辑前后 diff。
  * 格式：文件记录对象。
- * 默认值：中心服务协议未齐备时为空数组。
- * 约束：待中心服务协议明确后仅接入真实编辑事件，不写入演示 diff。
+ * 默认值：中心服务没有待确认编辑时为空数组。
+ * 约束：保存和撤回必须调用中心服务接口，不能只更新前端状态。
  */
 export interface ComposerEditFile {
+    /** editId: 中心服务待确认编辑记录 ID。 */
+    editId: string;
     /** filePath: 文件相对路径或可展示路径。 */
     filePath: string;
     /** changeKind: 变更类型中文文案。 */
-    changeKind: "新增" | "编辑";
+    changeKind: string;
+    /** status: 编辑确认状态，来源于中心服务。 */
+    status: "pending" | "accepted" | "reverted" | "conflicted";
     /** previousEditLabel: 上一次编辑版本标签。 */
     previousEditLabel: string;
     /** currentEditLabel: 本次编辑版本标签。 */

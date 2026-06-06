@@ -10,7 +10,9 @@ import {
     type ComposerAttachmentDraft,
 } from "@zhixin/ui";
 import type {
+    AgentSubConversationDetail,
     EventRecord,
+    PendingEditRecord,
 } from "@zhixin/shared";
 /**
  * createConversationActions：创建对话发送、附件和实时同步相关 Pinia actions。
@@ -31,6 +33,7 @@ export function createConversationActions() {
                 return;
             }
             await this.loadActiveSessionDetail();
+            await this.loadPendingEditsForActiveSession();
         },
 
         /**
@@ -241,6 +244,129 @@ export function createConversationActions() {
         },
 
         /**
+         * loadPendingEditsForActiveSession：加载当前会话真实待确认编辑。
+         *
+         * @returns 加载完成后没有返回值。
+         */
+        async loadPendingEditsForActiveSession(): Promise<void> {
+            if (!this.activeSessionId) {
+                this.composerEditFiles = [];
+                return;
+            }
+            const result = await this.api().listPendingEdits({
+                sessionId: this.activeSessionId,
+            });
+            this.composerEditFiles = result.edits.map(mapPendingEditToComposerFile);
+        },
+
+        /**
+         * saveComposerEditFile：确认保存单个文件编辑。
+         *
+         * @param editId 编辑记录 ID。
+         * @returns 没有返回值。
+         */
+        async saveComposerEditFile(editId: string): Promise<void> {
+            await this.api().savePendingEdit({
+                editId,
+            });
+            await this.loadPendingEditsForActiveSession();
+        },
+
+        /**
+         * revertComposerEditFile：撤回单个文件编辑。
+         *
+         * @param editId 编辑记录 ID。
+         * @returns 没有返回值。
+         */
+        async revertComposerEditFile(editId: string): Promise<void> {
+            await this.api().revertPendingEdit({
+                editId,
+            });
+            await this.loadPendingEditsForActiveSession();
+        },
+
+        /**
+         * saveAllComposerEditFiles：确认保存当前会话全部待确认编辑。
+         *
+         * @returns 没有返回值。
+         */
+        async saveAllComposerEditFiles(): Promise<void> {
+            if (!this.activeSessionId) {
+                return;
+            }
+            await this.api().saveAllPendingEdits({
+                sessionId: this.activeSessionId,
+            });
+            await this.loadPendingEditsForActiveSession();
+        },
+
+        /**
+         * revertAllComposerEditFiles：撤回当前会话全部待确认编辑。
+         *
+         * @returns 没有返回值。
+         */
+        async revertAllComposerEditFiles(): Promise<void> {
+            if (!this.activeSessionId) {
+                return;
+            }
+            await this.api().revertAllPendingEdits({
+                sessionId: this.activeSessionId,
+            });
+            await this.loadPendingEditsForActiveSession();
+        },
+
+        /**
+         * openComposerEditDiff：打开 Web 或 IDE 编辑对比。
+         *
+         * @param editId 编辑记录 ID。
+         * @returns 对比文本，Web 端可用于弹框展示。
+         */
+        async openComposerEditDiff(editId: string): Promise<string> {
+            const diff = await this.api().getPendingEditDiff({
+                editId,
+            });
+            const ideBridge = window.zhixinPlugin;
+            if (ideBridge?.openEditDiff) {
+                await ideBridge.openEditDiff({
+                    filePath: diff.filePath,
+                    beforeContent: diff.beforeContent,
+                    afterContent: diff.afterContent,
+                    title: `致心编辑对比：${diff.filePath}`,
+                });
+            }
+            return diff.diffText;
+        },
+
+        /**
+         * loadAgentSubConversation：读取当前会话内某智能体独立子对话。
+         *
+         * @param payload 主会话和智能体身份。
+         * @returns 智能体子对话详情。
+         */
+        async loadAgentSubConversation(payload: {
+            parentSessionId: string;
+            agentId: string;
+            agentName: string;
+        }): Promise<AgentSubConversationDetail> {
+            return this.api().getAgentSubConversation(payload);
+        },
+
+        /**
+         * sendAgentSubConversationMessage：向智能体独立子对话发送消息。
+         *
+         * @param payload 主会话、智能体和正文。
+         * @returns 更新后的智能体子对话详情。
+         */
+        async sendAgentSubConversationMessage(payload: {
+            parentSessionId: string;
+            agentId: string;
+            agentName: string;
+            contentMarkdown: string;
+        }): Promise<AgentSubConversationDetail> {
+            return this.api().sendAgentSubConversationMessage(payload);
+        },
+
+        /**
          * connectRealtime：建立 WebSocket 实时同步连接。
          *
          * @returns 没有返回值。
@@ -391,5 +517,40 @@ export function createConversationActions() {
             };
             return labels[status] ?? "未知状态";
         },
+    };
+}
+
+/**
+ * mapPendingEditToComposerFile：把中心服务编辑记录转换为输入区展示模型。
+ *
+ * @param record 中心服务待确认编辑记录。
+ * @returns 输入区编辑文件行。
+ */
+function mapPendingEditToComposerFile(record: PendingEditRecord) {
+    return {
+        editId: record.editId,
+        filePath: record.filePath,
+        changeKind: record.changeKind,
+        status: record.status,
+        previousEditLabel: "编辑前",
+        currentEditLabel: "当前文件",
+        diffLines: [
+            ...Array.from({
+                length: record.removedLines,
+            }, (_, index) => {
+                return {
+                    kind: "removed" as const,
+                    content: `-${index + 1}`,
+                };
+            }),
+            ...Array.from({
+                length: record.addedLines,
+            }, (_, index) => {
+                return {
+                    kind: "added" as const,
+                    content: `+${index + 1}`,
+                };
+            }),
+        ],
     };
 }

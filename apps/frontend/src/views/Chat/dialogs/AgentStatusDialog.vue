@@ -86,9 +86,7 @@ const treeNodes = props.rows.filter((row) => {
           <template #default="{ data }">
             <span class="composer-agent-node">
               <strong>{{ data.name }}</strong>
-              <span>{{ data.nodeKind }} · {{ data.status }}</span>
-              <small>{{ data.taskSummary }}</small>
-              <small>{{ data.conversationHint }}</small>
+              <span>{{ data.status }}</span>
             </span>
           </template>
         </el-tree>
@@ -134,7 +132,7 @@ const treeNodes = props.rows.filter((row) => {
 }
 
 .agent-status-el-tree {
-  --el-tree-node-hover-bg-color: var(--zhixin-hover-bg);
+  --el-tree-node-hover-bg-color: transparent;
   overflow-y: visible;
 }
 
@@ -162,32 +160,21 @@ const treeNodes = props.rows.filter((row) => {
   padding-top: 7px;
   padding-right: 10px;
   padding-bottom: 7px;
-  border: 1px solid var(--zhixin-border);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--zhixin-soft-bg);
+  background: transparent;
   color: var(--zhixin-text);
   text-align: left;
   cursor: pointer;
 }
 
-.composer-agent-node:hover {
-  border-color: var(--zhixin-selected-border);
-  background: var(--zhixin-hover-bg);
-}
-
 .composer-agent-node span,
-.composer-agent-node strong,
-.composer-agent-node small {
+.composer-agent-node strong {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.composer-agent-node small {
-  color: var(--zhixin-text-soft);
-  font-size: 12px;
 }
 
 </style>

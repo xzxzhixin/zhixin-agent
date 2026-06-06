@@ -660,6 +660,123 @@ export interface EventRecord {
 }
 
 /**
+ * AgentSubConversationMessage：智能体子对话消息。
+ *
+ * 来源：SQLite `agent_sub_conversation_messages` 表。
+ * 含义：当前主会话内某个 agentId 独立子对话的可展示消息。
+ * 格式：JSON 对象。
+ * 默认值：无消息时返回空数组。
+ * 约束：parentSessionId 和 agentId 必须同时限定，不能混入主会话消息。
+ */
+export interface AgentSubConversationMessage {
+  /** messageId: 子对话消息 ID，来源于中心服务生成。 */
+  messageId: string;
+  /** parentSessionId: 所属主会话 ID，来源于当前对话窗口。 */
+  parentSessionId: string;
+  /** agentId: 所属智能体 ID，来源于智能体状态节点。 */
+  agentId: string;
+  /** role: 消息角色，沿用主会话消息角色枚举。 */
+  role: MessageRole;
+  /** contentMarkdown: Markdown 消息正文。 */
+  contentMarkdown: string;
+  /** createdAt: 创建时间，ISO 8601 字符串。 */
+  createdAt: string;
+}
+
+/**
+ * AgentSubConversationDetail：智能体子对话详情。
+ *
+ * 来源：`POST /api/agent-sub-conversation/detail`。
+ * 含义：返回当前主会话内指定智能体的独立消息流。
+ * 格式：JSON 对象。
+ * 默认值：首次打开时 messages 为空数组。
+ * 约束：只能按 parentSessionId + agentId 查询。
+ */
+export interface AgentSubConversationDetail {
+  /** parentSessionId: 当前主会话 ID。 */
+  parentSessionId: string;
+  /** agentId: 当前智能体 ID。 */
+  agentId: string;
+  /** agentName: 当前智能体展示名称，来源于前端状态节点或中心服务索引。 */
+  agentName: string;
+  /** messages: 当前智能体在当前主会话内的子对话消息。 */
+  messages: AgentSubConversationMessage[];
+}
+
+/**
+ * PendingEditStatus：待确认编辑状态。
+ *
+ * 来源：SQLite `pending_edit_records.status`。
+ * 含义：描述本次编辑是否仍可保存、撤回或已经结束。
+ * 格式：固定字符串枚举。
+ * 默认值：pending。
+ * 约束：accepted 和 reverted 都不能再次撤回。
+ */
+export type PendingEditStatus =
+  | "pending"
+  | "accepted"
+  | "reverted"
+  | "conflicted";
+
+/**
+ * PendingEditRecord：待确认编辑记录。
+ *
+ * 来源：SQLite `pending_edit_records` 表。
+ * 含义：保存文件编辑前后内容，用于真实保存、撤回和对比。
+ * 格式：JSON 对象。
+ * 默认值：无编辑时列表为空。
+ * 约束：filePath 必须是中心服务可访问的绝对路径或项目内明确路径。
+ */
+export interface PendingEditRecord {
+  /** editId: 编辑记录 ID，来源于中心服务生成。 */
+  editId: string;
+  /** sessionId: 所属主会话 ID。 */
+  sessionId: string;
+  /** agentId: 产生编辑的智能体 ID；主智能体或未知来源时为 null。 */
+  agentId: string | null;
+  /** filePath: 被编辑文件路径。 */
+  filePath: string;
+  /** changeKind: 编辑类型中文摘要，例如 修改、新增、删除。 */
+  changeKind: string;
+  /** beforeContent: 编辑前文件内容，用于撤回和对比。 */
+  beforeContent: string;
+  /** afterContent: 编辑后文件内容，用于保存确认和冲突判断。 */
+  afterContent: string;
+  /** status: 当前编辑确认状态。 */
+  status: PendingEditStatus;
+  /** addedLines: diff 中新增行数。 */
+  addedLines: number;
+  /** removedLines: diff 中删除行数。 */
+  removedLines: number;
+  /** createdAt: 创建时间，ISO 8601 字符串。 */
+  createdAt: string;
+  /** updatedAt: 更新时间，ISO 8601 字符串。 */
+  updatedAt: string;
+}
+
+/**
+ * PendingEditDiff：编辑前后对比结果。
+ *
+ * 来源：`POST /api/edit-pending/diff`。
+ * 含义：Web 端展示 diff，IDE 端桥接原生 diff 视图。
+ * 格式：before/after 文本和行级 diff。
+ * 默认值：无。
+ * 约束：不能从当前文件重新猜 before，必须使用编辑记录保存的 beforeContent。
+ */
+export interface PendingEditDiff {
+  /** editId: 编辑记录 ID。 */
+  editId: string;
+  /** filePath: 被编辑文件路径。 */
+  filePath: string;
+  /** beforeContent: 编辑前内容。 */
+  beforeContent: string;
+  /** afterContent: 编辑后内容。 */
+  afterContent: string;
+  /** diffText: 统一 diff 文本，用于 Web 展示。 */
+  diffText: string;
+}
+
+/**
  * DeleteProjectResult：项目删除结果。
  *
  * 来源：`POST /api/project/delete`。

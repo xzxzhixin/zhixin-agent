@@ -3,6 +3,9 @@ package top.xzxsrq.agent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.ide.ui.LafManager;
+import com.intellij.diff.DiffContentFactory;
+import com.intellij.diff.DiffManager;
+import com.intellij.diff.requests.SimpleDiffRequest;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -97,6 +100,31 @@ public final class ZhixinPluginBridge implements PluginPageBridge {
         int lineIndex = Math.max(link.startLine() - 1, 0);
         // LOGGER：不同 IDEA SDK 的文件打开 API 签名差异较大，当前先记录可审计定位请求，后续由宿主适配层补具体打开动作。
         LOGGER.info("致心内部文件定位：" + targetPath + "#" + lineIndex);
+    }
+
+    /**
+     * openEditDiff：使用 IDEA 原生 Diff 视图展示编辑前后内容。
+     *
+     * @param payload 编辑前后内容和文件路径。
+     */
+    @Override
+    public void openEditDiff(EditDiffPayload payload) {
+        // title：前端传入可读标题；为空时使用固定标题，避免 Diff 窗口缺少上下文。
+        String title = payload.title() == null || payload.title().trim().isEmpty()
+                ? "致心编辑对比"
+                : payload.title();
+        // factory：IDEA DiffContentFactory 根据当前项目创建文本内容，便于跟随宿主主题和字体。
+        DiffContentFactory factory = DiffContentFactory.getInstance();
+        SimpleDiffRequest request = new SimpleDiffRequest(
+                title,
+                factory.create(project, payload.beforeContent()),
+                factory.create(project, payload.afterContent()),
+                "编辑前",
+                "编辑后"
+        );
+        // showDiff：真正交给 IDEA 宿主打开原生对比，而不是在插件 WebView 里伪造 IDE diff。
+        DiffManager.getInstance().showDiff(project, request);
+        LOGGER.info("打开致心编辑对比：" + payload.filePath());
     }
 
     /**

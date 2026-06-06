@@ -90,6 +90,8 @@ function extractCssRule(
 
 // chatPage: 对话页入口，承载 token 外显、三入口和两个下拉控件。
 const chatPage = readText("apps/frontend/src/views/Chat/RouterIndex.vue");
+// chatConversationPanel: 完整共享对话组件，承载消息、时间线、三入口和输入区。
+const chatConversationPanel = readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
 // chatHelpers: 对话页辅助函数，承载 token tooltip 文案。
 const chatHelpers = readText("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // chatStyle: 对话页专属样式，承载输入区与浮层视觉边界。
@@ -123,34 +125,57 @@ const composerToolbarRule = extractCssRule(
 const globalStyle = readText("apps/frontend/src/styles.css");
 // planDoc: 计划事实源，必须记录本轮已完成的 UI 回归任务。
 const planDoc = readText("计划.md");
+// agentConversationDialog: 智能体对话弹框，必须复用完整对话组件。
+const agentConversationDialog = readText("apps/frontend/src/views/Chat/dialogs/AgentConversationDialog.vue");
+// sharedConversationPanel: 主对话和智能体对话弹框共用完整对话组件。
+const sharedConversationPanel = fs.existsSync(path.join(process.cwd(), "apps/frontend/src/views/Chat/components/ChatConversationPanel.vue"))
+  ? readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue")
+  : "";
+// sharedTypes: 共享协议类型必须包含智能体子对话与待确认编辑记录。
+const sharedTypes = readText("packages/shared/src/index.ts");
+// apiClient: API client 必须暴露智能体子对话和编辑记录真实接口。
+const apiClient = readText("packages/api-client/src/index.ts");
+// centerRoutes: 中心服务路由必须注册智能体子对话和编辑记录接口，允许按职责拆到独立路由文件。
+const centerRoutes = [
+  readText("services/center/src/api-routes.ts"),
+  readText("services/center/src/agent-edit-routes.ts"),
+].join("\n");
+// centerEditDomain: 中心服务编辑领域，必须负责真实文件编辑后的待确认记录落库。
+const centerEditDomain = fs.existsSync(path.join(process.cwd(), "services/center/src/agent-edit-domain.ts"))
+  ? readText("services/center/src/agent-edit-domain.ts")
+  : "";
+// centerDatabase: 中心服务数据库层必须创建真实持久表。
+const centerDatabase = readText("services/center/src/database.ts");
+// ideaBridge: IDEA 宿主桥接必须提供原生 diff 打开能力。
+const ideaBridge = readText("plugins/idea/src/main/java/top/xzxsrq/agent/ZhixinPluginBridge.java");
 
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "composerContextPercentText",
   "token 外显必须拆出只用于外部展示的百分比文本。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "el-progress",
   "token 外显必须改用 Element Plus 进度组件。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "type=\"circle\"",
   "token 外显必须使用 Element Plus 圆形进度组件。",
 );
 assertNotIncludes(
-  chatPage,
+  chatConversationPanel,
   "composer-context-ring",
   "token 外显不能继续使用手写边框进度圈。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "composer-context-percent",
   "token 外显必须包含百分比节点。",
 );
 assertNotIncludes(
-  chatPage,
+  chatConversationPanel,
   "上下文 {{ composerContextUsageText }}",
   "token 外显不能继续显示“上下文 + 已用 / 上限”长文本。",
 );
@@ -243,17 +268,17 @@ const agentStatusDialog = readText("apps/frontend/src/views/Chat/dialogs/AgentSt
 const taskDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
 const editDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "blurComposerInput();",
   "打开任务、智能体或编辑浮层时必须释放输入框焦点。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "composerInputRef",
   "输入框必须保留组件引用，供浮层打开时 blur。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationPanel,
   "ref=\"composerInputRef\"",
   "输入框组件必须绑定 ref，避免只更新聚焦状态但真实输入仍激活。",
 );
@@ -312,6 +337,21 @@ assertNotIncludes(
   ".composer-agent-node.active",
   "智能体浮层不能保留自定义激活节点样式。",
 );
+assertNotIncludes(
+  agentStatusDialog,
+  "data.taskSummary",
+  "智能体浮层节点只显示智能体名称和状态，不能展示任务说明。",
+);
+assertNotIncludes(
+  agentStatusDialog,
+  "data.conversationHint",
+  "智能体浮层节点只显示智能体名称和状态，不能展示对话提示。",
+);
+assertNotIncludes(
+  agentStatusDialog,
+  ".composer-agent-node:hover",
+  "智能体浮层鼠标悬停不能再改变边框或背景形成激活感。",
+);
 assertIncludes(
   agentStatusDialog,
   ":deep(.agent-status-el-tree .el-tree-node__content)",
@@ -334,13 +374,48 @@ assertNotIncludes(
 );
 assertIncludes(
   editDetailDialog,
-  "composer-edit-text-list",
-  "编辑浮层必须使用文字列表替代旧图标或 diff 预览浮层。",
+  "composer-edit-actionbar",
+  "编辑浮层必须提供 CCGUI 风格顶部操作条。",
 );
 assertIncludes(
   editDetailDialog,
-  "本轮编辑摘要",
-  "编辑浮层必须用文字说明当前编辑内容。",
+  "撤回全部",
+  "编辑浮层必须实现撤回全部入口。",
+);
+assertIncludes(
+  editDetailDialog,
+  "保存全部",
+  "编辑浮层必须实现保存全部入口。",
+);
+assertIncludes(
+  editDetailDialog,
+  "composer-edit-row",
+  "编辑浮层必须使用紧凑文件变更列表行。",
+);
+assertIncludes(
+  editDetailDialog,
+  "composer-edit-stat",
+  "编辑浮层必须展示每个文件的增删统计。",
+);
+assertIncludes(
+  editDetailDialog,
+  "revert-all",
+  "编辑浮层必须向页面暴露撤回全部事件。",
+);
+assertIncludes(
+  editDetailDialog,
+  "save-all",
+  "编辑浮层必须向页面暴露保存全部事件。",
+);
+assertNotIncludes(
+  editDetailDialog,
+  "el-empty",
+  "编辑浮层不能继续展示 Element Plus 大插画空态。",
+);
+assertNotIncludes(
+  editDetailDialog,
+  "composer-edit-description",
+  "编辑浮层不能继续展示大段说明文案。",
 );
 assertIncludes(
   editDetailDialog,
@@ -356,6 +431,191 @@ assertNotIncludes(
   editDetailDialog,
   "overflow-y: auto;",
   "编辑浮层内部不能保留 overflow-y: auto。",
+);
+assertIncludes(
+  chatConversationPanel,
+  "closeComposerMiniDialogOnInputFocus",
+  "点击输入框时必须关闭已打开的三入口浮层。",
+);
+assertIncludes(
+  chatPage,
+  "ChatConversationPanel",
+  "主对话页必须通过完整共享对话组件渲染消息、时间线、浮层和输入区。",
+);
+assertIncludes(
+  agentConversationDialog,
+  "ChatConversationPanel",
+  "智能体对话弹框必须复用完整共享对话组件。",
+);
+assertNotIncludes(
+  agentConversationDialog,
+  ":messages=\"selectedAgentConversationMessages\"",
+  "智能体对话弹框不能接收主会话消息列表。",
+);
+assertNotIncludes(
+  chatPage,
+  "selectedAgentConversationMessages",
+  "主对话页不能把主会话消息映射给智能体弹框。",
+);
+assertNotIncludes(
+  chatPage,
+  "仍通过当前会话发送",
+  "智能体弹框发送必须进入智能体子对话 API，不能继续回写主会话。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "conversation-timeline",
+  "共享完整对话组件必须包含内容区左侧时间线。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "message-list",
+  "共享完整对话组件必须包含消息内容区。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "composer-shell",
+  "共享完整对话组件必须包含完整输入区。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "AgentStatusDialog",
+  "共享完整对话组件必须包含智能体浮层入口。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "EditDetailDialog",
+  "共享完整对话组件必须包含编辑浮层入口。",
+);
+assertIncludes(
+  sharedTypes,
+  "AgentSubConversationDetail",
+  "共享协议必须定义当前主会话内按 agentId 隔离的智能体子对话详情。",
+);
+assertIncludes(
+  sharedTypes,
+  "PendingEditRecord",
+  "共享协议必须定义可保存、撤回和对比的待确认编辑记录。",
+);
+assertIncludes(
+  apiClient,
+  "getAgentSubConversation",
+  "API client 必须提供智能体子对话详情接口。",
+);
+assertIncludes(
+  apiClient,
+  "sendAgentSubConversationMessage",
+  "API client 必须提供智能体子对话发送接口。",
+);
+assertIncludes(
+  apiClient,
+  "listPendingEdits",
+  "API client 必须提供待确认编辑列表接口。",
+);
+assertIncludes(
+  apiClient,
+  "savePendingEdit",
+  "API client 必须提供单文件保存接口。",
+);
+assertIncludes(
+  apiClient,
+  "revertPendingEdit",
+  "API client 必须提供单文件撤回接口。",
+);
+assertIncludes(
+  apiClient,
+  "getPendingEditDiff",
+  "API client 必须提供编辑前后对比接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "/api/agent-sub-conversation/detail",
+  "中心服务必须注册智能体子对话详情接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "/api/agent-sub-conversation/message/send",
+  "中心服务必须注册智能体子对话发送接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "/api/edit-pending/list",
+  "中心服务必须注册待确认编辑列表接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "/api/edit-pending/save",
+  "中心服务必须注册待确认编辑保存接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "/api/edit-pending/revert",
+  "中心服务必须注册待确认编辑撤回接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "/api/edit-pending/diff",
+  "中心服务必须注册待确认编辑对比接口。",
+);
+assertIncludes(
+  centerDatabase,
+  "agent_sub_conversation_messages",
+  "中心服务数据库必须创建智能体子对话消息事实表。",
+);
+assertIncludes(
+  centerDatabase,
+  "pending_edit_records",
+  "中心服务数据库必须创建待确认编辑事实表。",
+);
+assertIncludes(
+  centerEditDomain,
+  "recordPendingFileEdit",
+  "中心服务必须提供真实文件编辑后的待确认记录写入能力。",
+);
+assertIncludes(
+  centerEditDomain,
+  "INSERT INTO pending_edit_records",
+  "真实文件编辑发生后必须向 pending_edit_records 落库，不能只提供空列表接口。",
+);
+assertIncludes(
+  centerRoutes,
+  "revertPendingEdit",
+  "中心服务待确认编辑撤回必须走真实文件恢复逻辑。",
+);
+assertIncludes(
+  centerRoutes,
+  "PENDING_EDIT_FILE_MISSING",
+  "撤回编辑时必须处理文件缺失，不能让读取异常直接打断路由。",
+);
+assertIncludes(
+  centerRoutes,
+  "PENDING_EDIT_CONFLICT",
+  "撤回编辑时必须检测当前文件已再次变更的冲突。",
+);
+assertIncludes(
+  ideaBridge,
+  "openEditDiff",
+  "IDEA 插件桥接必须提供打开编辑前后对比的原生 diff 能力。",
+);
+assertNotIncludes(
+  agentConversationDialog,
+  "agent-dialog-composer-shell",
+  "智能体对话弹框不能保留独立输入框外壳。",
+);
+assertNotIncludes(
+  agentConversationDialog,
+  "agent-dialog-entry-strip",
+  "智能体对话弹框不能保留独立三入口条。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "class=\"composer-shell\"",
+  "共享完整对话组件必须承载主输入框外壳。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "composer-context-progress",
+  "共享完整对话组件必须承载上下文进度显示。",
 );
 assertIncludes(
   chatStyle,

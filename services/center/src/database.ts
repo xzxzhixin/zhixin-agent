@@ -277,6 +277,88 @@ export class CenterDatabase {
                 NULL
             );
 
+            CREATE TABLE IF NOT EXISTS agent_sub_conversation_messages
+            (
+                id
+                TEXT
+                PRIMARY
+                KEY,
+                parent_session_id
+                TEXT
+                NOT
+                NULL,
+                agent_id
+                TEXT
+                NOT
+                NULL,
+                agent_name
+                TEXT
+                NOT
+                NULL,
+                role
+                TEXT
+                NOT
+                NULL,
+                content_markdown
+                TEXT
+                NOT
+                NULL,
+                created_at
+                TEXT
+                NOT
+                NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_edit_records
+            (
+                id
+                TEXT
+                PRIMARY
+                KEY,
+                session_id
+                TEXT
+                NOT
+                NULL,
+                agent_id
+                TEXT,
+                file_path
+                TEXT
+                NOT
+                NULL,
+                change_kind
+                TEXT
+                NOT
+                NULL,
+                before_content
+                TEXT
+                NOT
+                NULL,
+                after_content
+                TEXT
+                NOT
+                NULL,
+                status
+                TEXT
+                NOT
+                NULL,
+                added_lines
+                INTEGER
+                NOT
+                NULL,
+                removed_lines
+                INTEGER
+                NOT
+                NULL,
+                created_at
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
+
             CREATE TABLE IF NOT EXISTS conversation_turns
             (
                 id

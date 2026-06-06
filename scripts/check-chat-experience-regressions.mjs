@@ -112,6 +112,13 @@ function assertNotIncludes(
 
 // chatPage: 对话页路由入口源码。
 const chatPage = readText("apps/frontend/src/views/Chat/RouterIndex.vue");
+// chatConversationPanel: 抽出的完整对话组件源码，承载消息区、时间线和输入区。
+const chatConversationPanel = readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
+// chatConversationSurface: 对话页面实际渲染面，允许检查跟随组件拆分后的源码信号。
+const chatConversationSurface = [
+  chatPage,
+  chatConversationPanel,
+].join("\n");
 // chatHelpers: 对话页辅助函数源码。
 const chatHelpers = readText("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // conversationActions: 对话发送和实时同步 action 源码。
@@ -124,47 +131,47 @@ const chatStyle = readText("apps/frontend/src/views/Chat/style.css");
 const noTypeCompilerScript = readText("scripts/check-no-type-compiler.mjs");
 
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "messageTimelineNodes",
   "Chat 页面必须生成用户消息时间线节点。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "data-message-anchor",
   "用户消息必须建立稳定 DOM 锚点用于时间线定位。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "scrollToMessageAnchor",
   "时间线点击必须滚动定位到对应用户消息。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "timeline-target",
   "时间线点击目标用户消息必须有明确定位反馈类。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "classList.add(\"timeline-target\")",
   "时间线定位必须给目标消息添加可见高亮状态。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "classList.remove(\"timeline-target\")",
   "时间线定位反馈必须自动消退，避免长期误导用户。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "conversation-timeline",
   "Chat 页面必须渲染对话时间线容器。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "context-usage-tooltip",
   "上下文占用摘要必须提供 tooltip。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "composerFocused",
   "输入框聚焦态必须作用于输入框整体容器。",
 );
@@ -224,7 +231,7 @@ assertIncludes(
   "思考聚合行必须有明确类型。",
 );
 assertIncludes(
-  chatPage,
+  chatConversationSurface,
   "row.process.statusLabel",
   "普通流式过程卡片必须消费 helper 推导后的状态文案。",
 );

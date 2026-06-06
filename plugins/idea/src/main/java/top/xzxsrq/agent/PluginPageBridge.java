@@ -28,6 +28,13 @@ public interface PluginPageBridge {
     void openInternalFileLink(InternalFileLink link);
 
     /**
+     * openEditDiff：打开编辑前后对比。
+     *
+     * @param payload 编辑前后内容和文件路径。
+     */
+    void openEditDiff(EditDiffPayload payload);
+
+    /**
      * updateConversationTabStatus：更新当前工具窗口会话页签状态标志。
      *
      * @param sessionId 中心服务项目会话 ID。

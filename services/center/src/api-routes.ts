@@ -17,6 +17,7 @@ import {
 } from "./helpers.js";
 import {broadcastEvents} from "./realtime.js";
 import {registerSessionMessageRoute} from "./session-message-route.js";
+import {registerAgentEditRoutes} from "./agent-edit-routes.js";
 import {registerCenterSyncRoute} from "./sync-route.js";
 import {createDataAccess} from "./data-access/index.js";
 import {
@@ -453,6 +454,11 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         database,
         events,
         realtimeClients,
+    });
+    registerAgentEditRoutes({
+        app,
+        database,
+        events,
     });
 
     app.post("/api/session/pending-message/save", async (request) => {

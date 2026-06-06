@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  AgentSubConversationDetail,
   ClientType,
   ConversationMessage,
   ConversationSession,
@@ -11,9 +12,11 @@ import type {
   SessionType,
   TaskRecord,
   TaskStatus,
+  PendingEditDiff,
+  PendingEditRecord,
   TokenizerCountResponse,
-  WebSocketEnvelope,
 } from "@zhixin/shared";
+export {ReconnectingWebSocketClient} from "./websocket-client";
 
 export type {
   SessionUpdatedPayload,
@@ -747,6 +750,56 @@ export class CenterApiClient {
     return this.post("/api/session/message/send", payload);
   }
 
+  /** getAgentSubConversation：按主会话和 agentId 读取独立子对话，参数来自当前窗口智能体节点，返回中心服务事实消息。 */
+  getAgentSubConversation(payload: { parentSessionId: string; agentId: string; agentName: string; }): Promise<AgentSubConversationDetail> {
+    return this.post("/api/agent-sub-conversation/detail", payload);
+  }
+
+  /** sendAgentSubConversationMessage：向智能体子对话写入真实消息，参数来自弹框草稿，返回更新后的子对话。 */
+  sendAgentSubConversationMessage(payload: { parentSessionId: string; agentId: string; agentName: string; contentMarkdown: string; }): Promise<AgentSubConversationDetail> {
+    return this.post("/api/agent-sub-conversation/message/send", payload);
+  }
+
+  /** listPendingEdits：按会话 ID 查询待确认编辑记录，返回可保存、撤回和对比的真实文件编辑列表。 */
+  listPendingEdits(payload: { sessionId: string; }): Promise<{
+    edits: PendingEditRecord[];
+  }> {
+    return this.post("/api/edit-pending/list", payload);
+  }
+
+  /** savePendingEdit：按 editId 确认接受已写入文件的编辑，返回更新后的编辑状态。 */
+  savePendingEdit(payload: { editId: string; }): Promise<{
+    edit: PendingEditRecord;
+  }> {
+    return this.post("/api/edit-pending/save", payload);
+  }
+
+  /** saveAllPendingEdits：按 sessionId 确认接受当前会话全部待确认编辑，返回更新后的编辑列表。 */
+  saveAllPendingEdits(payload: { sessionId: string; }): Promise<{
+    edits: PendingEditRecord[];
+  }> {
+    return this.post("/api/edit-pending/save-all", payload);
+  }
+
+  /** revertPendingEdit：按 editId 恢复编辑前内容，中心服务会做当前文件内容冲突判断。 */
+  revertPendingEdit(payload: { editId: string; }): Promise<{
+    edit: PendingEditRecord;
+  }> {
+    return this.post("/api/edit-pending/revert", payload);
+  }
+
+  /** revertAllPendingEdits：按 sessionId 撤回当前会话全部待确认编辑，返回成功撤回的编辑列表。 */
+  revertAllPendingEdits(payload: { sessionId: string; }): Promise<{
+    edits: PendingEditRecord[];
+  }> {
+    return this.post("/api/edit-pending/revert-all", payload);
+  }
+
+  /** getPendingEditDiff：按 editId 读取 before/after 和统一 diff，供 Web 与 IDE diff 使用。 */
+  getPendingEditDiff(payload: { editId: string; }): Promise<PendingEditDiff> {
+    return this.post("/api/edit-pending/diff", payload);
+  }
+
   /**
    * createTemporaryAttachment：为剪贴板或拖入文件创建临时附件。
    *
@@ -759,15 +812,7 @@ export class CenterApiClient {
     sizeBytes: number;
     file?: File;
   }): Promise<TemporaryAttachmentResult> {
-    // formData：当前中心服务临时接口只消费元数据；这里保留 FormData 组装，确保后续接入二进制上传时 API 客户端边界不变。
-    const formData = new FormData();
-    formData.set("fileName", payload.fileName);
-    formData.set("mimeType", payload.mimeType);
-    formData.set("sizeBytes", String(payload.sizeBytes));
-    if (payload.file) {
-      formData.set("file", payload.file, payload.fileName);
-    }
-
+    // 当前中心服务临时接口只消费元数据，二进制上传协议接入前不伪造文件上传。
     return this.post("/api/file/temp/create", {
       fileName: payload.fileName,
       mimeType: payload.mimeType,
@@ -1377,105 +1422,5 @@ export class CenterApiError extends Error {
     super(message);
     this.name = "CenterApiError";
     this.code = code;
-  }
-}
-
-/**
- * ReconnectingWebSocketClient：中心服务 WebSocket 自动重连客户端。
- *
- * 用途：前端订阅实时事件，并在断线后按固定次数尝试重连。
- * 关键逻辑：重连次数和间隔显式配置，达到上限后进入停止状态，不无限静默重试。
- */
-export class ReconnectingWebSocketClient {
-  /**
-   * socket: 当前 WebSocket 连接。
-   */
-  private socket: WebSocket | null = null;
-
-  /**
-   * retryCount: 已重试次数。
-   */
-  private retryCount = 0;
-
-  /**
-   * constructor：保存连接配置。
-   *
-   * @param options WebSocket 连接选项。
-   */
-  constructor(private readonly options: {
-    url: string;
-    clientId: string;
-    clientType: ClientType;
-    projectId: string | null;
-    maxRetries: number;
-    retryIntervalMs: number;
-    onMessage: (message: WebSocketEnvelope) => void;
-    onStateChange: (state: "connecting" | "open" | "retrying" | "stopped") => void;
-  }) {}
-
-  /**
-   * connect：建立 WebSocket 连接。
-   *
-   * @returns 没有返回值。
-   */
-  connect(): void {
-    this.options.onStateChange("connecting");
-    this.socket = new WebSocket(this.options.url);
-    this.socket.addEventListener("open", () => {
-      this.retryCount = 0;
-      this.options.onStateChange("open");
-      this.sendHello();
-    });
-    this.socket.addEventListener("message", (event) => {
-      this.options.onMessage(JSON.parse(String(event.data)) as WebSocketEnvelope);
-    });
-    this.socket.addEventListener("close", () => {
-      this.scheduleReconnect();
-    });
-  }
-
-  /**
-   * close：主动关闭连接并停止重连。
-   *
-   * @returns 没有返回值。
-   */
-  close(): void {
-    this.retryCount = this.options.maxRetries;
-    this.socket?.close();
-    this.options.onStateChange("stopped");
-  }
-
-  /**
-   * sendHello：连接建立后发送 client.hello。
-   *
-   * @returns 没有返回值。
-   */
-  private sendHello(): void {
-    this.socket?.send(JSON.stringify({
-      type: "client.hello",
-      payload: {
-        clientId: this.options.clientId,
-        clientType: this.options.clientType,
-        projectId: this.options.projectId,
-      },
-    } satisfies WebSocketEnvelope));
-  }
-
-  /**
-   * scheduleReconnect：按固定次数和间隔重连。
-   *
-   * @returns 没有返回值。
-   */
-  private scheduleReconnect(): void {
-    if (this.retryCount >= this.options.maxRetries) {
-      this.options.onStateChange("stopped");
-      return;
-    }
-
-    this.retryCount += 1;
-    this.options.onStateChange("retrying");
-    window.setTimeout(() => {
-      this.connect();
-    }, this.options.retryIntervalMs);
   }
 }
