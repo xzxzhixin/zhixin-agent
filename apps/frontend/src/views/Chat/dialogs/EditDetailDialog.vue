@@ -27,34 +27,31 @@ const emit = defineEmits<{
   >
     <section class="composer-mini-dialog-body composer-edit-panel">
       <p class="composer-edit-description">
-        本次对话编辑的文件列表；点击文件查看本次编辑与上一次编辑之间的 diff。
+        本轮编辑摘要：以下文字列出本次对话涉及的文件、变更类型和前后版本说明。
       </p>
       <el-empty
           v-if="props.files.length === 0"
           description="暂无本次编辑"
       />
-      <button
-          v-for="file in props.files"
-          :key="file.filePath"
-          class="composer-edit-file"
-          :class="{ active: props.activeFile?.filePath === file.filePath }"
-          type="button"
-          @click="emit('select-file', file)"
+      <ul
+          v-else
+          class="composer-edit-text-list"
       >
-        <header>
-          <strong>{{ file.filePath }}</strong>
-          <span>{{ file.changeKind }} · {{ file.previousEditLabel }} → {{ file.currentEditLabel }}</span>
-        </header>
-      </button>
-      <pre
-          v-if="props.activeFile"
-          class="composer-diff-view"
-      ><code
-          v-for="line in props.activeFile.diffLines"
-          :key="`${props.activeFile.filePath}-${line.kind}-${line.content}`"
-          :class="`diff-${line.kind}`"
-      >{{ line.content }}
-</code></pre>
+        <li
+            v-for="file in props.files"
+            :key="file.filePath"
+            class="composer-edit-file"
+            :class="{ active: props.activeFile?.filePath === file.filePath }"
+        >
+          <button
+              type="button"
+              @click="emit('select-file', file)"
+          >
+            <strong>{{ file.filePath }}</strong>
+            <span>{{ file.changeKind }}，{{ file.previousEditLabel }} 调整为 {{ file.currentEditLabel }}</span>
+          </button>
+        </li>
+      </ul>
     </section>
   </section>
 </template>
@@ -72,16 +69,22 @@ const emit = defineEmits<{
   display: flex;
   min-height: 0;
   max-height: 40vh;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 10px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .composer-edit-file {
-  display: block;
+  display: flex;
   width: 100%;
+}
+
+.composer-edit-file button {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 4px;
   padding: 7px 10px;
   border: 1px solid var(--zhixin-border);
   border-radius: 8px;
@@ -91,6 +94,15 @@ const emit = defineEmits<{
   cursor: pointer;
 }
 
+.composer-edit-text-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .composer-edit-description {
   margin: 0;
   color: var(--zhixin-text-soft);
@@ -98,17 +110,10 @@ const emit = defineEmits<{
   line-height: 1.5;
 }
 
-.composer-edit-file.active,
-.composer-edit-file:hover {
+.composer-edit-file.active button,
+.composer-edit-file:hover button {
   border-color: var(--zhixin-selected-border);
   background: var(--zhixin-hover-bg);
-}
-
-.composer-edit-file header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .composer-edit-file strong,
@@ -122,34 +127,5 @@ const emit = defineEmits<{
 .composer-edit-file span {
   color: var(--zhixin-text-soft);
   font-size: 12px;
-}
-
-.composer-diff-view {
-  margin: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--zhixin-border);
-  border-radius: 8px;
-  background: var(--zhixin-soft-bg);
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.composer-diff-view code {
-  display: block;
-  font-family: Consolas, "Microsoft YaHei", monospace;
-  white-space: pre;
-}
-
-.composer-diff-view .diff-added {
-  color: #15803d;
-}
-
-.composer-diff-view .diff-removed {
-  color: #dc2626;
-}
-
-.composer-diff-view .diff-context {
-  color: var(--zhixin-text-soft);
 }
 </style>

@@ -209,11 +209,12 @@
   border-bottom: 1px solid var(--zhixin-border);
   border-radius: 12px 12px 0 0;
   background: var(--zhixin-soft-bg);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .chat-page-host .composer-entry-tab {
   display: inline-flex;
+  height: 52px;
   min-width: 0;
   flex: 1 1 0;
   align-items: center;

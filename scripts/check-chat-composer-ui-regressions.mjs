@@ -225,6 +225,43 @@ assertNotIncludes(
   "三入口条不能用 gap 造成入口与浮层左右不齐。",
 );
 const agentStatusDialog = readText("apps/frontend/src/views/Chat/dialogs/AgentStatusDialog.vue");
+const taskDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
+const editDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
+assertIncludes(
+  chatPage,
+  "blurComposerInput();",
+  "打开任务、智能体或编辑浮层时必须释放输入框焦点。",
+);
+assertIncludes(
+  chatPage,
+  "composerInputRef",
+  "输入框必须保留组件引用，供浮层打开时 blur。",
+);
+assertIncludes(
+  chatPage,
+  "ref=\"composerInputRef\"",
+  "输入框组件必须绑定 ref，避免只更新聚焦状态但真实输入仍激活。",
+);
+assertIncludes(
+  composerShellRule,
+  "border-radius: 12px;",
+  "输入框外壳必须保留完整圆角，避免顶部两个角样式丢失。",
+);
+assertIncludes(
+  composerEntryStripRule,
+  "overflow: visible;",
+  "三入口条不能裁掉输入框顶部两个圆角。",
+);
+assertIncludes(
+  taskDetailDialog,
+  "overflow: visible;",
+  "任务浮层内部不能出现自身滚动条，滚动只允许发生在外层 40vh 浮层。",
+);
+assertNotIncludes(
+  taskDetailDialog,
+  "overflow-y: auto;",
+  "任务浮层内部不能保留 overflow-y: auto。",
+);
 assertIncludes(
   agentStatusDialog,
   "max-height: 40vh;",
@@ -240,6 +277,16 @@ assertIncludes(
   ".agent-status-el-tree",
   "智能体浮层必须覆盖 Element Plus 树组件自身滚动。",
 );
+assertIncludes(
+  agentStatusDialog,
+  ":deep(.agent-status-el-tree .el-tree-node__content)",
+  "智能体浮层必须覆盖 Element Plus 树节点默认高度，避免内容被 26px 行高裁剪。",
+);
+assertIncludes(
+  agentStatusDialog,
+  "height: auto;",
+  "智能体浮层树节点必须允许内容自动撑开高度。",
+);
 assertNotIncludes(
   agentStatusDialog,
   "max-height: min(40vh, 380px);",
@@ -249,6 +296,31 @@ assertNotIncludes(
   agentStatusDialog,
   "overflow-y: auto;",
   "智能体浮层内部不能保留自身滚动条。",
+);
+assertIncludes(
+  editDetailDialog,
+  "composer-edit-text-list",
+  "编辑浮层必须使用文字列表替代旧图标或 diff 预览浮层。",
+);
+assertIncludes(
+  editDetailDialog,
+  "本轮编辑摘要",
+  "编辑浮层必须用文字说明当前编辑内容。",
+);
+assertIncludes(
+  editDetailDialog,
+  "overflow: visible;",
+  "编辑浮层内部不能出现自身滚动条，滚动只允许发生在外层 40vh 浮层。",
+);
+assertNotIncludes(
+  editDetailDialog,
+  "composer-diff-view",
+  "编辑浮层不能继续展示旧 diff 预览块。",
+);
+assertNotIncludes(
+  editDetailDialog,
+  "overflow-y: auto;",
+  "编辑浮层内部不能保留 overflow-y: auto。",
 );
 assertIncludes(
   chatStyle,
@@ -269,6 +341,11 @@ assertIncludes(
   planDoc,
   "- [x] 补齐本轮 token 外显、三入口激活大小和下拉描述回归",
   "计划.md 必须记录并勾选本轮 UI 回归任务。",
+);
+assertIncludes(
+  planDoc,
+  "- [x] 修复本轮输入区浮层滚动、编辑文字化、焦点释放和圆角回归",
+  "计划.md 必须记录并勾选本轮输入区浮层反馈修复任务。",
 );
 
 console.log("对话输入区 token、三入口和下拉描述回归检查通过。");

@@ -10,6 +10,7 @@ import {
   Plus,
 } from "@element-plus/icons-vue";
 import {
+  type ComponentPublicInstance,
   computed,
   onBeforeUnmount,
   onMounted,
@@ -79,6 +80,11 @@ const composerMiniDialogVisible = ref(false);
 const composerRootRef = ref<HTMLElement | null>(null);
 // composerMiniDialogRef：输入区小弹框节点，用于判断点击是否落在浮层内部。
 const composerMiniDialogRef = ref<HTMLElement | null>(null);
+// composerInputRef：输入区文本组件引用，仅用于打开浮层时释放真实输入焦点。
+const composerInputRef = ref<ComponentPublicInstance<{
+  /** blur：Element Plus 输入组件提供的失焦方法。 */
+  blur: () => void;
+}> | null>(null);
 // selectedAgentStatusNode：当前被点开的智能体状态节点。
 const selectedAgentStatusNode = ref<AgentStatusTreeNode | null>(null);
 // agentConversationDialogVisible：智能体完整对话弹窗显隐。
@@ -338,6 +344,7 @@ const projectCapabilityDialogRows = computed(() => {
  * @returns 没有返回值。
  */
 function openComposerMiniDialog(entry: ComposerEntryKind): void {
+  blurComposerInput();
   if (composerMiniDialogVisible.value && activeComposerEntry.value === entry) {
     composerMiniDialogVisible.value = false;
     return;
@@ -567,6 +574,17 @@ function handleProjectRowCreate(project: ProjectRecord): void {
  */
 function handleProjectGroupCreate(): void {
   void appStore.createProjectConversationFromDirectorySelection();
+}
+
+/**
+ * blurComposerInput：打开输入区浮层前释放文本输入焦点。
+ *
+ * @returns 没有返回值。
+ */
+function blurComposerInput(): void {
+  // Element Plus 的真实 textarea 会保留焦点；这里调用组件 blur，避免浮层打开后输入框仍处于激活样式。
+  composerInputRef.value?.blur();
+  composerFocused.value = false;
 }
 
 /**
@@ -1375,6 +1393,7 @@ onBeforeUnmount(() => {
 
               <section class="composer-input-row">
                 <el-input
+                    ref="composerInputRef"
                     v-model="appStore.draft.text"
                     class="composer-textarea"
                     type="textarea"

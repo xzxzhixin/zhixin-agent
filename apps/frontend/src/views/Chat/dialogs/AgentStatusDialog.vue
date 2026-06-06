@@ -142,6 +142,18 @@ const treeNodes = props.rows.filter((row) => {
   overflow-y: visible;
 }
 
+:deep(.agent-status-el-tree .el-tree-node__content) {
+  height: auto;
+  min-height: 0;
+  align-items: stretch;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+:deep(.agent-status-el-tree .el-tree-node__expand-icon) {
+  align-self: center;
+}
+
 .composer-agent-node {
   display: flex;
   width: 100%;
