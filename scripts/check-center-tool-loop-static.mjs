@@ -62,7 +62,7 @@ assertIncludes(modelGateway, "tools: request.tools.map(toAnthropicToolSpec)", "A
 assertIncludes(modelGateway, "parseModelToolCallFromText", "模型网关缺少工具调用解析");
 assertIncludes(sessionDomain, "runModelRequestedToolLoop", "会话编排缺少模型工具调用闭环");
 assertIncludes(sessionDomain, "model.tool.requested", "会话编排缺少模型工具请求事件");
-assertIncludes(sessionDomain, "continueProviderModelGatewayWithToolResult", "会话编排缺少工具结果回填模型");
+assertIncludes(sessionDomain, "continueProviderModelGatewayWithToolResults", "会话编排缺少多工具结果回填模型");
 assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时仍通过 node 文本硬编码触发工具");
 assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行时仍通过 python 文本硬编码触发工具");
 assertNotIncludes(sessionDomain, "const unifiedToolIntent = planUnifiedToolCallForUserText(userText);", "会话编排仍先按用户文本硬编码生成工具意图");

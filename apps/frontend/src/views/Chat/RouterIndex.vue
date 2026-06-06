@@ -28,6 +28,7 @@ import AgentConversationDialog from "@views/Chat/dialogs/AgentConversationDialog
 import EditDetailDialog from "@views/Chat/dialogs/EditDetailDialog.vue";
 import ProjectCapabilityDialog from "@views/Chat/dialogs/ProjectCapabilityDialog.vue";
 import {
+  createConversationRenderRows,
   createMessageTimelineNodes,
   flattenAgentTreeRows,
   formatConnectionState,
@@ -39,6 +40,7 @@ import {
   projectTooltipContent,
   resolveTaskStatusMeta,
   type AgentStatusTreeRow,
+  type ConversationRenderRow,
   type NavigationStatusMeta,
   type ThinkingProcessRow,
   type ProcessMessageGroupRow,
@@ -137,6 +139,14 @@ const thinkingProcessRows = computed<ThinkingProcessRow[]>(() => {
 // processMessageRows：把非思考事件流展示为过程消息，让流式输出在整轮完成前可见。
 const processMessageRows = computed<ProcessMessageGroupRow[]>(() => {
   return chatConversation.processMessageRows.value;
+});
+// conversationRenderRows：把用户消息、思考过程、工具过程和助手回复按同一轮次合并，避免过程记录显示到用户问题上方。
+const conversationRenderRows = computed<ConversationRenderRow[]>(() => {
+  return createConversationRenderRows(
+    messages.value,
+    thinkingProcessRows.value,
+    processMessageRows.value,
+  );
 });
 // selectedAgentConversationMessages：智能体对话列表复用当前会话消息，后续独立 API 明确后可替换来源。
 const selectedAgentConversationMessages = computed(() => {
@@ -573,12 +583,12 @@ function findTurnForMessage(message: ConversationMessage): ConversationTurn | nu
  * shouldShowTurnTimeFooter：判断当前消息后是否展示轮次时间尾注。
  *
  * @param message 当前消息。
- * @param messageIndex 当前消息索引。
+ * @param renderRowIndex 当前渲染行索引。
  * @returns 当前消息是所属轮次最后一条消息时返回 true。
  */
 function shouldShowTurnTimeFooter(
     message: ConversationMessage,
-    messageIndex: number,
+    renderRowIndex: number,
 ): boolean {
   if (!message.turnId) {
     return false;
@@ -589,8 +599,10 @@ function shouldShowTurnTimeFooter(
     return false;
   }
 
-  const nextMessage = messages.value[messageIndex + 1];
-  return !nextMessage || nextMessage.turnId !== message.turnId;
+  const nextMessage = conversationRenderRows.value.slice(renderRowIndex + 1).find((row) => {
+    return row.rowKind === "message";
+  });
+  return !nextMessage || nextMessage.message.turnId !== message.turnId;
 }
 
 /**
@@ -1133,19 +1145,22 @@ onBeforeUnmount(() => {
                 data-auto-scroll="pinned-to-bottom"
                 @scroll="updateMessageListPinnedState"
             >
-            <article
-                v-for="row in thinkingProcessRows"
+            <template
+                v-for="(row, rowIndex) in conversationRenderRows"
                 :key="row.rowId"
+            >
+            <article
+                v-if="row.rowKind === 'thinking'"
                 class="message-row process thinking"
             >
               <details
                   class="thinking-block"
-                  :open="row.defaultOpen"
+                  :open="row.thinking.defaultOpen"
               >
-                <summary>{{ row.title }} · 阶段状态：{{ row.statusLabel }} · {{ row.traceId }}</summary>
+                <summary>{{ row.thinking.title }} · 阶段状态：{{ row.thinking.statusLabel }} · {{ row.thinking.traceId }}</summary>
                 <div class="thinking-segments">
                   <p
-                      v-for="segment in row.segments"
+                      v-for="segment in row.thinking.segments"
                       :key="segment.eventId"
                   >
                     <strong>{{ segment.statusLabel }}</strong>
@@ -1155,23 +1170,22 @@ onBeforeUnmount(() => {
               </details>
             </article>
             <article
-                v-for="row in processMessageRows"
-                :key="row.rowId"
+                v-else-if="row.rowKind === 'process'"
                 :class="[
                 'message-row',
                 'process',
-                row.kind,
+                row.process.kind,
               ]"
             >
               <section class="process-card">
                 <header>
-                  <strong>{{ row.title }}</strong>
-                  <small>阶段状态：{{ row.statusLabel }} · {{ row.traceId }}</small>
+                  <strong>{{ row.process.title }}</strong>
+                  <small>阶段状态：{{ row.process.statusLabel }} · {{ row.process.traceId }}</small>
                 </header>
-                <p>{{ row.summary }}</p>
+                <p>{{ row.process.summary }}</p>
                 <div class="process-log-list">
                   <p
-                      v-for="log in row.logs"
+                      v-for="log in row.process.logs"
                       :key="log.eventId"
                   >
                     <strong>{{ log.statusLabel }}</strong>
@@ -1182,39 +1196,39 @@ onBeforeUnmount(() => {
               </section>
             </article>
             <article
-                v-for="(message, messageIndex) in messages"
-                :key="message.messageId"
+                v-else
                 :class="[
                 'message-row',
-                message.role,
+                row.message.role,
               ]"
-                :data-message-anchor="message.role === 'user' ? message.messageId : undefined"
+                :data-message-anchor="row.message.role === 'user' ? row.message.messageId : undefined"
             >
               <div
                   class="markdown-body"
-                v-html="appStore.renderMarkdown(message.contentMarkdown)"
+                v-html="appStore.renderMarkdown(row.message.contentMarkdown)"
               />
               <div
-                  v-if="isQueuedMessage(message)"
+                  v-if="isQueuedMessage(row.message)"
                   class="queued-message-actions"
               >
                 <el-button
                     size="small"
                     type="primary"
-                    @click="submitGuidanceForQueuedMessage(message)"
+                    @click="submitGuidanceForQueuedMessage(row.message)"
                 >
                   引导
                 </el-button>
               </div>
               <footer
-                  v-if="shouldShowTurnTimeFooter(message, messageIndex) && findTurnForMessage(message)"
+                  v-if="shouldShowTurnTimeFooter(row.message, rowIndex) && findTurnForMessage(row.message)"
                   class="turn-time-footer"
               >
-                {{ formatTurnTimeFooter(findTurnForMessage(message)!) }}
+                {{ formatTurnTimeFooter(findTurnForMessage(row.message)!) }}
               </footer>
             </article>
+            </template>
             <el-empty
-                v-if="messages.length === 0"
+                v-if="conversationRenderRows.length === 0"
                 description="暂无消息"
             />
             </section>

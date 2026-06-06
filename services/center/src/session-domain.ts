@@ -25,7 +25,7 @@ import {
 } from "./workflow-domain.js";
 import {refreshUsageDailyStats} from "./usage-domain.js";
 import {
-    continueProviderModelGatewayWithToolResult,
+    continueProviderModelGatewayWithToolResults,
     invokeProviderModelGateway,
     type ProviderModelGatewayResult,
 } from "./model-gateway-runtime.js";
@@ -796,103 +796,125 @@ function runModelRequestedToolLoop(
         inputSummary: string;
     } | null;
 } {
-    if (!modelResult.toolCall) {
+    if (modelResult.toolCalls.length === 0) {
         return {
             finalModelResult: modelResult,
             executedTool: null,
         };
     }
 
-    events.append({
-        eventType: "model.tool.requested",
-        scopeType: "tool",
-        scopeId: sent.taskId,
-        sessionId: sent.sessionId,
-        turnId: sent.turnId,
-        taskId: sent.taskId,
-        status: "running",
-        title: "模型请求工具",
-        summary: `模型请求调用 ${modelResult.toolCall.name}`,
-        payload: {
-            toolCallId: modelResult.toolCall.toolCallId,
-            toolName: modelResult.toolCall.name,
-            argumentsJson: modelResult.toolCall.argumentsJson,
-        },
-    });
+    const toolResults: Array<{
+        toolCall: NonNullable<ProviderModelGatewayResult["toolCall"]>;
+        resultText: string;
+        unifiedToolIntent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>;
+    }> = [];
 
-    const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(modelResult.toolCall);
-    if (!unifiedToolIntent || unifiedToolIntent.toolKind !== "command") {
+    for (const toolCall of modelResult.toolCalls) {
         events.append({
-            eventType: "model.tool.rejected",
+            eventType: "model.tool.requested",
             scopeType: "tool",
             scopeId: sent.taskId,
             sessionId: sent.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
-            status: "failed",
-            title: "模型工具请求未执行",
-            summary: "模型请求的工具不存在、不可用或当前最小闭环暂不支持。",
+            status: "running",
+            title: "模型请求工具",
+            summary: `模型请求调用 ${toolCall.name}`,
             payload: {
-                toolCallId: modelResult.toolCall.toolCallId,
-                toolName: modelResult.toolCall.name,
+                toolCallId: toolCall.toolCallId,
+                toolName: toolCall.name,
+                argumentsJson: toolCall.argumentsJson,
             },
         });
+
+        const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(toolCall);
+        if (!unifiedToolIntent || unifiedToolIntent.toolKind !== "command") {
+            events.append({
+                eventType: "model.tool.rejected",
+                scopeType: "tool",
+                scopeId: sent.taskId,
+                sessionId: sent.sessionId,
+                turnId: sent.turnId,
+                taskId: sent.taskId,
+                status: "failed",
+                title: "模型工具请求未执行",
+                summary: "模型请求的工具不存在、不可用或当前最小闭环暂不支持。",
+                payload: {
+                    toolCallId: toolCall.toolCallId,
+                    toolName: toolCall.name,
+                },
+            });
+            continue;
+        }
+
+        const commandStep = createTaskStep(
+            database,
+            events,
+            {
+                taskId: sent.taskId,
+                turnId: sent.turnId,
+                sessionId: sent.sessionId,
+                status: "running",
+                title: "命令工具执行",
+                createdAt: now,
+                updatedAt: now,
+            },
+            "命令工具执行",
+        );
+        const commandResult = runCommandTool(
+            events,
+            sent.sessionId,
+            sent.taskId,
+            sent.turnId,
+            commandRequestFromUnifiedToolIntent(unifiedToolIntent),
+        );
+        updateTaskStep(
+            database,
+            events,
+            commandStep.stepId,
+            commandResult.status,
+            commandResult.status === "completed"
+                ? `命令工具执行完成：${commandResult.outputSummary || "命令没有输出。"}`
+                : `命令工具执行失败：${commandResult.failureReason ?? "未返回失败原因。"}`,
+        );
+        toolResults.push({
+            toolCall,
+            resultText: commandResult.status === "completed"
+                ? commandResult.outputSummary || "命令没有输出。"
+                : commandResult.failureReason ?? "命令工具执行失败。",
+            unifiedToolIntent,
+        });
+    }
+
+    if (toolResults.length === 0) {
         return {
             finalModelResult: modelResult,
             executedTool: null,
         };
     }
 
-    const commandStep = createTaskStep(
-        database,
-        events,
-        {
-            taskId: sent.taskId,
-            turnId: sent.turnId,
-            sessionId: sent.sessionId,
-            status: "running",
-            title: "命令工具执行",
-            createdAt: now,
-            updatedAt: now,
-        },
-        "命令工具执行",
-    );
-    const commandResult = runCommandTool(
-        events,
-        sent.sessionId,
-        sent.taskId,
-        sent.turnId,
-        commandRequestFromUnifiedToolIntent(unifiedToolIntent),
-    );
-    updateTaskStep(
-        database,
-        events,
-        commandStep.stepId,
-        commandResult.status,
-        commandResult.status === "completed"
-            ? `命令工具执行完成：${commandResult.outputSummary || "命令没有输出。"}`
-            : `命令工具执行失败：${commandResult.failureReason ?? "未返回失败原因。"}`,
-    );
-
-    const finalModelResult = continueProviderModelGatewayWithToolResult(
+    const finalModelResult = continueProviderModelGatewayWithToolResults(
         database,
         events,
         sent.sessionId,
         sent.taskId,
         sent.turnId,
         userText,
-        modelResult.toolCall,
-        commandResult.status === "completed"
-            ? commandResult.outputSummary || "命令没有输出。"
-            : commandResult.failureReason ?? "命令工具执行失败。",
+        toolResults.map((toolResult) => {
+            return {
+                toolCall: toolResult.toolCall,
+                resultText: toolResult.resultText,
+            };
+        }),
     );
+    const firstToolResult = toolResults[0];
 
     return {
         finalModelResult,
         executedTool: {
-            toolId: unifiedToolIntent.toolId,
-            toolKind: unifiedToolIntent.toolKind,
-            inputSummary: unifiedToolIntent.inputSummary,
+            toolId: firstToolResult.unifiedToolIntent.toolId,
+            toolKind: firstToolResult.unifiedToolIntent.toolKind,
+            inputSummary: firstToolResult.unifiedToolIntent.inputSummary,
         },
     };
 }

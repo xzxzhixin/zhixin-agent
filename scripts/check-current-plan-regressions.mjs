@@ -212,7 +212,7 @@ assertIncludes(
 );
 assertIncludes(
   "services/center/src/session-domain.ts",
-  "continueProviderModelGatewayWithToolResult",
+  "continueProviderModelGatewayWithToolResults",
   "命令工具真实执行结果必须回填模型后再生成助手最终回复。",
 );
 assertNotIncludes(

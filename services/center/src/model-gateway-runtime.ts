@@ -36,8 +36,10 @@ export interface ProviderModelGatewayResult {
         cacheMissTokens: number | null;
         rawUsage: unknown;
     } | null;
-    /** toolCall: 模型请求的工具调用；没有工具请求时为 null。 */
+    /** toolCall: 模型请求的首个工具调用；没有工具请求时为 null。 */
     toolCall: ModelToolCall | null;
+    /** toolCalls: 模型请求的全部工具调用；没有工具请求时为空数组。 */
+    toolCalls: ModelToolCall[];
 }
 
 interface ResolvedProviderModelRuntime {
@@ -57,6 +59,10 @@ interface ProviderModelGatewayHttpResult {
     assistantText: string;
     /** usage: 供应商返回的真实用量；未提供时为 null。 */
     usage: ProviderModelGatewayResult["usage"];
+    /** toolCall: 供应商标准首个工具调用；未请求工具时为 null。 */
+    toolCall: ModelToolCall | null;
+    /** toolCalls: 供应商标准工具调用数组；未请求工具时为空数组。 */
+    toolCalls: ModelToolCall[];
 }
 
 /**
@@ -95,11 +101,12 @@ export function invokeProviderModelGateway(
         taskId,
         status: "completed",
         title: "模型编排",
-        summary: result.toolCall ? "中心服务已收到模型工具调用请求。" : "中心服务已准备模型网关调用。",
+        summary: result.toolCalls.length > 0 ? "中心服务已收到模型工具调用请求。" : "中心服务已准备模型网关调用。",
         payload: {
             providerId: result.providerId,
             model: result.model,
             toolCallName: result.toolCall?.name ?? null,
+            toolCallCount: result.toolCalls.length,
             assistantTextPreview: result.assistantText.slice(0, 120),
         },
     });
@@ -184,6 +191,87 @@ export function continueProviderModelGatewayWithToolResult(
 }
 
 /**
+ * continueProviderModelGatewayWithToolResults：把多个工具结果一次性回填给模型。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件日志仓储。
+ * @param sessionId 会话 ID。
+ * @param taskId 任务 ID。
+ * @param turnId 轮次 ID。
+ * @param userText 用户原始输入。
+ * @param toolResults 模型工具调用和执行结果摘要。
+ * @returns 模型网关最终回复。
+ */
+export function continueProviderModelGatewayWithToolResults(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    sessionId: string,
+    taskId: string,
+    turnId: string,
+    userText: string,
+    toolResults: Array<{
+        toolCall: ModelToolCall;
+        resultText: string;
+    }>,
+): ProviderModelGatewayResult {
+    const runtime = resolveProviderModelRuntime(database, taskId);
+    const requestPayload = buildModelRequestPayload(
+        userText,
+        runtime.provider.providerId,
+        runtime.modelSelection.model,
+        runtime.modelSelection.reasoningEffort,
+        listAvailableModelToolSpecs(),
+    );
+    requestPayload.messages.push({
+        role: "assistant",
+        toolCalls: toolResults.map((toolResult) => {
+            return toolResult.toolCall;
+        }),
+        content: [
+            {
+                type: "text",
+                text: `已请求 ${toolResults.length} 个工具。`,
+            },
+        ],
+    });
+    for (const toolResult of toolResults) {
+        requestPayload.messages.push({
+            role: "tool",
+            content: [
+                {
+                    type: "tool_result",
+                    toolCallId: toolResult.toolCall.toolCallId,
+                    resultText: toolResult.resultText,
+                },
+            ],
+        });
+    }
+
+    events.append({
+        eventType: "model.tool.result.appended",
+        scopeType: "model",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "completed",
+        title: "工具结果回填模型",
+        summary: `已回填 ${toolResults.length} 个工具结果。`,
+        payload: {
+            toolResults: toolResults.map((toolResult) => {
+                return {
+                    toolCallId: toolResult.toolCall.toolCallId,
+                    toolName: toolResult.toolCall.name,
+                    resultSummary: toolResult.resultText.slice(0, 240),
+                };
+            }),
+        },
+    });
+
+    return sendProviderModelRequest(runtime, requestPayload);
+}
+
+/**
  * resolveProviderModelRuntime：解析一次模型调用所需供应商、中心目录和模型选择。
  *
  * @param database 中心服务数据库。
@@ -238,13 +326,19 @@ function sendProviderModelRequest(
         provider.protocolMode,
     );
 
+    const textToolCalls = parseModelToolCallsFromText(httpResult.assistantText);
+    const toolCalls = [
+        ...httpResult.toolCalls,
+        ...textToolCalls,
+    ];
     return {
         providerId: provider.providerId,
         model: modelSelection.model,
         reasoningEffort: modelSelection.reasoningEffort,
         assistantText: httpResult.assistantText,
         usage: httpResult.usage ?? buildUsageSummary(readUserTextFromRequest(requestPayload), httpResult.assistantText, provider.protocolPluginId),
-        toolCall: parseModelToolCallFromText(httpResult.assistantText),
+        toolCall: toolCalls[0] ?? null,
+        toolCalls,
     };
 }
 
@@ -449,13 +543,18 @@ function parseProviderModelResponse(body: string, protocolMode: string): Provide
     const assistantText = protocolMode === "responses"
         ? readResponsesText(parsed)
         : readChatCompletionText(parsed);
-    if (!assistantText) {
+    const toolCalls = protocolMode === "responses"
+        ? []
+        : readChatCompletionToolCalls(parsed);
+    if (!assistantText && toolCalls.length === 0) {
         throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
     }
 
     return {
         assistantText,
         usage: normalizeProviderUsage(parsed.usage),
+        toolCall: toolCalls[0] ?? null,
+        toolCalls,
     };
 }
 
@@ -507,6 +606,71 @@ function readChatCompletionText(parsed: Record<string, unknown>): string {
     }).join("");
 }
 
+/**
+ * readChatCompletionToolCall：解析 OpenAI 兼容 chat-completions 标准工具调用。
+ *
+ * @param parsed 供应商原始响应 JSON。
+ * @returns 内部模型工具调用；没有标准工具调用或参数非法时返回 null。
+ */
+function readChatCompletionToolCalls(parsed: Record<string, unknown>): ModelToolCall[] {
+    const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
+    const firstChoice = choices[0];
+    if (typeof firstChoice !== "object" || firstChoice === null) {
+        return [];
+    }
+    const message = (firstChoice as { message?: unknown }).message;
+    if (typeof message !== "object" || message === null) {
+        return [];
+    }
+    const toolCalls = Array.isArray((message as { tool_calls?: unknown }).tool_calls)
+        ? (message as { tool_calls: unknown[] }).tool_calls
+        : [];
+    return toolCalls.map((toolCall) => {
+        if (typeof toolCall !== "object" || toolCall === null) {
+            return null;
+        }
+        const functionValue = (toolCall as { function?: unknown }).function;
+        if (typeof functionValue !== "object" || functionValue === null) {
+            return null;
+        }
+        const name = typeof (functionValue as { name?: unknown }).name === "string"
+            ? (functionValue as { name: string }).name
+            : "";
+        const argumentsJson = readToolArgumentsJson((functionValue as { arguments?: unknown }).arguments);
+        if (!name || !argumentsJson) {
+            return null;
+        }
+
+        return {
+            toolCallId: typeof (toolCall as { id?: unknown }).id === "string"
+                ? (toolCall as { id: string }).id
+                : randomUUID(),
+            name,
+            argumentsJson,
+        };
+    }).filter((toolCall): toolCall is ModelToolCall => {
+        return toolCall !== null;
+    });
+}
+
+/**
+ * readToolArgumentsJson：把供应商工具参数转换为内部 JSON 对象。
+ *
+ * @param rawArguments OpenAI 兼容协议中通常为 JSON 字符串的 arguments 字段。
+ * @returns 解析后的参数对象；不是对象时返回 null。
+ */
+function readToolArgumentsJson(rawArguments: unknown): Record<string, unknown> | null {
+    const parsedArguments = typeof rawArguments === "string"
+        ? tryParseJsonObject(rawArguments)
+        : typeof rawArguments === "object" && rawArguments !== null && !Array.isArray(rawArguments)
+            ? rawArguments as Record<string, unknown>
+            : null;
+    if (!parsedArguments) {
+        return null;
+    }
+    return parsedArguments;
+}
+
 function parseModelToolCallFromText(text: string): ModelToolCall | null {
     const parsed = tryParseJsonObject(text);
     const toolCall = typeof parsed?.toolCall === "object" && parsed.toolCall !== null
@@ -531,6 +695,17 @@ function parseModelToolCallFromText(text: string): ModelToolCall | null {
         name,
         argumentsJson,
     };
+}
+
+/**
+ * parseModelToolCallsFromText：兼容历史文本 JSON 工具调用格式。
+ *
+ * @param text 模型返回文本。
+ * @returns 工具调用数组；没有历史格式时为空数组。
+ */
+function parseModelToolCallsFromText(text: string): ModelToolCall[] {
+    const toolCall = parseModelToolCallFromText(text);
+    return toolCall ? [toolCall] : [];
 }
 
 function readUserTextFromRequest(request: ModelRequest): string {

@@ -127,6 +127,10 @@ export interface ProcessMessageRow {
 export interface ProcessMessageGroupRow {
     /** rowId: 过程卡片唯一 ID。 */
     rowId: string;
+    /** turnId: 所属轮次 ID，来自中心服务事件；无轮次时为 null。 */
+    turnId: string | null;
+    /** taskId: 所属任务 ID，来自中心服务事件；无任务时为 null。 */
+    taskId: string | null;
     /** kind: 过程类型。 */
     kind:
         | "stream"
@@ -180,6 +184,41 @@ export interface ThinkingProcessRow {
         summary: string;
     }>;
 }
+
+/**
+ * ConversationRenderRow：对话区统一渲染行。
+ *
+ * 来源：消息、思考事件和工具过程事件合并结果。
+ * 含义：保证同一轮用户消息先出现，过程记录居中，助手回复最后。
+ * 格式：判别联合类型。
+ * 默认值：无。
+ * 约束：不能把过程区独立渲染到全部消息之前。
+ */
+export type ConversationRenderRow =
+    | {
+        /** rowKind: 固化消息行。 */
+        rowKind: "message";
+        /** rowId: 渲染行唯一 ID。 */
+        rowId: string;
+        /** message: 中心服务固化消息。 */
+        message: ConversationMessage;
+    }
+    | {
+        /** rowKind: 思考过程行。 */
+        rowKind: "thinking";
+        /** rowId: 渲染行唯一 ID。 */
+        rowId: string;
+        /** thinking: 合并后的思考过程。 */
+        thinking: ThinkingProcessRow;
+    }
+    | {
+        /** rowKind: 工具、模型或命令过程行。 */
+        rowKind: "process";
+        /** rowId: 渲染行唯一 ID。 */
+        rowId: string;
+        /** process: 聚合后的过程卡片。 */
+        process: ProcessMessageGroupRow;
+    };
 
 /**
  * MessageTimelineNode：用户消息时间线节点。
@@ -406,6 +445,8 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         const title = resolveProcessGroupTitle(latestEvent);
         return {
             rowId: `process-${groupKey}`,
+            turnId: latestEvent.turnId,
+            taskId: latestEvent.taskId,
             kind,
             title,
             statusLabel: hasFailed
@@ -632,6 +673,174 @@ export function createMessageTimelineNodes(messages: ConversationMessage[]): Mes
             sentAt: formatDisplayTime(message.createdAt),
         };
     });
+}
+
+/**
+ * createConversationRenderRows：按轮次语义合并消息、思考和工具过程。
+ *
+ * @param messages 当前会话消息列表。
+ * @param thinkingRows 已按轮次合并的思考过程。
+ * @param processRows 已按任务聚合的工具和模型过程。
+ * @returns 用户消息、过程和助手回复组成的稳定展示序列。
+ */
+export function createConversationRenderRows(
+    messages: ConversationMessage[],
+    thinkingRows: ThinkingProcessRow[],
+    processRows: ProcessMessageGroupRow[],
+): ConversationRenderRow[] {
+    const processRowsByTurn = groupRowsByTurn(processRows);
+    const thinkingRowsByTurn = groupRowsByTurn(thinkingRows);
+    const consumedThinkingRowIds = new Set<string>();
+    const consumedProcessRowIds = new Set<string>();
+    const rows: ConversationRenderRow[] = [];
+
+    for (const message of messages) {
+        if (message.role === "user") {
+            rows.push({
+                rowKind: "message",
+                rowId: message.messageId,
+                message,
+            });
+            appendTurnProcessRows(
+                rows,
+                message.turnId,
+                thinkingRowsByTurn,
+                processRowsByTurn,
+                consumedThinkingRowIds,
+                consumedProcessRowIds,
+            );
+            continue;
+        }
+
+        if (message.role === "assistant") {
+            appendTurnProcessRows(
+                rows,
+                message.turnId,
+                thinkingRowsByTurn,
+                processRowsByTurn,
+                consumedThinkingRowIds,
+                consumedProcessRowIds,
+            );
+        }
+        rows.push({
+            rowKind: "message",
+            rowId: message.messageId,
+            message,
+        });
+    }
+
+    appendUnconsumedProcessRows(
+        rows,
+        thinkingRows,
+        processRows,
+        consumedThinkingRowIds,
+        consumedProcessRowIds,
+    );
+    return rows;
+}
+
+/**
+ * groupRowsByTurn：按轮次聚合过程行。
+ *
+ * @param rows 带 turnId 的过程行。
+ * @returns 轮次到过程行数组的映射。
+ */
+function groupRowsByTurn<T extends { turnId: string | null; rowId: string }>(rows: T[]): Map<string, T[]> {
+    const groups = new Map<string, T[]>();
+    for (const row of rows) {
+        if (!row.turnId) {
+            continue;
+        }
+        const currentRows = groups.get(row.turnId) ?? [];
+        currentRows.push(row);
+        groups.set(row.turnId, currentRows);
+    }
+    return groups;
+}
+
+/**
+ * appendTurnProcessRows：把同一轮过程追加到当前用户消息之后、助手消息之前。
+ *
+ * @param rows 目标渲染行。
+ * @param turnId 当前消息所属轮次。
+ * @param thinkingRowsByTurn 思考过程索引。
+ * @param processRowsByTurn 工具过程索引。
+ * @param consumedThinkingRowIds 已消费思考行 ID。
+ * @param consumedProcessRowIds 已消费过程行 ID。
+ * @returns 没有返回值。
+ */
+function appendTurnProcessRows(
+    rows: ConversationRenderRow[],
+    turnId: string | null,
+    thinkingRowsByTurn: Map<string, ThinkingProcessRow[]>,
+    processRowsByTurn: Map<string, ProcessMessageGroupRow[]>,
+    consumedThinkingRowIds: Set<string>,
+    consumedProcessRowIds: Set<string>,
+): void {
+    if (!turnId) {
+        return;
+    }
+    for (const thinking of thinkingRowsByTurn.get(turnId) ?? []) {
+        if (consumedThinkingRowIds.has(thinking.rowId)) {
+            continue;
+        }
+        consumedThinkingRowIds.add(thinking.rowId);
+        rows.push({
+            rowKind: "thinking",
+            rowId: thinking.rowId,
+            thinking,
+        });
+    }
+    for (const process of processRowsByTurn.get(turnId) ?? []) {
+        if (consumedProcessRowIds.has(process.rowId)) {
+            continue;
+        }
+        consumedProcessRowIds.add(process.rowId);
+        rows.push({
+            rowKind: "process",
+            rowId: process.rowId,
+            process,
+        });
+    }
+}
+
+/**
+ * appendUnconsumedProcessRows：追加无法归属到消息轮次的过程，避免丢失审计可见性。
+ *
+ * @param rows 目标渲染行。
+ * @param thinkingRows 所有思考过程行。
+ * @param processRows 所有工具过程行。
+ * @param consumedThinkingRowIds 已消费思考行 ID。
+ * @param consumedProcessRowIds 已消费过程行 ID。
+ * @returns 没有返回值。
+ */
+function appendUnconsumedProcessRows(
+    rows: ConversationRenderRow[],
+    thinkingRows: ThinkingProcessRow[],
+    processRows: ProcessMessageGroupRow[],
+    consumedThinkingRowIds: Set<string>,
+    consumedProcessRowIds: Set<string>,
+): void {
+    for (const thinking of thinkingRows) {
+        if (consumedThinkingRowIds.has(thinking.rowId)) {
+            continue;
+        }
+        rows.push({
+            rowKind: "thinking",
+            rowId: thinking.rowId,
+            thinking,
+        });
+    }
+    for (const process of processRows) {
+        if (consumedProcessRowIds.has(process.rowId)) {
+            continue;
+        }
+        rows.push({
+            rowKind: "process",
+            rowId: process.rowId,
+            process,
+        });
+    }
 }
 
 /**
