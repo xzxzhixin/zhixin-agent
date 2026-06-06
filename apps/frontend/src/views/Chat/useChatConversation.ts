@@ -297,7 +297,7 @@ function createTaskPanelRows(
         const statusMeta = resolveTaskStatusMeta(task.status);
         return {
             id: task.taskId,
-            title: task.title,
+            title: normalizeTaskTitle(task.title),
             status: formatTaskStatus(task.status),
             summary: statusMeta.title,
             elapsed: formatTaskElapsed(
@@ -326,6 +326,19 @@ function createTaskPanelRows(
             }),
         };
     });
+}
+
+/**
+ * normalizeTaskTitle：把旧数据中的伪 Agent 状态标题转换为真实任务容器标题。
+ *
+ * @param title 中心服务任务标题。
+ * @returns 用户可见任务标题。
+ */
+function normalizeTaskTitle(title: string): string {
+    if (title === "等待 Agent 执行") {
+        return "本轮对话任务";
+    }
+    return title;
 }
 
 /**

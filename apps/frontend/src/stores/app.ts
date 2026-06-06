@@ -77,6 +77,7 @@ import type {
     RuntimeDraft,
     SkillDraft,
     ComposerContextUsageState,
+    QueuedComposerMessage,
 } from "./app-types";
 
 /**
@@ -131,6 +132,14 @@ export const useAppStore = defineStore("app", {
          * pendingSessionDraft: 用户点击新增后形成的本地待发送会话草稿。
          */
         pendingSessionDraft: null as PendingSessionDraft | null,
+
+        /**
+         * queuedComposerMessages: 当前对话窗口本地排队消息。
+         *
+         * 来源：运行中轮次存在时用户按 Enter 或点击发送。
+         * 默认值：空数组，不从中心服务恢复。
+         */
+        queuedComposerMessages: [] as QueuedComposerMessage[],
 
         /**
          * events: 当前订阅范围内已拉取事件。
@@ -1212,7 +1221,6 @@ export const useAppStore = defineStore("app", {
                 await this.loadProjectCapabilitySources();
             }
             this.applyDefaultComposerModelSettings();
-            this.scheduleComposerContextUsageUpdate();
         },
 
         ...createProjectActions(),
@@ -1336,7 +1344,6 @@ export const useAppStore = defineStore("app", {
             if (!this.canUseProjectReferences) {
                 this.showProjectReferencePopover = false;
                 this.projectReferenceQuery = "";
-                this.scheduleComposerContextUsageUpdate();
                 return;
             }
 
@@ -1349,7 +1356,6 @@ export const useAppStore = defineStore("app", {
             this.projectReferenceQuery = this.showProjectReferencePopover
                 ? afterAt
                 : "";
-            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1363,7 +1369,6 @@ export const useAppStore = defineStore("app", {
             this.draft.text = this.removeActiveAtQuery(this.draft.text);
             this.showProjectReferencePopover = false;
             this.projectReferenceQuery = "";
-            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1374,7 +1379,6 @@ export const useAppStore = defineStore("app", {
          */
         removeReference(index: number): void {
             this.draft.references.splice(index, 1);
-            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1385,7 +1389,6 @@ export const useAppStore = defineStore("app", {
          */
         removeAttachment(index: number): void {
             this.draft.attachments.splice(index, 1);
-            this.scheduleComposerContextUsageUpdate();
         },
 
         /**
@@ -1400,7 +1403,6 @@ export const useAppStore = defineStore("app", {
             }
 
             this.draft.references.push(convertIdePayloadToReference(payload));
-            this.scheduleComposerContextUsageUpdate();
         },
 
         /**

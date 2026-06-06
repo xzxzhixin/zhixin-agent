@@ -481,11 +481,22 @@ export function createManagementActions() {
         },
 
         /**
+         * updateComposerContextUsageFromExecution：执行中或完成后刷新 token 总览。
+         *
+         * @returns 没有返回值。
+         */
+        async updateComposerContextUsageFromExecution(): Promise<void> {
+            await this.updateComposerContextUsage();
+        },
+
+        /**
          * scheduleComposerContextUsageUpdate：节流刷新输入区上下文用量。
          *
          * @returns 没有返回值。
          */
         scheduleComposerContextUsageUpdate(): void {
+            // 用户输入阶段不进行 token 统计；该函数保留为执行期显式刷新入口的兼容空操作。
+            return;
             if (this.composerContextUsageState.composerContextUsageTimer !== null) {
                 window.clearTimeout(this.composerContextUsageState.composerContextUsageTimer);
             }

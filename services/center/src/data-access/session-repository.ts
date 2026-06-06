@@ -751,7 +751,7 @@ export class SessionRepository {
                     input.turnId,
                     input.sessionId,
                     "queued",
-                    "等待 Agent 执行",
+                    "本轮对话任务",
                     input.now,
                     input.now,
                 );

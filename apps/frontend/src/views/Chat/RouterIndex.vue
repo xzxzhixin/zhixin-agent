@@ -234,8 +234,14 @@ const nowTick = ref(Date.now());
 // activeRunningTurn：当前会话中尚未结束的最新轮次。
 const activeRunningTurn = computed(() => {
   return [...(appStore.sessionDetail?.turns ?? [])].reverse().find((turn) => {
-    return turn.endedAt === null && (turn.status === "running" || turn.status === "waiting_user");
+    return turn.endedAt === null && (turn.status === "queued" || turn.status === "running" || turn.status === "waiting_user");
   }) ?? null;
+});
+// composerPrimaryButtonText：发送按钮只有“发送”和“停止”两种展示状态。
+const composerPrimaryButtonText = computed(() => {
+  return activeRunningTurn.value
+    ? "停止"
+    : "发送";
 });
 // activeTurnElapsedText：输入框上方固定展示的本轮已耗时。
 const activeTurnElapsedText = computed(() => {
@@ -258,14 +264,18 @@ const elapsedTimer = window.setInterval(() => {
 const composerContextUsageText = computed(() => {
   const limitTokens = appStore.composerSelectedModelContextWindowTokens;
   if (!Number.isFinite(limitTokens) || limitTokens <= 0) {
-    return "0% / 未配置窗口";
+    return "0.0% · 0 / 未配置窗口 上下文";
   }
 
   const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
     ? appStore.composerSettings.contextUsedTokens
     : 0;
-  const percent = Math.round((usedTokens / limitTokens) * 100);
-  return `${percent}% / ${formatContextWindowLimit(limitTokens)}`;
+  const percentText = `${((usedTokens / limitTokens) * 100).toFixed(1)}%`;
+  const usedTokenText = usedTokens > 0
+    ? formatContextWindowLimit(usedTokens)
+    : "0";
+  const limitTokenText = formatContextWindowLimit(limitTokens);
+  return `${percentText} · ${usedTokenText} / ${limitTokenText} 上下文`;
 });
 // context-usage-tooltip：展示真实 token 统计明细，但隐藏 tokenizer 实现名称。
 const contextUsageTooltip = computed(() => {
@@ -621,26 +631,25 @@ function openProjectCapabilityDialog(): void {
 }
 
 /**
- * isQueuedMessage：判断消息所属轮次是否正在等待用户引导。
+ * handleComposerEnterSend：处理输入区 Enter 发送。
  *
- * @param message 当前消息。
- * @returns 属于等待用户轮次时返回 true。
+ * @returns 没有返回值。
  */
-function isQueuedMessage(message: ConversationMessage): boolean {
-  const turn = findTurnForMessage(message);
-  return turn?.status === "waiting_user";
+function handleComposerEnterSend(): void {
+  void chatConversation.sendDraftForConversation();
 }
 
 /**
- * submitGuidanceForQueuedMessage：把排队消息作为当前轮次引导提交。
+ * handleComposerPrimaryAction：处理发送或停止按钮。
  *
- * @param message 排队消息。
  * @returns 没有返回值。
  */
-function submitGuidanceForQueuedMessage(message: ConversationMessage): void {
-  // guidanceText: 引导仅绑定该排队消息和当前轮次，不恢复独立输入区入口。
-  appStore.draft.text = `针对排队消息补充引导：${message.contentMarkdown}`;
-  void appStore.sendDraft();
+function handleComposerPrimaryAction(): void {
+  if (activeRunningTurn.value) {
+    void appStore.stopActiveConversationTurn();
+    return;
+  }
+  void chatConversation.sendDraftForConversation();
 }
 
 watch(
@@ -1200,18 +1209,6 @@ onBeforeUnmount(() => {
                   class="markdown-body"
                 v-html="appStore.renderMarkdown(row.message.contentMarkdown)"
               />
-              <div
-                  v-if="isQueuedMessage(row.message)"
-                  class="queued-message-actions"
-              >
-                <el-button
-                    size="small"
-                    type="primary"
-                    @click="submitGuidanceForQueuedMessage(row.message)"
-                >
-                  引导
-                </el-button>
-              </div>
               <footer
                   v-if="shouldShowTurnTimeFooter(row.message, rowIndex) && findTurnForMessage(row.message)"
                   class="turn-time-footer"
@@ -1308,6 +1305,23 @@ onBeforeUnmount(() => {
                   />
                 </section>
 
+                <section
+                    v-if="appStore.queuedComposerMessages.length > 0"
+                    class="pending-guidance-queue"
+                >
+                  <article
+                      v-for="message in appStore.queuedComposerMessages"
+                      :key="message.queuedMessageId"
+                    class="pending-guidance-item"
+                  >
+                    <span>{{ message.contentMarkdown }}</span>
+                    <small>{{ formatDisplayTime(message.createdAt) }}</small>
+                    <el-button size="small" type="primary" @click="appStore.submitQueuedMessageAsGuidance(message.queuedMessageId)">
+                      引导
+                    </el-button>
+                  </article>
+                </section>
+
               <div
                   v-if="appStore.draft.attachments.length > 0 || appStore.draft.references.length > 0"
                   class="composer-tags"
@@ -1360,7 +1374,7 @@ onBeforeUnmount(() => {
                     @input="appStore.updateProjectReferenceQuery"
                     @focus="setComposerFocused(true)"
                     @blur="setComposerFocused(false)"
-                    @keyup.enter.exact.prevent="chatConversation.sendDraftForConversation"
+                    @keyup.enter.exact.prevent="handleComposerEnterSend"
                 />
               </section>
 
@@ -1435,9 +1449,9 @@ onBeforeUnmount(() => {
                   <el-button
                       class="composer-send"
                       type="primary"
-                      @click="chatConversation.sendDraftForConversation"
+                      @click="handleComposerPrimaryAction"
                   >
-                    发送
+                    {{ composerPrimaryButtonText }}
                   </el-button>
                 </div>
               </section>

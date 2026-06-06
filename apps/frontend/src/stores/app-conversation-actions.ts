@@ -47,6 +47,15 @@ export function createConversationActions() {
             const attachments = [
                 ...this.draft.attachments,
             ];
+            if (this.hasActiveRunningTurn()) {
+                this.queueDraftForCurrentTurn(
+                    contentMarkdown,
+                );
+                this.draft = createEmptyComposerDraft();
+                this.showProjectReferencePopover = false;
+                this.projectReferenceQuery = "";
+                return;
+            }
             this.draft = createEmptyComposerDraft();
             this.showProjectReferencePopover = false;
             this.projectReferenceQuery = "";
@@ -73,7 +82,89 @@ export function createConversationActions() {
             await this.loadNavigationData();
             await this.loadActiveSessionDetail();
             await this.refreshEvents();
-            this.scheduleComposerContextUsageUpdate();
+            await this.updateComposerContextUsageFromExecution();
+        },
+
+        /**
+         * hasActiveRunningTurn：判断当前对话是否存在运行中或等待用户轮次。
+         *
+         * @returns 存在运行中或等待用户轮次时返回 true。
+         */
+        hasActiveRunningTurn(): boolean {
+            return Boolean(this.sessionDetail?.turns.some((turn) => {
+                return turn.endedAt === null
+                    && (
+                        turn.status === "queued"
+                        || turn.status === "running"
+                        || turn.status === "waiting_user"
+                    );
+            }));
+        },
+
+        /**
+         * queueDraftForCurrentTurn：把运行中新发送内容放入本地排队消息区。
+         *
+         * @param contentMarkdown 发送瞬间构建好的 Markdown 正文。
+         * @returns 没有返回值。
+         */
+        queueDraftForCurrentTurn(contentMarkdown: string): void {
+            const trimmedContent = contentMarkdown.trim();
+            if (trimmedContent.length === 0) {
+                return;
+            }
+            this.queuedComposerMessages.push({
+                queuedMessageId: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                sessionId: this.activeSessionId ?? "",
+                contentMarkdown: trimmedContent,
+                createdAt: new Date().toISOString(),
+            });
+        },
+
+        /**
+         * submitQueuedMessageAsGuidance：排队消息转为当前轮次引导并立即移除。
+         *
+         * @param queuedMessageId 本地排队消息 ID。
+         * @returns 引导提交完成后没有返回值。
+         */
+        async submitQueuedMessageAsGuidance(queuedMessageId: string): Promise<void> {
+            const queuedMessage = this.queuedComposerMessages.find((message) => {
+                return message.queuedMessageId === queuedMessageId;
+            });
+            if (!queuedMessage) {
+                return;
+            }
+            this.queuedComposerMessages = this.queuedComposerMessages.filter((message) => {
+                return message.queuedMessageId !== queuedMessageId;
+            });
+            const sessionId = this.activeSessionId ?? await this.ensureSessionForSending();
+            if (!sessionId) {
+                return;
+            }
+            // 当前中心服务尚未提供独立 guidance API；这里绕过运行中入队判断，按单一引导文本协议直接提交到当前会话。
+            const contentMarkdown = `针对当前对话当前轮次补充引导：${queuedMessage.contentMarkdown}`;
+            const sent = await this.api().sendMessage({
+                sessionId,
+                contentMarkdown,
+            });
+            this.applySentMessageOptimisticState(
+                sessionId,
+                contentMarkdown,
+                sent,
+            );
+            await this.loadNavigationData();
+            await this.loadActiveSessionDetail();
+            await this.refreshEvents();
+            await this.updateComposerContextUsageFromExecution();
+        },
+
+        /**
+         * stopActiveConversationTurn：停止当前对话执行。
+         *
+         * @returns 没有返回值。
+         */
+        async stopActiveConversationTurn(): Promise<void> {
+            // 当前中心服务取消接口只暴露 Worker task 级入口；会话轮次取消协议接入前，前端必须给出明确可见反馈。
+            this.lastError = "停止当前执行的中心服务接口待接入。";
         },
 
         /**

@@ -523,6 +523,26 @@ export interface PendingSessionDraft {
 }
 
 /**
+ * QueuedComposerMessage：当前对话本地排队消息。
+ *
+ * 来源：当前会话存在运行中或等待用户轮次时，用户按 Enter 或点击发送产生。
+ * 含义：只表示当前前端窗口中等待转为引导的消息，不代表中心服务全局队列。
+ * 格式：排队 ID、会话 ID、正文和创建时间。
+ * 默认值：无排队消息时为空数组。
+ * 约束：点击“引导”后必须立即移除；刷新或切换会话时不自动发送。
+ */
+export interface QueuedComposerMessage {
+    /** queuedMessageId: 前端本地排队消息 ID，使用时间戳和随机片段生成。 */
+    queuedMessageId: string;
+    /** sessionId: 排队消息所属会话 ID；没有真实会话时为空字符串。 */
+    sessionId: string;
+    /** contentMarkdown: 排队消息 Markdown 正文，来源于发送时的输入区草稿。 */
+    contentMarkdown: string;
+    /** createdAt: 排队消息创建时间，ISO 字符串，仅用于当前 UI 展示。 */
+    createdAt: string;
+}
+
+/**
  * ComposerSettings：输入框本地执行设置。
  *
  * 来源：对话输入区控件。

@@ -227,6 +227,43 @@
   color: var(--zhixin-text-strong);
 }
 
+.chat-page-host .pending-guidance-queue {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-height: 96px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--zhixin-border);
+  background: var(--zhixin-panel-bg);
+}
+
+.chat-page-host .pending-guidance-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.chat-page-host .pending-guidance-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-page-host .pending-guidance-item small {
+  color: var(--zhixin-text-muted);
+  white-space: nowrap;
+}
+
 .chat-page-host .composer-resize-handle {
   position: absolute;
   top: -13px;
