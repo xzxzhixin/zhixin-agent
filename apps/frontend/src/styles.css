@@ -839,12 +839,20 @@ body {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
 }
 
 .select-option-row small {
     color: var(--zhixin-text-muted);
     font-size: 12px;
+}
+
+.el-select-dropdown__item:has(.select-option-row) {
+    height: auto;
+    min-height: 46px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    line-height: 1.35;
 }
 
 .composer-send {

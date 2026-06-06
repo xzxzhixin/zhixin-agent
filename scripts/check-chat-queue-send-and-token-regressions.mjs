@@ -152,8 +152,13 @@ assertIncludes(
 );
 assertIncludes(
   chatView,
-  "`${percentText} · ${usedTokenText} / ${limitTokenText} 上下文`",
-  "token 总览必须使用“百分比 · 已用 / 上限 上下文”格式。",
+  "composerContextPercentText",
+  "token 外显必须使用独立百分比文本，不能继续展示长明细。",
+);
+assertIncludes(
+  chatView,
+  "composer-context-ring",
+  "token 外显必须提供进度圈节点。",
 );
 assertIncludes(
   chatView,

@@ -260,22 +260,33 @@ const activeTurnElapsedText = computed(() => {
 const elapsedTimer = window.setInterval(() => {
   nowTick.value = Date.now();
 }, 1000);
-// composerContextUsageText：当前窗口上下文占用，比例允许超过 100%，用于提示 history 过大风险。
-const composerContextUsageText = computed(() => {
+// composerContextPercentText：当前窗口上下文占用百分比，外层只展示百分比避免输入区底栏过长。
+const composerContextPercentText = computed(() => {
   const limitTokens = appStore.composerSelectedModelContextWindowTokens;
   if (!Number.isFinite(limitTokens) || limitTokens <= 0) {
-    return "0.0% · 0 / 未配置窗口 上下文";
+    return "0.0%";
   }
 
   const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
     ? appStore.composerSettings.contextUsedTokens
     : 0;
-  const percentText = `${((usedTokens / limitTokens) * 100).toFixed(1)}%`;
+  return `${((usedTokens / limitTokens) * 100).toFixed(1)}%`;
+});
+// composerContextUsageText：当前窗口上下文占用明细，供智能体弹窗或可访问标题复用。
+const composerContextUsageText = computed(() => {
+  const limitTokens = appStore.composerSelectedModelContextWindowTokens;
+  if (!Number.isFinite(limitTokens) || limitTokens <= 0) {
+    return `${composerContextPercentText.value} · 0 / 未配置窗口 上下文`;
+  }
+
+  const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
+    ? appStore.composerSettings.contextUsedTokens
+    : 0;
   const usedTokenText = usedTokens > 0
     ? formatContextWindowLimit(usedTokens)
     : "0";
   const limitTokenText = formatContextWindowLimit(limitTokens);
-  return `${percentText} · ${usedTokenText} / ${limitTokenText} 上下文`;
+  return `${composerContextPercentText.value} · ${usedTokenText} / ${limitTokenText} 上下文`;
 });
 // context-usage-tooltip：展示真实 token 统计明细，但隐藏 tokenizer 实现名称。
 const contextUsageTooltip = computed(() => {
@@ -286,7 +297,7 @@ const contextUsageTooltip = computed(() => {
   return formatContextUsageTooltip({
     usedTokens,
     limitTokens,
-    percentText: composerContextUsageText.value,
+    percentText: composerContextPercentText.value,
     modelId: appStore.composerSettings.selectedModel,
     referenceCount: appStore.draft.references.length,
     attachmentCount: appStore.draft.attachments.length,
@@ -1391,7 +1402,14 @@ onBeforeUnmount(() => {
                       :content="contextUsageTooltip"
                   >
                     <span class="composer-context-usage context-usage-tooltip">
-                      上下文 {{ composerContextUsageText }}
+                      <span
+                          class="composer-context-ring"
+                          :style="{ '--context-percent': composerContextPercentText }"
+                          aria-hidden="true"
+                      ></span>
+                      <span class="composer-context-percent">
+                        {{ composerContextPercentText }}
+                      </span>
                     </span>
                   </el-tooltip>
                 </div>

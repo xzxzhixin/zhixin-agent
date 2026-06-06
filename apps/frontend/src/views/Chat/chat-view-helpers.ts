@@ -1100,22 +1100,15 @@ export function formatContextUsageTooltip(input: {
     attachmentCount: number;
     source: string;
 }): string {
+    const usedText = input.usedTokens > 0
+        ? formatContextWindowLimit(input.usedTokens)
+        : "0K";
     const limitText = input.limitTokens > 0
-        ? `${input.limitTokens} token`
+        ? formatContextWindowLimit(input.limitTokens)
         : "未配置窗口上限";
-    const modelText = input.modelId.trim().length > 0
-        ? input.modelId
-        : "未选择模型";
-    const sourceText = input.source.trim().length > 0
-        ? input.source
-        : "中心服务 tokenizer 统计待返回";
     return [
-        `已用：${input.usedTokens} token`,
-        `窗口上限：${limitText}`,
-        `占用比例：${input.percentText}`,
-        `模型：${modelText}`,
-        `输入范围：当前会话消息、草稿、项目引用 ${input.referenceCount} 项、附件 ${input.attachmentCount} 项`,
-        `统计来源：${sourceText}`,
+        `用量：${usedText} / ${limitText}`,
+        `百分比：${input.percentText}`,
     ].join("\n");
 }
 

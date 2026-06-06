@@ -71,7 +71,7 @@ const emit = defineEmits<{
 .composer-edit-panel {
   display: flex;
   min-height: 0;
-  max-height: min(34vh, 320px);
+  max-height: 40vh;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 10px;

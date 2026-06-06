@@ -185,11 +185,16 @@
   min-height: 148px;
   height: clamp(148px, var(--composer-panel-height), min(46vh, 380px));
   max-height: min(86vh, 760px);
+  box-sizing: border-box;
   align-self: center;
   flex: 0 0 auto;
   flex-direction: column;
+  gap: 0;
+  padding: 0;
   border: 1px solid var(--el-border-color);
+  border-radius: 12px;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+  overflow: visible;
 }
 
 .chat-page-host .composer-entry-strip {
@@ -198,24 +203,25 @@
   min-width: 0;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px 6px;
+  gap: 0;
+  padding: 0;
   box-sizing: border-box;
   border-bottom: 1px solid var(--zhixin-border);
+  border-radius: 12px 12px 0 0;
   background: var(--zhixin-soft-bg);
+  overflow: hidden;
 }
 
 .chat-page-host .composer-entry-tab {
   display: inline-flex;
   min-width: 0;
-  height: 32px;
   flex: 1 1 0;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: var(--zhixin-text);
   cursor: pointer;
@@ -223,6 +229,7 @@
 
 .chat-page-host .composer-entry-tab.active {
   border-color: var(--zhixin-selected-border);
+  border-radius: 8px;
   background: var(--zhixin-panel-bg);
   color: var(--zhixin-text-strong);
 }
@@ -291,16 +298,16 @@
 
 .chat-page-host .composer-mini-popover {
   position: absolute;
-  right: 12px;
+  right: 0;
   bottom: calc(100% - 1px);
-  left: 12px;
+  left: 0;
   z-index: 16;
   display: flex;
   width: auto;
   max-height: 40vh;
   box-sizing: border-box;
   flex-direction: column;
-  padding: 10px;
+  padding: 0;
   border: 1px solid var(--zhixin-border);
   border-radius: 8px 8px 0 0;
   background: var(--zhixin-panel-bg);
@@ -320,6 +327,12 @@
   content: "";
 }
 
+/* 智能体浮层只允许最外层浮层滚动，避免树区域形成第二个滚动条。 */
+.chat-page-host .agent-status-tree,
+.chat-page-host .agent-status-el-tree {
+  overflow: visible;
+}
+
 .chat-page-host .composer-edit-summary {
   color: var(--el-color-success);
 }
@@ -330,6 +343,20 @@
   min-height: 46px;
   flex: 1 1 46px;
   overflow: hidden;
+  padding: 8px 12px 4px;
+  box-sizing: border-box;
+  background: var(--zhixin-panel-bg);
+}
+
+.chat-page-host .pending-guidance-queue + .composer-input-row {
+  padding-top: 8px;
+}
+
+.chat-page-host .composer-entry-strip + .composer-input-row {
+  padding-top: 8px;
+}
+
+.chat-page-host .composer-input-row:not(:last-child) {
   padding-bottom: 4px;
 }
 
@@ -355,6 +382,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 0 12px 10px;
+  box-sizing: border-box;
+  background: var(--zhixin-panel-bg);
 }
 
 .chat-page-host .composer-tools,
@@ -368,10 +398,25 @@
 
 .chat-page-host .composer-context-usage {
   display: inline-flex;
-  max-width: 220px;
   flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-page-host .composer-context-ring {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid var(--zhixin-border);
+  border-top-color: var(--el-color-primary);
+  border-radius: 999px;
+}
+
+.chat-page-host .composer-context-percent {
+  min-width: 0;
+  color: var(--zhixin-text-soft);
+  font-size: 12px;
   white-space: nowrap;
 }
 

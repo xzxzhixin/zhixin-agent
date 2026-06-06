@@ -82,7 +82,7 @@ const props = defineProps<{
 .composer-mini-dialog-body {
   display: flex;
   min-height: 0;
-  max-height: min(34vh, 320px);
+  max-height: 40vh;
   flex-direction: column;
   gap: 10px;
   overflow-x: hidden;

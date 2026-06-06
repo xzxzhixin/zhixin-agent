@@ -116,18 +116,17 @@ const treeNodes = props.rows.filter((row) => {
 .composer-mini-dialog-body {
   display: flex;
   min-height: 0;
-  max-height: min(40vh, 380px);
+  max-height: 40vh;
   flex-direction: column;
   gap: 10px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .agent-status-dialog-grid {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .agent-status-tree {
@@ -135,12 +134,12 @@ const treeNodes = props.rows.filter((row) => {
   min-height: 0;
   flex-direction: column;
   gap: 6px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .agent-status-el-tree {
   --el-tree-node-hover-bg-color: var(--zhixin-hover-bg);
+  overflow-y: visible;
 }
 
 .composer-agent-node {
