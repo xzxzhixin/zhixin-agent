@@ -114,6 +114,11 @@ const composerMiniPopoverRule = extractCssRule(
   chatStyle,
   ".chat-page-host .composer-mini-popover",
 );
+// composerToolbarRule: 输入区底部工具栏样式块，校验底部两个角不被内部背景裁掉。
+const composerToolbarRule = extractCssRule(
+  chatStyle,
+  ".chat-page-host .composer-toolbar",
+);
 // globalStyle: 前端全局样式，承载 Element Plus 下拉选项多行展示约束。
 const globalStyle = readText("apps/frontend/src/styles.css");
 // planDoc: 计划事实源，必须记录本轮已完成的 UI 回归任务。
@@ -126,8 +131,18 @@ assertIncludes(
 );
 assertIncludes(
   chatPage,
+  "el-progress",
+  "token 外显必须改用 Element Plus 进度组件。",
+);
+assertIncludes(
+  chatPage,
+  "type=\"circle\"",
+  "token 外显必须使用 Element Plus 圆形进度组件。",
+);
+assertNotIncludes(
+  chatPage,
   "composer-context-ring",
-  "token 外显必须包含进度圈节点。",
+  "token 外显不能继续使用手写边框进度圈。",
 );
 assertIncludes(
   chatPage,
@@ -179,10 +194,10 @@ assertIncludes(
   "padding: 0;",
   "输入框外壳不能保留全局内边距，三入口、浮层和输入框外边缘必须共用同一边界。",
 );
-assertIncludes(
+assertNotIncludes(
   composerEntryTabRule,
   "height: 52px;",
-  "三入口按钮视觉高度必须达到激活框大小。",
+  "三入口按钮不能继续写死 52px 高度。",
 );
 assertIncludes(
   composerEntryStripRule,
@@ -253,6 +268,11 @@ assertIncludes(
   "三入口条不能裁掉输入框顶部两个圆角。",
 );
 assertIncludes(
+  composerToolbarRule,
+  "border-radius: 0 0 12px 12px;",
+  "输入区底部工具栏必须保留外壳底部两个圆角。",
+);
+assertIncludes(
   taskDetailDialog,
   "overflow: visible;",
   "任务浮层内部不能出现自身滚动条，滚动只允许发生在外层 40vh 浮层。",
@@ -276,6 +296,21 @@ assertIncludes(
   agentStatusDialog,
   ".agent-status-el-tree",
   "智能体浮层必须覆盖 Element Plus 树组件自身滚动。",
+);
+assertNotIncludes(
+  agentStatusDialog,
+  "highlight-current",
+  "智能体浮层树组件不能启用 Element Plus 当前节点高亮。",
+);
+assertNotIncludes(
+  agentStatusDialog,
+  ":class=\"{ active: props.selectedNode?.agentId === data.agentId }\"",
+  "智能体浮层节点不能继续按 selectedNode 显示激活样式。",
+);
+assertNotIncludes(
+  agentStatusDialog,
+  ".composer-agent-node.active",
+  "智能体浮层不能保留自定义激活节点样式。",
 );
 assertIncludes(
   agentStatusDialog,

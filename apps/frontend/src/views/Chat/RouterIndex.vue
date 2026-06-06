@@ -33,8 +33,6 @@ import {
   createMessageTimelineNodes,
   flattenAgentTreeRows,
   formatConnectionState,
-  formatContextUsageTooltip,
-  formatContextWindowLimit,
   formatDisplayTime,
   formatDurationMs,
   formatTurnTimeFooter,
@@ -66,6 +64,9 @@ import {
   useMessageListAutoScroll,
 } from "./useMessageListAutoScroll";
 import StatusSummaryPanel from "./StatusSummaryPanel.vue";
+import {
+  useComposerContextUsage,
+} from "./useComposerContextUsage";
 import "./style.css";
 type ComposerEntryKind = "task" | "agentStatus" | "edit";
 // appStore：主界面读取运行时、会话、消息、任务和桌面能力状态。
@@ -111,6 +112,12 @@ const {
   startComposerResize,
   stopComposerResize,
 } = useComposerPanelResize();
+const {
+  composerContextPercentText,
+  composerContextProgressValue,
+  composerContextUsageText,
+  contextUsageTooltip,
+} = useComposerContextUsage(appStore);
 // messages：当前会话消息列表。
 const messages = chatConversation.messages;
 // messageTimelineNodes：对话时间线只从用户消息生成，不伪造发送内容。
@@ -266,52 +273,6 @@ const activeTurnElapsedText = computed(() => {
 const elapsedTimer = window.setInterval(() => {
   nowTick.value = Date.now();
 }, 1000);
-// composerContextPercentText：当前窗口上下文占用百分比，外层只展示百分比避免输入区底栏过长。
-const composerContextPercentText = computed(() => {
-  const limitTokens = appStore.composerSelectedModelContextWindowTokens;
-  if (!Number.isFinite(limitTokens) || limitTokens <= 0) {
-    return "0.0%";
-  }
-
-  const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
-    ? appStore.composerSettings.contextUsedTokens
-    : 0;
-  return `${((usedTokens / limitTokens) * 100).toFixed(1)}%`;
-});
-// composerContextUsageText：当前窗口上下文占用明细，供智能体弹窗或可访问标题复用。
-const composerContextUsageText = computed(() => {
-  const limitTokens = appStore.composerSelectedModelContextWindowTokens;
-  if (!Number.isFinite(limitTokens) || limitTokens <= 0) {
-    return `${composerContextPercentText.value} · 0 / 未配置窗口 上下文`;
-  }
-
-  const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
-    ? appStore.composerSettings.contextUsedTokens
-    : 0;
-  const usedTokenText = usedTokens > 0
-    ? formatContextWindowLimit(usedTokens)
-    : "0";
-  const limitTokenText = formatContextWindowLimit(limitTokens);
-  return `${composerContextPercentText.value} · ${usedTokenText} / ${limitTokenText} 上下文`;
-});
-// context-usage-tooltip：展示真实 token 统计明细，但隐藏 tokenizer 实现名称。
-const contextUsageTooltip = computed(() => {
-  const usedTokens = Number.isFinite(appStore.composerSettings.contextUsedTokens)
-    ? appStore.composerSettings.contextUsedTokens
-    : 0;
-  const limitTokens = appStore.composerSelectedModelContextWindowTokens;
-  return formatContextUsageTooltip({
-    usedTokens,
-    limitTokens,
-    percentText: composerContextPercentText.value,
-    modelId: appStore.composerSettings.selectedModel,
-    referenceCount: appStore.draft.references.length,
-    attachmentCount: appStore.draft.attachments.length,
-    source: appStore.composerSettings.contextTokenizerSource
-      ? "中心服务 token 统计"
-      : "中心服务 token 统计待返回",
-  });
-});
 // executionModeLabel：智能体完整对话弹窗复用当前输入区执行模式标签。
 const executionModeLabel = computed(() => {
   return executionModeOptions.find((option) => {
@@ -1421,11 +1382,14 @@ onBeforeUnmount(() => {
                       :content="contextUsageTooltip"
                   >
                     <span class="composer-context-usage context-usage-tooltip">
-                      <span
-                          class="composer-context-ring"
-                          :style="{ '--context-percent': composerContextPercentText }"
-                          aria-hidden="true"
-                      ></span>
+                      <el-progress
+                          class="composer-context-progress"
+                          type="circle"
+                          :percentage="composerContextProgressValue"
+                          :width="16"
+                          :stroke-width="2"
+                          :show-text="false"
+                      />
                       <span class="composer-context-percent">
                         {{ composerContextPercentText }}
                       </span>

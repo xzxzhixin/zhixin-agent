@@ -214,13 +214,12 @@
 
 .chat-page-host .composer-entry-tab {
   display: inline-flex;
-  height: 52px;
   min-width: 0;
   flex: 1 1 0;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 14px 10px;
   border: 1px solid transparent;
   border-radius: 0;
   background: transparent;
@@ -385,6 +384,7 @@
   gap: 12px;
   padding: 0 12px 10px;
   box-sizing: border-box;
+  border-radius: 0 0 12px 12px;
   background: var(--zhixin-panel-bg);
 }
 
@@ -404,14 +404,15 @@
   gap: 5px;
 }
 
-.chat-page-host .composer-context-ring {
-  display: inline-block;
+.chat-page-host .composer-context-progress {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
-  border: 2px solid var(--zhixin-border);
-  border-top-color: var(--el-color-primary);
-  border-radius: 999px;
+}
+
+.chat-page-host .composer-context-progress :deep(.el-progress-circle) {
+  width: 16px !important;
+  height: 16px !important;
 }
 
 .chat-page-host .composer-context-percent {

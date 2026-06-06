@@ -81,14 +81,10 @@ const treeNodes = props.rows.filter((row) => {
             node-key="agentId"
             :props="treeProps"
             :default-expanded-keys="defaultExpandedKeys"
-            highlight-current
             @node-click="emit('select-node', $event)"
         >
           <template #default="{ data }">
-            <span
-                class="composer-agent-node"
-                :class="{ active: props.selectedNode?.agentId === data.agentId }"
-            >
+            <span class="composer-agent-node">
               <strong>{{ data.name }}</strong>
               <span>{{ data.nodeKind }} · {{ data.status }}</span>
               <small>{{ data.taskSummary }}</small>
@@ -177,11 +173,6 @@ const treeNodes = props.rows.filter((row) => {
 .composer-agent-node:hover {
   border-color: var(--zhixin-selected-border);
   background: var(--zhixin-hover-bg);
-}
-
-.composer-agent-node.active {
-  border-color: var(--zhixin-selected-border);
-  background: var(--zhixin-selected-bg);
 }
 
 .composer-agent-node span,
