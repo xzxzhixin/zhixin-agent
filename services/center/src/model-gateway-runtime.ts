@@ -3,7 +3,7 @@ import {randomUUID} from "node:crypto";
 import {existsSync, readdirSync} from "node:fs";
 import {join} from "node:path";
 
-import type {ModelRequest, ModelUsage} from "@zhixin/model-protocol";
+import type {ModelRequest, ModelToolCall, ModelToolSpec, ModelUsage} from "@zhixin/model-protocol";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
@@ -13,6 +13,7 @@ import {
     readSecretValue,
     resolveProviderModelSelection,
 } from "./provider-domain.js";
+import {listAvailableModelToolSpecs} from "./tool-runtime.js";
 
 /**
  * ProviderModelGatewayResult：中心服务模型网关统一返回。
@@ -35,6 +36,20 @@ export interface ProviderModelGatewayResult {
         cacheMissTokens: number | null;
         rawUsage: unknown;
     } | null;
+    /** toolCall: 模型请求的工具调用；没有工具请求时为 null。 */
+    toolCall: ModelToolCall | null;
+}
+
+interface ResolvedProviderModelRuntime {
+    /** provider: 已启用供应商配置。 */
+    provider: NonNullable<ReturnType<typeof readProviderConfigByPriority>>;
+    /** centerDirectory: 中心目录绝对路径。 */
+    centerDirectory: string;
+    /** modelSelection: 当前模型和推理深度选择。 */
+    modelSelection: {
+        model: string;
+        reasoningEffort: string | null;
+    };
 }
 
 interface ProviderModelGatewayHttpResult {
@@ -61,6 +76,121 @@ export function invokeProviderModelGateway(
     turnId: string,
     userText: string,
 ): ProviderModelGatewayResult {
+    const runtime = resolveProviderModelRuntime(database, taskId);
+    const requestPayload = buildModelRequestPayload(
+        userText,
+        runtime.provider.providerId,
+        runtime.modelSelection.model,
+        runtime.modelSelection.reasoningEffort,
+        listAvailableModelToolSpecs(),
+    );
+    const result = sendProviderModelRequest(runtime, requestPayload);
+
+    events.append({
+        eventType: "model.orchestrated",
+        scopeType: "model",
+        scopeId: taskId,
+        sessionId: null,
+        turnId,
+        taskId,
+        status: "completed",
+        title: "模型编排",
+        summary: result.toolCall ? "中心服务已收到模型工具调用请求。" : "中心服务已准备模型网关调用。",
+        payload: {
+            providerId: result.providerId,
+            model: result.model,
+            toolCallName: result.toolCall?.name ?? null,
+            assistantTextPreview: result.assistantText.slice(0, 120),
+        },
+    });
+
+    return result;
+}
+
+/**
+ * continueProviderModelGatewayWithToolResult：把工具结果回填给模型并获取最终回复。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件日志仓储。
+ * @param sessionId 会话 ID。
+ * @param taskId 任务 ID。
+ * @param turnId 轮次 ID。
+ * @param userText 用户原始输入。
+ * @param toolCall 模型请求的工具调用。
+ * @param toolResultText 工具结果摘要。
+ * @returns 模型网关最终回复。
+ */
+export function continueProviderModelGatewayWithToolResult(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    sessionId: string,
+    taskId: string,
+    turnId: string,
+    userText: string,
+    toolCall: ModelToolCall,
+    toolResultText: string,
+): ProviderModelGatewayResult {
+    const runtime = resolveProviderModelRuntime(database, taskId);
+    const requestPayload = buildModelRequestPayload(
+        userText,
+        runtime.provider.providerId,
+        runtime.modelSelection.model,
+        runtime.modelSelection.reasoningEffort,
+        listAvailableModelToolSpecs(),
+    );
+    requestPayload.messages.push(
+        {
+            role: "assistant",
+            toolCalls: [
+                toolCall,
+            ],
+            content: [
+                {
+                    type: "text",
+                    text: `已请求工具：${toolCall.name}`,
+                },
+            ],
+        },
+        {
+            role: "tool",
+            content: [
+                {
+                    type: "tool_result",
+                    toolCallId: toolCall.toolCallId,
+                    resultText: toolResultText,
+                },
+            ],
+        },
+    );
+
+    events.append({
+        eventType: "model.tool.result.appended",
+        scopeType: "model",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "completed",
+        title: "工具结果回填模型",
+        summary: toolResultText.slice(0, 160),
+        payload: {
+            toolCallId: toolCall.toolCallId,
+            toolName: toolCall.name,
+            resultSummary: toolResultText.slice(0, 240),
+        },
+    });
+
+    return sendProviderModelRequest(runtime, requestPayload);
+}
+
+/**
+ * resolveProviderModelRuntime：解析一次模型调用所需供应商、中心目录和模型选择。
+ *
+ * @param database 中心服务数据库。
+ * @param taskId 任务 ID。
+ * @returns 模型调用运行时上下文。
+ */
+function resolveProviderModelRuntime(database: CenterDatabase, taskId: string): ResolvedProviderModelRuntime {
     const provider = readProviderConfigByPriority(database, taskId);
     if (!provider) {
         throw new Error("PROVIDER_NOT_AVAILABLE");
@@ -72,12 +202,32 @@ export function invokeProviderModelGateway(
         provider.providerId,
         provider.defaultModel,
     );
-    const requestPayload = buildModelRequestPayload(userText, modelSelection.model, modelSelection.reasoningEffort);
+
+    return {
+        provider,
+        centerDirectory,
+        modelSelection,
+    };
+}
+
+/**
+ * sendProviderModelRequest：按统一内部模型请求调用供应商协议。
+ *
+ * @param runtime 模型调用运行时上下文。
+ * @param requestPayload 内部模型请求。
+ * @returns 模型网关执行结果。
+ */
+function sendProviderModelRequest(
+    runtime: ResolvedProviderModelRuntime,
+    requestPayload: ModelRequest,
+): ProviderModelGatewayResult {
+    const provider = runtime.provider;
+    const modelSelection = runtime.modelSelection;
     const gatewayRequest = provider.protocolPluginId === "builtin-model-anthropic-messages"
         ? buildAnthropicGatewayRequest(requestPayload)
         : buildOpenAiGatewayRequest(requestPayload, provider.protocolMode);
     const apiKey = readSecretValue(
-        centerDirectory,
+        runtime.centerDirectory,
         provider.apiKeySecretRef,
     );
     const httpResult = sendModelRequest(
@@ -87,32 +237,15 @@ export function invokeProviderModelGateway(
         apiKey,
         provider.protocolMode,
     );
-    const result: ProviderModelGatewayResult = {
+
+    return {
         providerId: provider.providerId,
         model: modelSelection.model,
         reasoningEffort: modelSelection.reasoningEffort,
         assistantText: httpResult.assistantText,
-        usage: httpResult.usage ?? buildUsageSummary(userText, httpResult.assistantText, provider.protocolPluginId),
+        usage: httpResult.usage ?? buildUsageSummary(readUserTextFromRequest(requestPayload), httpResult.assistantText, provider.protocolPluginId),
+        toolCall: parseModelToolCallFromText(httpResult.assistantText),
     };
-
-    events.append({
-        eventType: "model.orchestrated",
-        scopeType: "model",
-        scopeId: taskId,
-        sessionId: null,
-        turnId,
-        taskId,
-        status: "completed",
-        title: "模型编排",
-        summary: "中心服务已准备模型网关调用。",
-        payload: {
-            providerId: result.providerId,
-            model: result.model,
-            assistantTextPreview: result.assistantText.slice(0, 120),
-        },
-    });
-
-    return result;
 }
 
 function extractCenterDirectory(database: CenterDatabase): string {
@@ -147,10 +280,16 @@ function readProviderConfigByPriority(database: CenterDatabase, taskId: string) 
     return null;
 }
 
-function buildModelRequestPayload(userText: string, model: string, reasoningEffort: string | null): ModelRequest {
+function buildModelRequestPayload(
+    userText: string,
+    providerId: string,
+    model: string,
+    reasoningEffort: string | null,
+    tools: ModelToolSpec[],
+): ModelRequest {
     return {
         requestId: randomUUID(),
-        providerId: "",
+        providerId,
         model,
         reasoningEffort,
         messages: [
@@ -164,7 +303,7 @@ function buildModelRequestPayload(userText: string, model: string, reasoningEffo
                 ],
             },
         ],
-        tools: [],
+        tools,
         stream: true,
     };
 }
@@ -176,6 +315,7 @@ function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string) 
             body: {
                 model: request.model,
                 input: request.messages.map(toProviderMessage),
+                tools: request.tools.map(toResponsesToolSpec),
                 stream: false,
             },
         }
@@ -184,6 +324,7 @@ function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string) 
             body: {
                 model: request.model,
                 messages: request.messages.map(toChatCompletionMessage),
+                tools: request.tools.map(toChatCompletionToolSpec),
                 stream: false,
             },
         };
@@ -195,6 +336,7 @@ function buildAnthropicGatewayRequest(request: ModelRequest) {
         body: {
             model: request.model,
             messages: request.messages.map(toProviderMessage),
+            tools: request.tools.map(toAnthropicToolSpec),
             stream: false,
         },
     };
@@ -365,6 +507,47 @@ function readChatCompletionText(parsed: Record<string, unknown>): string {
     }).join("");
 }
 
+function parseModelToolCallFromText(text: string): ModelToolCall | null {
+    const parsed = tryParseJsonObject(text);
+    const toolCall = typeof parsed?.toolCall === "object" && parsed.toolCall !== null
+        ? parsed.toolCall as Record<string, unknown>
+        : null;
+    if (!toolCall) {
+        return null;
+    }
+    const toolCallId = typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : randomUUID();
+    const name = typeof toolCall.name === "string" ? toolCall.name : "";
+    const argumentsJson = typeof toolCall.argumentsJson === "object"
+        && toolCall.argumentsJson !== null
+        && !Array.isArray(toolCall.argumentsJson)
+        ? toolCall.argumentsJson as Record<string, unknown>
+        : null;
+    if (!name || !argumentsJson) {
+        return null;
+    }
+
+    return {
+        toolCallId,
+        name,
+        argumentsJson,
+    };
+}
+
+function readUserTextFromRequest(request: ModelRequest): string {
+    const userMessage = request.messages.find((message) => {
+        return message.role === "user";
+    });
+    return userMessage?.content.map((part) => {
+        if (part.type === "text") {
+            return part.text;
+        }
+        if (part.type === "tool_result") {
+            return part.resultText;
+        }
+        return part.attachmentId;
+    }).join("\n") ?? "";
+}
+
 function normalizeProviderUsage(rawUsage: unknown): ProviderModelGatewayResult["usage"] {
     if (typeof rawUsage !== "object" || rawUsage === null) {
         return null;
@@ -406,6 +589,17 @@ function readNestedNumberField(source: Record<string, unknown>, objectKey: strin
 }
 
 function toProviderMessage(message: ModelRequest["messages"][number]): Record<string, unknown> {
+    const toolResult = message.content.find((part) => {
+        return part.type === "tool_result";
+    });
+    if (message.role === "tool" && toolResult?.type === "tool_result") {
+        return {
+            type: "function_call_output",
+            call_id: toolResult.toolCallId,
+            output: toolResult.resultText,
+        };
+    }
+
     return {
         role: message.role,
         content: message.content.map((part) => {
@@ -432,6 +626,17 @@ function toProviderMessage(message: ModelRequest["messages"][number]): Record<st
 }
 
 function toChatCompletionMessage(message: ModelRequest["messages"][number]): Record<string, unknown> {
+    const toolResult = message.content.find((part) => {
+        return part.type === "tool_result";
+    });
+    if (message.role === "tool" && toolResult?.type === "tool_result") {
+        return {
+            role: "tool",
+            tool_call_id: toolResult.toolCallId,
+            content: toolResult.resultText,
+        };
+    }
+
     const textContent = message.content.map((part) => {
         if (part.type === "text") {
             return part.text;
@@ -441,9 +646,58 @@ function toChatCompletionMessage(message: ModelRequest["messages"][number]): Rec
         }
         return part.resultText;
     }).join("\n");
-    return {
+    const providerMessage: Record<string, unknown> = {
         role: message.role,
         content: textContent,
+    };
+    if (message.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length > 0) {
+        providerMessage.tool_calls = message.toolCalls.map(toChatCompletionToolCall);
+    }
+    return providerMessage;
+}
+
+/**
+ * toChatCompletionToolCall：把内部工具调用记录转换为 OpenAI 兼容 assistant tool_calls。
+ *
+ * @param toolCall 内部模型工具调用。
+ * @returns OpenAI 兼容工具调用记录。
+ */
+function toChatCompletionToolCall(toolCall: ModelToolCall): Record<string, unknown> {
+    return {
+        id: toolCall.toolCallId,
+        type: "function",
+        function: {
+            name: toolCall.name,
+            arguments: JSON.stringify(toolCall.argumentsJson),
+        },
+    };
+}
+
+function toChatCompletionToolSpec(tool: ModelToolSpec): Record<string, unknown> {
+    return {
+        type: "function",
+        function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parametersJsonSchema,
+        },
+    };
+}
+
+function toResponsesToolSpec(tool: ModelToolSpec): Record<string, unknown> {
+    return {
+        type: "function",
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parametersJsonSchema,
+    };
+}
+
+function toAnthropicToolSpec(tool: ModelToolSpec): Record<string, unknown> {
+    return {
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.parametersJsonSchema,
     };
 }
 

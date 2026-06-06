@@ -714,6 +714,45 @@ export type UnifiedToolAvailability =
   | "unavailable";
 
 /**
+ * 统一工具风险等级。
+ *
+ * 来源：真实 Agent 工具调用闭环需求。
+ * 含义：中心服务按风险等级和执行模式决定是否需要审批。
+ * 格式：固定字符串枚举。
+ * 默认值：无。
+ * 约束：副作用工具不能标记为 low。
+ */
+export type UnifiedToolRiskLevel =
+  | "low"
+  | "medium"
+  | "high";
+
+/**
+ * 统一工具适用范围。
+ *
+ * 来源：全局能力和项目级能力边界。
+ * 含义：描述工具可在哪类对话或项目上下文中使用。
+ * 格式：固定字符串枚举。
+ * 默认值：global。
+ * 约束：project 只允许当前项目会话使用。
+ */
+export type UnifiedToolScope =
+  | "global"
+  | "project"
+  | "session";
+
+/**
+ * 统一工具输入参数 schema。
+ *
+ * 来源：模型工具调用协议。
+ * 含义：描述工具参数 JSON Schema，供模型请求和中心服务校验共同使用。
+ * 格式：JSON Schema 对象。
+ * 默认值：无。
+ * 约束：只保存 schema，不保存运行时参数值。
+ */
+export type UnifiedToolInputSchema = Record<string, unknown>;
+
+/**
  * 统一工具能力。
  *
  * 来源：中心服务注册表、插件安装、MCP 配置和 skill 扫描。
@@ -735,6 +774,18 @@ export interface UnifiedToolCapability {
   availability: UnifiedToolAvailability;
   /** unavailableReason: 不可用原因；可用时为 null。 */
   unavailableReason: string | null;
+  /** description: 提供给模型理解该工具用途的说明。 */
+  description: string;
+  /** inputSchema: 工具参数 JSON Schema。 */
+  inputSchema: UnifiedToolInputSchema;
+  /** riskLevel: 工具风险等级，用于执行模式审批。 */
+  riskLevel: UnifiedToolRiskLevel;
+  /** scope: 工具适用范围。 */
+  scope: UnifiedToolScope;
+  /** approvalRequired: 该工具在当前能力声明中是否默认需要审批。 */
+  approvalRequired: boolean;
+  /** displayText: UI 过程卡片展示文案。 */
+  displayText: string;
 }
 
 /**

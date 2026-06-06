@@ -25,13 +25,14 @@ import {
 } from "./workflow-domain.js";
 import {refreshUsageDailyStats} from "./usage-domain.js";
 import {
+    continueProviderModelGatewayWithToolResult,
     invokeProviderModelGateway,
     type ProviderModelGatewayResult,
 } from "./model-gateway-runtime.js";
 import {
     appendToolVisibilityEvents,
+    buildUnifiedToolCallIntentFromModelCall,
     commandRequestFromUnifiedToolIntent,
-    planUnifiedToolCallForUserText,
     runCommandTool,
 } from "./tool-runtime.js";
 
@@ -598,143 +599,6 @@ export function completeCreatedTurn(
             "completed",
             "思考过程和上下文整理完成。",
         );
-        const unifiedToolIntent = planUnifiedToolCallForUserText(userText);
-        if (unifiedToolIntent?.toolKind === "command") {
-            const toolPlanStep = createTaskStep(
-                database,
-                events,
-                {
-                    taskId: sent.taskId,
-                    turnId: sent.turnId,
-                    sessionId: sent.sessionId,
-                    status: "running",
-                    title: "工具计划生成",
-                    createdAt: now,
-                    updatedAt: now,
-                },
-                "工具计划生成",
-            );
-            events.append({
-                eventType: "tool.plan.created",
-                scopeType: "tool-plan",
-                scopeId: sent.taskId,
-                sessionId: sent.sessionId,
-                turnId: sent.turnId,
-                taskId: sent.taskId,
-                status: "completed",
-                title: "工具计划",
-                summary: "已生成命令、插件、MCP 和 skill 的本轮工具编排计划。",
-                payload: {
-                    plannedToolId: unifiedToolIntent.toolId,
-                    plannedToolKind: unifiedToolIntent.toolKind,
-                    inputSummary: unifiedToolIntent.inputSummary,
-                    fallbackToolKinds: [
-                        "plugin",
-                        "mcp",
-                        "skill",
-                    ],
-                },
-            });
-            updateTaskStep(
-                database,
-                events,
-                toolPlanStep.stepId,
-                "completed",
-                "工具计划已生成，命令工具进入执行，插件、MCP 和 skill 进入可用性记录。",
-            );
-            const commandStep = createTaskStep(
-                database,
-                events,
-                {
-                    taskId: sent.taskId,
-                    turnId: sent.turnId,
-                    sessionId: sent.sessionId,
-                    status: "running",
-                    title: "命令工具执行",
-                    createdAt: now,
-                    updatedAt: now,
-                },
-                "命令工具执行",
-            );
-            // 明确命令请求必须先执行工具再生成最终回复，避免模型先输出“不能执行命令”造成事件链路矛盾。
-            const commandResult = runCommandTool(
-                events,
-                sent.sessionId,
-                sent.taskId,
-                sent.turnId,
-                commandRequestFromUnifiedToolIntent(unifiedToolIntent),
-            );
-            updateTaskStep(
-                database,
-                events,
-                commandStep.stepId,
-                commandResult.status,
-                commandResult.status === "completed"
-                    ? `命令工具执行完成：${commandResult.outputSummary || "命令没有输出。"}`
-                    : `命令工具执行失败：${commandResult.failureReason ?? "未返回失败原因。"}`,
-            );
-            const extensionStep = createTaskStep(
-                database,
-                events,
-                {
-                    taskId: sent.taskId,
-                    turnId: sent.turnId,
-                    sessionId: sent.sessionId,
-                    status: "running",
-                    title: "插件、MCP 和 skill 状态记录",
-                    createdAt: now,
-                    updatedAt: now,
-                },
-                "插件、MCP 和 skill 状态记录",
-            );
-            appendToolVisibilityEvents(
-                events,
-                sent.sessionId,
-                sent.taskId,
-                sent.turnId,
-            );
-            updateTaskStep(
-                database,
-                events,
-                extensionStep.stepId,
-                "completed",
-                "插件、MCP 和 skill 未解析到可执行实例，已按统一工具注册表写入不可用事件。",
-            );
-            const assistantText = formatAssistantTextWithCommandResult(
-                "已收到命令工具请求。",
-                commandResult,
-            );
-            new SessionRepository(database).insertAssistantMessageForTurn({
-                messageId: assistantMessageId,
-                turnId: sent.turnId,
-                contentMarkdown: assistantText,
-                createdAt: now,
-            });
-            events.append({
-                eventType: "message.created",
-                scopeType: "message",
-                scopeId: assistantMessageId,
-                sessionId: turnSessionId,
-                turnId: sent.turnId,
-                taskId: sent.taskId,
-                status: "completed",
-                title: "消息创建",
-                summary: "助手回复已写入中心服务。",
-                payload: {
-                    messageId: assistantMessageId,
-                    role: "assistant",
-                },
-            });
-            handleWorkerMessage(database, events, "task.complete", sent.taskId, {
-                assistantMessageId,
-                providerId: "tool-runtime",
-                model: "builtin.command.run",
-                usage: null,
-            });
-            updateSessionTitleAfterTurn(database, events, sent, userText, assistantText);
-            updateTurnStatus(database, events, sent.turnId, "completed");
-            return;
-        }
         const modelStep = createTaskStep(
             database,
             events,
@@ -758,6 +622,15 @@ export function completeCreatedTurn(
             "completed",
             "模型流式输出完成并准备固化助手消息。",
         );
+        const toolLoopResult = runModelRequestedToolLoop(
+            database,
+            events,
+            sent,
+            userText,
+            modelResult,
+            now,
+        );
+        const finalModelResult = toolLoopResult.finalModelResult;
         const toolPlanStep = createTaskStep(
             database,
             events,
@@ -781,10 +654,13 @@ export function completeCreatedTurn(
             taskId: sent.taskId,
             status: "completed",
             title: "工具计划",
-            summary: "当前轮次未识别到需要立即执行的命令工具，已记录插件、MCP 和 skill 可用性。",
+            summary: toolLoopResult.executedTool
+                ? "模型已基于结构化工具定义请求工具调用。"
+                : "当前模型回复未请求工具调用，已记录插件、MCP 和 skill 可用性。",
             payload: {
-                plannedToolId: null,
-                plannedToolKind: null,
+                plannedToolId: toolLoopResult.executedTool?.toolId ?? null,
+                plannedToolKind: toolLoopResult.executedTool?.toolKind ?? null,
+                inputSummary: toolLoopResult.executedTool?.inputSummary ?? null,
                 fallbackToolKinds: [
                     "plugin",
                     "mcp",
@@ -797,7 +673,9 @@ export function completeCreatedTurn(
             events,
             toolPlanStep.stepId,
             "completed",
-            "工具计划已生成，本轮无可立即执行命令工具。",
+            toolLoopResult.executedTool
+                ? "工具计划已由模型工具调用请求生成并执行。"
+                : "工具计划已生成，本轮模型未请求可执行工具。",
         );
         const extensionStep = createTaskStep(
             database,
@@ -826,7 +704,7 @@ export function completeCreatedTurn(
             "completed",
             "插件、MCP 和 skill 未解析到可执行实例，已按统一工具注册表写入不可用事件。",
         );
-        const assistantText = modelResult.assistantText;
+        const assistantText = finalModelResult.assistantText;
         new SessionRepository(database).insertAssistantMessageForTurn({
             messageId: assistantMessageId,
             turnId: sent.turnId,
@@ -850,11 +728,11 @@ export function completeCreatedTurn(
         });
         handleWorkerMessage(database, events, "task.complete", sent.taskId, {
             assistantMessageId,
-            providerId: modelResult.providerId,
-            model: modelResult.model,
-            usage: modelResult.usage,
+            providerId: finalModelResult.providerId,
+            model: finalModelResult.model,
+            usage: finalModelResult.usage,
         });
-        recordModelUsageAfterTurn(database, events, sent, modelResult);
+        recordModelUsageAfterTurn(database, events, sent, finalModelResult);
         updateSessionTitleAfterTurn(database, events, sent, userText, assistantText);
         updateTurnStatus(database, events, sent.turnId, "completed");
     } catch (error) {
@@ -893,44 +771,130 @@ export function completeCreatedTurn(
 }
 
 /**
- * formatAssistantTextWithCommandResult：把真实命令工具结果合入助手最终回复。
+ * runModelRequestedToolLoop：执行模型请求的工具调用并把结果回填模型。
  *
- * @param modelText 模型原始回复。
- * @param commandResult 命令工具执行结果。
- * @returns 面向用户的最终 Markdown 回复。
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param sent 当前轮次身份。
+ * @param userText 用户原始输入。
+ * @param modelResult 首次模型调用结果。
+ * @param now 当前轮次统一时间。
+ * @returns 最终模型回复和已执行工具摘要。
  */
-function formatAssistantTextWithCommandResult(
-    modelText: string,
-    commandResult: {
-        command: string;
-        status: "completed" | "failed";
-        outputSummary: string;
-        failureReason: string | null;
-    },
-): string {
-    if (commandResult.status === "completed") {
-        return [
-            "已通过命令工具执行：",
-            "",
-            `\`${commandResult.command}\``,
-            "",
-            "输出：",
-            "",
-            "```text",
-            commandResult.outputSummary || "命令没有输出。",
-            "```",
-        ].join("\n");
+function runModelRequestedToolLoop(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    sent: SendMessageResponse,
+    userText: string,
+    modelResult: ProviderModelGatewayResult,
+    now: string,
+): {
+    finalModelResult: ProviderModelGatewayResult;
+    executedTool: {
+        toolId: string;
+        toolKind: string;
+        inputSummary: string;
+    } | null;
+} {
+    if (!modelResult.toolCall) {
+        return {
+            finalModelResult: modelResult,
+            executedTool: null,
+        };
     }
 
-    return [
-        modelText,
-        "",
-        "命令工具执行失败：",
-        "",
-        `\`${commandResult.command}\``,
-        "",
-        commandResult.failureReason ?? "未返回失败原因。",
-    ].join("\n");
+    events.append({
+        eventType: "model.tool.requested",
+        scopeType: "tool",
+        scopeId: sent.taskId,
+        sessionId: sent.sessionId,
+        turnId: sent.turnId,
+        taskId: sent.taskId,
+        status: "running",
+        title: "模型请求工具",
+        summary: `模型请求调用 ${modelResult.toolCall.name}`,
+        payload: {
+            toolCallId: modelResult.toolCall.toolCallId,
+            toolName: modelResult.toolCall.name,
+            argumentsJson: modelResult.toolCall.argumentsJson,
+        },
+    });
+
+    const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(modelResult.toolCall);
+    if (!unifiedToolIntent || unifiedToolIntent.toolKind !== "command") {
+        events.append({
+            eventType: "model.tool.rejected",
+            scopeType: "tool",
+            scopeId: sent.taskId,
+            sessionId: sent.sessionId,
+            turnId: sent.turnId,
+            taskId: sent.taskId,
+            status: "failed",
+            title: "模型工具请求未执行",
+            summary: "模型请求的工具不存在、不可用或当前最小闭环暂不支持。",
+            payload: {
+                toolCallId: modelResult.toolCall.toolCallId,
+                toolName: modelResult.toolCall.name,
+            },
+        });
+        return {
+            finalModelResult: modelResult,
+            executedTool: null,
+        };
+    }
+
+    const commandStep = createTaskStep(
+        database,
+        events,
+        {
+            taskId: sent.taskId,
+            turnId: sent.turnId,
+            sessionId: sent.sessionId,
+            status: "running",
+            title: "命令工具执行",
+            createdAt: now,
+            updatedAt: now,
+        },
+        "命令工具执行",
+    );
+    const commandResult = runCommandTool(
+        events,
+        sent.sessionId,
+        sent.taskId,
+        sent.turnId,
+        commandRequestFromUnifiedToolIntent(unifiedToolIntent),
+    );
+    updateTaskStep(
+        database,
+        events,
+        commandStep.stepId,
+        commandResult.status,
+        commandResult.status === "completed"
+            ? `命令工具执行完成：${commandResult.outputSummary || "命令没有输出。"}`
+            : `命令工具执行失败：${commandResult.failureReason ?? "未返回失败原因。"}`,
+    );
+
+    const finalModelResult = continueProviderModelGatewayWithToolResult(
+        database,
+        events,
+        sent.sessionId,
+        sent.taskId,
+        sent.turnId,
+        userText,
+        modelResult.toolCall,
+        commandResult.status === "completed"
+            ? commandResult.outputSummary || "命令没有输出。"
+            : commandResult.failureReason ?? "命令工具执行失败。",
+    );
+
+    return {
+        finalModelResult,
+        executedTool: {
+            toolId: unifiedToolIntent.toolId,
+            toolKind: unifiedToolIntent.toolKind,
+            inputSummary: unifiedToolIntent.inputSummary,
+        },
+    };
 }
 
 /**

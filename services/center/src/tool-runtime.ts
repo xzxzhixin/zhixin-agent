@@ -3,8 +3,8 @@ import {spawnSync} from "node:child_process";
 import type {
     UnifiedToolCallIntent,
     UnifiedToolCapability,
-    UnifiedToolKind,
 } from "@zhixin/shared";
+import type {ModelToolCall, ModelToolSpec} from "@zhixin/model-protocol";
 
 import type {CenterEventStore} from "./events.js";
 
@@ -23,6 +23,36 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         requiredPermission: "command.run",
         availability: "available",
         unavailableReason: null,
+        description: "在中心服务受控环境中执行明确的本机命令，并返回标准输出或错误摘要。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "executablePath",
+                "args",
+                "inputSummary",
+            ],
+            properties: {
+                executablePath: {
+                    type: "string",
+                    description: "要执行的可执行文件路径或命令名。",
+                },
+                args: {
+                    type: "array",
+                    description: "命令参数数组。",
+                    items: {
+                        type: "string",
+                    },
+                },
+                inputSummary: {
+                    type: "string",
+                    description: "模型请求执行命令的目的摘要。",
+                },
+            },
+        },
+        riskLevel: "high",
+        scope: "session",
+        approvalRequired: true,
+        displayText: "执行命令",
     },
     {
         toolId: "builtin.plugin.call",
@@ -31,6 +61,33 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         requiredPermission: "plugin.call",
         availability: "unavailable",
         unavailableReason: "PLUGIN_NOT_SELECTED",
+        description: "调用当前会话可用的中心服务插件能力。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "pluginId",
+                "operation",
+                "arguments",
+            ],
+            properties: {
+                pluginId: {
+                    type: "string",
+                    description: "要调用的插件 ID。",
+                },
+                operation: {
+                    type: "string",
+                    description: "插件能力操作名。",
+                },
+                arguments: {
+                    type: "object",
+                    description: "插件操作参数。",
+                },
+            },
+        },
+        riskLevel: "medium",
+        scope: "session",
+        approvalRequired: true,
+        displayText: "调用插件",
     },
     {
         toolId: "builtin.mcp.call",
@@ -39,6 +96,33 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         requiredPermission: "mcp.call",
         availability: "unavailable",
         unavailableReason: "MCP_SERVER_NOT_RESOLVED",
+        description: "调用当前会话可用的 MCP Server 工具。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "serverId",
+                "toolName",
+                "arguments",
+            ],
+            properties: {
+                serverId: {
+                    type: "string",
+                    description: "MCP Server ID。",
+                },
+                toolName: {
+                    type: "string",
+                    description: "MCP 工具名称。",
+                },
+                arguments: {
+                    type: "object",
+                    description: "MCP 工具参数。",
+                },
+            },
+        },
+        riskLevel: "medium",
+        scope: "session",
+        approvalRequired: true,
+        displayText: "调用 MCP",
     },
     {
         toolId: "builtin.skill.use",
@@ -47,6 +131,28 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         requiredPermission: "skill.use",
         availability: "unavailable",
         unavailableReason: "SKILL_NOT_SELECTED",
+        description: "解析并注入当前会话可用的 skill 工作流。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "skillId",
+                "request",
+            ],
+            properties: {
+                skillId: {
+                    type: "string",
+                    description: "要使用的 skill ID。",
+                },
+                request: {
+                    type: "string",
+                    description: "请求 skill 处理的任务摘要。",
+                },
+            },
+        },
+        riskLevel: "low",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "使用 skill",
     },
 ];
 
@@ -71,6 +177,35 @@ export function resolveUnifiedToolCapability(toolId: string): UnifiedToolCapabil
     return listUnifiedToolCapabilities().find((capability) => {
         return capability.toolId === toolId;
     }) ?? null;
+}
+
+/**
+ * toModelSafeToolName：把中心服务内部工具 ID 转成模型协议安全名称。
+ *
+ * @param toolId 中心服务内部工具 ID。
+ * @returns 只包含字母、数字、下划线或连字符的模型工具名。
+ */
+export function toModelSafeToolName(toolId: string): string {
+    // safeName: OpenAI 兼容工具名不允许点号，统一替换成下划线并保留可读来源。
+    return toolId.replace(/[^a-zA-Z0-9_-]/gu, "_");
+}
+
+/**
+ * listAvailableModelToolSpecs：把中心服务工具能力转换为内部模型工具定义。
+ *
+ * @returns 模型请求可携带的工具定义列表。
+ */
+export function listAvailableModelToolSpecs(): ModelToolSpec[] {
+    return listUnifiedToolCapabilities()
+        .filter((capability) => {
+            return capability.availability === "available";
+        })
+        .map((capability) => ({
+            name: toModelSafeToolName(capability.toolId),
+            sourceToolId: capability.toolId,
+            description: capability.description,
+            parametersJsonSchema: capability.inputSchema,
+        }));
 }
 
 /**
@@ -158,42 +293,61 @@ export interface CommandToolRequest {
 }
 
 /**
- * planUnifiedToolCallForUserText：按用户输入生成统一工具调用意图。
+ * planUnifiedToolCallForUserText：兼容旧调用方的临时入口。
  *
  * @param userText 用户输入。
- * @returns 工具调用意图；没有明确工具请求时返回 null。
+ * @returns 固定返回 null，避免继续通过用户文本硬编码触发工具。
  */
 export function planUnifiedToolCallForUserText(userText: string): UnifiedToolCallIntent | null {
-    const normalized = userText.toLowerCase();
-    if (normalized.includes("node") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
-        return {
-            toolId: "builtin.command.run",
-            toolKind: "command",
-            inputSummary: "输出当前中心服务使用的 Node.js 运行环境版本。",
-            arguments: {
-                executablePath: process.execPath,
-                args: [
-                    "-v",
-                ],
-            },
-        };
-    }
-
-    if (normalized.includes("python") && (normalized.includes("版本") || normalized.includes("version") || normalized.includes("-v"))) {
-        return {
-            toolId: "builtin.command.run",
-            toolKind: "command",
-            inputSummary: "输出本机 Python 运行环境版本。",
-            arguments: {
-                executablePath: "python",
-                args: [
-                    "--version",
-                ],
-            },
-        };
-    }
-
+    void userText;
     return null;
+}
+
+/**
+ * buildUnifiedToolCallIntentFromModelCall：把模型工具调用转换为中心服务工具意图。
+ *
+ * @param toolCall 模型返回的结构化工具调用。
+ * @returns 可执行工具意图；工具不存在或不可用时返回 null。
+ */
+export function buildUnifiedToolCallIntentFromModelCall(toolCall: ModelToolCall): UnifiedToolCallIntent | null {
+    const capability = resolveUnifiedToolCapability(readInternalToolIdFromModelName(toolCall.name));
+    if (!capability || capability.availability !== "available") {
+        return null;
+    }
+
+    return {
+        toolId: capability.toolId,
+        toolKind: capability.toolKind,
+        inputSummary: readToolInputSummary(toolCall.argumentsJson, capability.displayText),
+        arguments: toolCall.argumentsJson,
+    };
+}
+
+/**
+ * readInternalToolIdFromModelName：把模型返回的工具名映射回内部工具 ID。
+ *
+ * @param modelToolName 模型回复中的工具名。
+ * @returns 中心服务内部工具 ID；无法映射时返回原值供拒绝事件记录。
+ */
+function readInternalToolIdFromModelName(modelToolName: string): string {
+    const capability = listUnifiedToolCapabilities().find((item) => {
+        return toModelSafeToolName(item.toolId) === modelToolName || item.toolId === modelToolName;
+    });
+    return capability?.toolId ?? modelToolName;
+}
+
+/**
+ * readToolInputSummary：从模型参数中读取工具用途摘要。
+ *
+ * @param argumentsJson 模型传入的工具参数。
+ * @param fallbackSummary 工具默认展示文案。
+ * @returns 工具用途摘要。
+ */
+function readToolInputSummary(argumentsJson: Record<string, unknown>, fallbackSummary: string): string {
+    const inputSummary = argumentsJson.inputSummary;
+    return typeof inputSummary === "string" && inputSummary.trim().length > 0
+        ? inputSummary
+        : fallbackSummary;
 }
 
 /**

@@ -81,6 +81,17 @@ export interface ModelMessage {
    * content: 消息内容片段列表。
    */
   content: ModelContentPart[];
+
+  /**
+   * toolCalls: 助手消息关联的工具调用记录。
+   *
+   * 来源：模型首次请求工具后，中心服务回填工具结果前补充的协议上下文。
+   * 含义：让供应商知道后续 tool 消息对应哪个工具调用。
+   * 格式：ModelToolCall 数组。
+   * 默认值：未发生工具调用时省略。
+   * 约束：仅 assistant 消息使用；tool 消息通过 content 内 tool_result 关联 toolCallId。
+   */
+  toolCalls?: ModelToolCall[];
 }
 
 /**
@@ -94,9 +105,26 @@ export interface ModelMessage {
  */
 export interface ModelToolSpec {
   /**
-   * name: 工具名称。
+   * name: 提供给模型供应商的工具名称。
+   *
+   * 来源：内部工具 ID 经模型协议命名规则转换。
+   * 含义：满足 OpenAI 兼容、Anthropic 等模型工具名的通用安全名称。
+   * 格式：只能使用字母、数字、下划线或连字符。
+   * 默认值：无。
+   * 约束：不能直接使用带点号的内部工具 ID。
    */
   name: string;
+
+  /**
+   * sourceToolId: 中心服务内部工具 ID。
+   *
+   * 来源：统一工具能力注册表。
+   * 含义：模型返回安全工具名后，中心服务用该字段映射回真实执行器。
+   * 格式：稳定字符串，例如 builtin.command.run。
+   * 默认值：无。
+   * 约束：只在中心服务内部使用，不要求供应商认识。
+   */
+  sourceToolId: string;
 
   /**
    * description: 工具中文或英文说明。

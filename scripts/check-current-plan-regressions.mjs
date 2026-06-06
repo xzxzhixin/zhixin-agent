@@ -202,13 +202,18 @@ assertIncludes(
 );
 assertIncludes(
   "services/center/src/tool-runtime.ts",
-  "planUnifiedToolCallForUserText",
-  "Agent 编排必须按用户语义规划统一工具调用意图。",
+  "listAvailableModelToolSpecs",
+  "Agent 编排必须把统一工具能力转换为模型工具定义。",
+);
+assertIncludes(
+  "services/center/src/tool-runtime.ts",
+  "buildUnifiedToolCallIntentFromModelCall",
+  "Agent 编排必须从模型工具请求转换统一工具调用意图。",
 );
 assertIncludes(
   "services/center/src/session-domain.ts",
-  "formatAssistantTextWithCommandResult",
-  "命令工具真实执行结果必须进入助手最终回复。",
+  "continueProviderModelGatewayWithToolResult",
+  "命令工具真实执行结果必须回填模型后再生成助手最终回复。",
 );
 assertNotIncludes(
   "services/center/src/session-domain.ts",
