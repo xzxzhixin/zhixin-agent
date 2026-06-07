@@ -20,6 +20,7 @@ import type {
 } from "./database.js";
 import type {
     RealtimeClientConnection,
+    MemoryQueueState,
     SendMessageResponse,
 } from "./types.js";
 
@@ -39,6 +40,10 @@ export interface SessionMessageRouteContext {
     events: CenterEventStore;
     /** realtimeClients: WebSocket 在线客户端集合。 */
     realtimeClients: Map<string, RealtimeClientConnection>;
+    /** centerDirectory: 中心目录，用于轮次完成后追加长期记忆。 */
+    centerDirectory: string;
+    /** memoryQueues: 智能体记忆单写队列。 */
+    memoryQueues: Map<string, MemoryQueueState>;
 }
 
 /**
@@ -53,6 +58,8 @@ export function registerSessionMessageRoute(context: SessionMessageRouteContext)
         database,
         events,
         realtimeClients,
+        centerDirectory,
+        memoryQueues,
     } = context;
 
     app.post("/api/session/message/send", async (request) => {
@@ -131,6 +138,8 @@ export function registerSessionMessageRoute(context: SessionMessageRouteContext)
                 session,
                 sent,
                 body.contentMarkdown ?? "",
+                centerDirectory,
+                memoryQueues,
                 () => pushedSequence,
             );
         }, 0);
@@ -161,6 +170,8 @@ async function runCreatedTurnInBackground(
     },
     sent: SendMessageResponse,
     contentMarkdown: string,
+    centerDirectory: string,
+    memoryQueues: Map<string, MemoryQueueState>,
     readPushedSequence: () => number,
 ): Promise<void> {
     try {
@@ -169,6 +180,8 @@ async function runCreatedTurnInBackground(
             realtimeEvents,
             sent,
             contentMarkdown,
+            centerDirectory,
+            memoryQueues,
         );
         broadcastRemainingTurnEvents(
             database,

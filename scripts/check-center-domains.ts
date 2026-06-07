@@ -6,7 +6,8 @@
  * 参数：无。
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,6 +36,202 @@ function assert(condition: boolean, message: string): void {
 }
 
 /**
+ * startMemoryFakeModelServer：启动用于记忆闭环的本地假模型服务。
+ *
+ * @returns 服务地址和关闭函数。
+ */
+async function startMemoryFakeModelServer(): Promise<{
+  baseUrl: string;
+  requests: () => Promise<unknown[]>;
+  close: () => Promise<void>;
+}> {
+  const serverScript = [
+    "const { createServer } = require('node:http');",
+    "const requests = [];",
+    "function readBody(request) {",
+    "  return new Promise((resolve, reject) => {",
+    "    let body = '';",
+    "    request.setEncoding('utf-8');",
+    "    request.on('data', (chunk) => { body += chunk; });",
+    "    request.on('end', () => resolve(body));",
+    "    request.on('error', reject);",
+    "  });",
+    "}",
+    "const server = createServer(async (request, response) => {",
+    "  if (request.url === '/__requests') { response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(requests)); return; }",
+    "  if (request.url !== '/v1/chat/completions') { response.writeHead(404); response.end(); return; }",
+    "  const rawBody = await readBody(request);",
+    "  requests.push(JSON.parse(rawBody));",
+    "  response.writeHead(200, { 'content-type': 'application/json' });",
+    "  response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '记忆闭环假模型回复。' } }], usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 } }));",
+    "});",
+    "server.listen(0, '127.0.0.1', () => {",
+    "  const address = server.address();",
+    "  process.stdout.write(JSON.stringify({ port: address.port }) + '\\n');",
+    "});",
+  ].join("\n");
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      serverScript,
+    ],
+    {
+      windowsHide: true,
+    },
+  );
+  const port = await readFakeServerPort(child);
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    requests: async () => readFakeModelRequests(port),
+    close: () => closeFakeServer(child),
+  };
+}
+
+/**
+ * readFakeModelRequests：读取假模型服务收到的模型请求。
+ *
+ * @param port 假模型服务端口。
+ * @returns 请求体数组。
+ */
+async function readFakeModelRequests(port: number): Promise<unknown[]> {
+  const response = await fetch(`http://127.0.0.1:${port}/__requests`);
+  return await response.json() as unknown[];
+}
+
+/**
+ * readFakeServerPort：读取假模型服务端口。
+ *
+ * @param child 假模型服务子进程。
+ * @returns 监听端口。
+ */
+function readFakeServerPort(child: ChildProcessWithoutNullStreams): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    child.stdout.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      const line = stdout.split("\n")[0];
+      if (!line) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(line) as {
+          port?: unknown;
+        };
+        if (typeof parsed.port === "number") {
+          resolve(parsed.port);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+    child.stderr.setEncoding("utf-8");
+    child.stderr.on("data", (chunk) => {
+      reject(new Error(String(chunk)));
+    });
+    child.on("error", reject);
+  });
+}
+
+/**
+ * closeFakeServer：关闭假模型服务。
+ *
+ * @param child 假模型服务子进程。
+ * @returns 子进程退出后完成。
+ */
+function closeFakeServer(child: ChildProcessWithoutNullStreams): Promise<void> {
+  return new Promise((resolve) => {
+    child.once("exit", () => {
+      resolve();
+    });
+    child.kill();
+  });
+}
+
+/**
+ * writeMemoryFakeProvider：写入正常发送测试使用的启用供应商。
+ *
+ * @param centerDirectory 中心目录。
+ * @param baseUrl 假模型服务地址。
+ * @returns 写入完成后没有返回值。
+ */
+async function writeMemoryFakeProvider(
+  centerDirectory: string,
+  baseUrl: string,
+): Promise<void> {
+  await writeFile(
+    join(centerDirectory, "providers", "memory-fake-provider.json"),
+    JSON.stringify(
+      {
+        providerId: "memory-fake-provider",
+        displayName: "记忆闭环假模型",
+        baseUrl,
+        protocolPluginId: "builtin-model-openai-compatible",
+        protocolMode: "chat-completions",
+        defaultModel: "memory-fake-model",
+        defaultReasoningEffort: null,
+        enabled: true,
+        apiKeySecretRef: null,
+        proxyStrategy: "none",
+        capabilities: {
+          supportsVision: false,
+          supportsToolCalling: false,
+          supportsJsonOutput: false,
+          supportsReasoningEffort: false,
+          supportsCacheUsage: false,
+          supportsModelList: false,
+          supportsStreaming: false,
+        },
+      },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
+}
+
+/**
+ * waitForSessionEvent：轮询等待异步会话事件落库。
+ *
+ * @param service 中心服务实例。
+ * @param sessionId 会话 ID。
+ * @param turnId 轮次 ID。
+ * @param eventType 目标事件类型。
+ * @returns 目标事件出现后返回。
+ */
+async function waitForSessionEvent(
+  service: CenterService,
+  sessionId: string,
+  turnId: string,
+  eventType: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const response = await service.app.inject({
+      method: "POST",
+      url: "/api/session/event/list",
+      payload: {
+        sessionId,
+        turnId,
+        afterSequence: 0,
+      },
+    });
+    const result = response.json<ApiResponse<{
+      events: Array<{
+        eventType: string;
+      }>;
+    }>>();
+    if (result.data?.events.some((event) => event.eventType === eventType)) {
+      return;
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
+  }
+  throw new Error(`等待事件超时：${eventType}`);
+}
+
+/**
  * main：执行领域能力检查。
  *
  * @returns 检查完成后没有返回值。
@@ -46,6 +243,8 @@ async function main(): Promise<void> {
   const centerDirectory = join(tempRoot, CENTER_DATA_DIR_NAME);
   // service: 保存中心服务实例，失败时也释放数据库。
   let service: CenterService | null = null;
+  // fakeModelServer: 正常会话发送检查使用的本地模型服务。
+  let fakeModelServer: Awaited<ReturnType<typeof startMemoryFakeModelServer>> | null = null;
 
   try {
     const config = readCenterServiceConfig({
@@ -56,6 +255,11 @@ async function main(): Promise<void> {
     });
     service = await createCenterService(config);
     await service.initialize();
+    fakeModelServer = await startMemoryFakeModelServer();
+    await writeMemoryFakeProvider(
+      centerDirectory,
+      fakeModelServer.baseUrl,
+    );
 
     const bootstrapState = await service.app.inject({
       method: "POST",
@@ -81,11 +285,10 @@ async function main(): Promise<void> {
 
     const agentDefinition = await readFile(join(centerDirectory, "agents", `${agent.data?.agentId}.md`), "utf-8");
     assert(agentDefinition.includes("roleDescription:"), "智能体定义缺少角色说明 frontmatter");
-    assert(agentDefinition.includes("capabilityBoundary: 可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。"), "智能体定义必须使用动态能力兼容说明，前端不再提交能力边界。");
+    assert(agentDefinition.includes("availablePlugins:"), "智能体定义必须保存可用插件范围字段。");
+    assert(agentDefinition.includes("availableMcp:"), "智能体定义必须保存可用 MCP 范围字段。");
+    assert(agentDefinition.includes("availableSkills:"), "智能体定义必须保存可用 skill 范围字段。");
     assert(agentDefinition.includes("memoryIndex:"), "智能体定义缺少记忆索引 frontmatter");
-    assert(!agentDefinition.includes("availablePlugins"), "智能体定义不应保存可用插件范围");
-    assert(!agentDefinition.includes("availableMcp"), "智能体定义不应保存 MCP 范围");
-    assert(!agentDefinition.includes("availableSkills"), "智能体定义不应保存 skill 范围");
 
     const agentUpdateResponse = await service.app.inject({
       method: "POST",
@@ -111,6 +314,18 @@ async function main(): Promise<void> {
       },
     });
     assert(mainAgentUpdateResponse.json<ApiResponse<unknown>>().success, "主智能体应允许编辑角色说明和默认模型。");
+
+    const mainAgentDisableResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/agent/disable",
+      payload: {
+        agentId: "main",
+        archiveMemory: false,
+        impactAccepted: true,
+      },
+    });
+    const mainAgentDisable = mainAgentDisableResponse.json<ApiResponse<unknown>>();
+    assert(!mainAgentDisable.success, "主智能体不可停用，中心服务必须返回明确失败。");
 
     const memoryResponse = await service.app.inject({
       method: "POST",
@@ -516,8 +731,18 @@ async function main(): Promise<void> {
       },
     });
     const workerMessage = workerMessageResponse.json<ApiResponse<{
+      sessionId: string;
+      messageId: string;
+      turnId: string;
       taskId: string;
     }>>();
+    assert(workerMessage.success, "Worker 检查会话发送失败");
+    await waitForSessionEvent(
+      service,
+      workerSession.data?.sessionId ?? "",
+      workerMessage.data?.turnId ?? "",
+      "memory.write",
+    );
     const workerStartResponse = await service.app.inject({
       method: "POST",
       url: "/api/worker/start",
@@ -552,6 +777,82 @@ async function main(): Promise<void> {
       },
     });
     assert(workerCancelResponse.json<ApiResponse<unknown>>().success, "Worker 取消接口失败");
+
+    const mainMemoryRows = service.database.connection()
+      .prepare("SELECT agent_id AS agentId, source_session_id AS sourceSessionId, source_turn_id AS sourceTurnId, memory_path AS memoryPath FROM memory_index WHERE agent_id = ? AND source_session_id = ? AND source_turn_id = ?")
+      .all("main", workerSession.data?.sessionId, workerMessage.data?.turnId) as Array<{
+        agentId: string;
+        sourceSessionId: string;
+        sourceTurnId: string;
+        memoryPath: string;
+      }>;
+    assert(mainMemoryRows.length === 1, "正常会话完成后没有为主智能体写入绑定本轮的长期记忆。");
+    assert(mainMemoryRows[0]?.sourceSessionId === workerSession.data?.sessionId, "主智能体记忆索引没有绑定会话 ID。");
+    assert(mainMemoryRows[0]?.sourceTurnId === workerMessage.data?.turnId, "主智能体记忆索引没有绑定轮次 ID。");
+    const mainMemoryContent = await readFile(
+      join(centerDirectory, mainMemoryRows[0]?.memoryPath ?? ""),
+      "utf-8",
+    );
+    [
+      "# ",
+      "## 关键词",
+      "## 总结",
+      "## 使用的电脑",
+      "## 用户说的",
+      "## 回答的",
+      "Worker 生命周期检查",
+    ].forEach((fragment) => {
+      assert(mainMemoryContent.includes(fragment), `主智能体长期记忆缺少片段：${fragment}`);
+    });
+    const workerContextAfterMemoryResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/worker/context-request",
+      payload: {
+        taskId: workerMessage.data?.taskId,
+      },
+    });
+    const workerContextAfterMemory = workerContextAfterMemoryResponse.json<ApiResponse<{
+      memoryIndex: Array<{
+        agentId: string;
+        summary: string;
+      }>;
+    }>>();
+    assert(
+      workerContextAfterMemory.data?.memoryIndex.some((row) => row.agentId === "main") === true,
+      "Worker 上下文没有读取主智能体长期记忆索引。",
+    );
+    const memoryAwareMessageResponse = await service.app.inject({
+      method: "POST",
+      url: "/api/session/message/send",
+      payload: {
+        sessionId: workerSession.data?.sessionId,
+        contentMarkdown: "第二轮需要使用上一轮记忆",
+        attachments: [],
+      },
+    });
+    const memoryAwareMessage = memoryAwareMessageResponse.json<ApiResponse<{
+      sessionId: string;
+      messageId: string;
+      turnId: string;
+      taskId: string;
+    }>>();
+    assert(memoryAwareMessage.success, "记忆注入检查会话发送失败");
+    await waitForSessionEvent(
+      service,
+      workerSession.data?.sessionId ?? "",
+      memoryAwareMessage.data?.turnId ?? "",
+      "memory.write",
+    );
+    const modelRequests = await fakeModelServer?.requests() ?? [];
+    const serializedSecondRequest = JSON.stringify(modelRequests.at(-1) ?? {});
+    assert(
+      serializedSecondRequest.includes("主智能体长期记忆"),
+      "第二轮普通模型请求没有注入主智能体长期记忆标题。",
+    );
+    assert(
+      serializedSecondRequest.includes("Worker 生命周期检查"),
+      "第二轮普通模型请求没有带入上一轮主智能体记忆内容。",
+    );
 
     const engineSessionResponse = await service.app.inject({
       method: "POST",
@@ -628,6 +929,9 @@ async function main(): Promise<void> {
   } finally {
     await service?.close().catch(() => {
       // ignore: 检查失败时仍继续清理临时目录。
+    });
+    await fakeModelServer?.close().catch(() => {
+      // ignore: 假模型服务退出失败不影响临时目录清理。
     });
     await rm(tempRoot, {
       force: true,

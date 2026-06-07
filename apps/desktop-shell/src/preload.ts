@@ -61,6 +61,32 @@ export interface DesktopOperationResult {
 }
 
 /**
+ * DesktopProjectIdentity：桌面端选择项目目录后的身份信息。
+ *
+ * 来源：Electron 主进程读取或创建项目根目录 `致心项目ID.md`。
+ * 含义：前端登记项目时使用的真实项目身份和当前位置。
+ * 格式：JSON 对象。
+ * 默认值：用户取消选择时返回 null。
+ * 约束：projectId 必须是 UUID，不能由目录名派生。
+ */
+export interface DesktopProjectIdentity {
+  /**
+   * projectId: 项目 UUID，来源于项目根目录身份文件。
+   */
+  projectId: string;
+
+  /**
+   * displayName: 项目文件夹名，用于项目导航主名称。
+   */
+  displayName: string;
+
+  /**
+   * latestPath: 用户本次选择的项目根目录绝对路径。
+   */
+  latestPath: string;
+}
+
+/**
  * DesktopBridge：渲染层允许调用的桌面端能力。
  */
 export interface DesktopBridge {
@@ -116,6 +142,11 @@ export interface DesktopBridge {
     permission: string;
     checkedAt: string;
   }>;
+
+  /**
+   * selectProjectDirectoryAndEnsureIdentity: 选择项目目录并确保身份文件存在。
+   */
+  selectProjectDirectoryAndEnsureIdentity: () => Promise<DesktopProjectIdentity | null>;
 }
 
 // bridge: 暴露给前端的最小桌面能力集合。
@@ -139,6 +170,7 @@ const bridge: DesktopBridge = {
     permission: string;
     checkedAt: string;
   }>,
+  selectProjectDirectoryAndEnsureIdentity: () => ipcRenderer.invoke("zhixin:project-directory-select") as Promise<DesktopProjectIdentity | null>,
 };
 
 contextBridge.exposeInMainWorld("zhixinDesktop", bridge);

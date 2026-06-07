@@ -75,6 +75,22 @@ interface ProviderStreamEventContext {
     turnId: string;
 }
 
+interface AgentMemoryPromptEntry {
+    /** keywords: 记忆关键词。 */
+    keywords: string;
+    /** summary: 记忆摘要。 */
+    summary: string;
+    /** sourceSessionId: 来源会话 ID。 */
+    sourceSessionId: string | null;
+    /** sourceTurnId: 来源轮次 ID。 */
+    sourceTurnId: string | null;
+}
+
+// MAIN_AGENT_MEMORY_PROMPT_LIMIT：模型请求只注入最近几条主智能体记忆，避免长期记忆无界占用上下文。
+const MAIN_AGENT_MEMORY_PROMPT_LIMIT = 5;
+// MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS：记忆系统消息长度上限，防止历史摘要异常膨胀。
+const MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS = 1200;
+
 /**
  * invokeProviderModelGateway：基于中心服务供应商配置执行最小模型调用。
  *
@@ -95,12 +111,14 @@ export async function invokeProviderModelGateway(
     userText: string,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
+    const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
         runtime.modelSelection.reasoningEffort,
         listAvailableModelToolSpecs(),
+        mainAgentMemories,
     );
     const result = await sendProviderModelRequest(runtime, requestPayload, {
         events,
@@ -155,12 +173,14 @@ export function continueProviderModelGatewayWithToolResult(
     toolResultText: string,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
+    const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
         runtime.modelSelection.reasoningEffort,
         listAvailableModelToolSpecs(),
+        mainAgentMemories,
     );
     requestPayload.messages.push(
         {
@@ -237,12 +257,14 @@ export function continueProviderModelGatewayWithToolResults(
     }>,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
+    const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
         runtime.modelSelection.reasoningEffort,
         listAvailableModelToolSpecs(),
+        mainAgentMemories,
     );
     requestPayload.messages.push({
         role: "assistant",
@@ -410,13 +432,30 @@ function buildModelRequestPayload(
     model: string,
     reasoningEffort: string | null,
     tools: ModelToolSpec[],
+    mainAgentMemories: AgentMemoryPromptEntry[],
 ): ModelRequest {
+    const memoryPrompt = buildMainAgentMemoryPrompt(mainAgentMemories);
+    // memoryMessages: 主智能体记忆作为 system 消息注入，不改写用户本轮原文。
+    const memoryMessages: ModelRequest["messages"] = memoryPrompt
+        ? [
+            {
+                role: "system",
+                content: [
+                    {
+                        type: "text",
+                        text: memoryPrompt,
+                    },
+                ],
+            },
+        ]
+        : [];
     return {
         requestId: randomUUID(),
         providerId,
         model,
         reasoningEffort,
         messages: [
+            ...memoryMessages,
             {
                 role: "user",
                 content: [
@@ -430,6 +469,53 @@ function buildModelRequestPayload(
         tools,
         stream: true,
     };
+}
+
+/**
+ * listMainAgentMemoryPromptEntries：读取主智能体最近长期记忆摘要。
+ *
+ * @param database 中心服务数据库。
+ * @returns 可注入模型请求的主智能体记忆摘要。
+ */
+function listMainAgentMemoryPromptEntries(database: CenterDatabase): AgentMemoryPromptEntry[] {
+    return createDataAccess(database).workflow.listRecentAgentMemorySummaries(
+        "main",
+        MAIN_AGENT_MEMORY_PROMPT_LIMIT,
+    ).map((memory) => {
+        return {
+            keywords: memory.keywords,
+            summary: memory.summary,
+            sourceSessionId: memory.sourceSessionId,
+            sourceTurnId: memory.sourceTurnId,
+        };
+    });
+}
+
+/**
+ * buildMainAgentMemoryPrompt：把主智能体长期记忆压缩成模型系统消息。
+ *
+ * @param memories 主智能体最近记忆摘要。
+ * @returns 系统消息正文；没有记忆时返回 null。
+ */
+function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string | null {
+    if (memories.length === 0) {
+        return null;
+    }
+
+    const prompt = [
+        "主智能体长期记忆：",
+        ...memories.map((memory, index) => {
+            const source = memory.sourceSessionId && memory.sourceTurnId
+                ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
+                : "来源未绑定";
+            return `${index + 1}. 关键词：${memory.keywords || "无"}；摘要：${memory.summary || "无"}；${source}`;
+        }),
+        "使用这些记忆理解用户偏好和历史上下文，但不要编造未写入记忆的事实。",
+    ].join("\n");
+
+    return prompt.length > MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS
+        ? `${prompt.slice(0, MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS)}\n[长期记忆已截断]`
+        : prompt;
 }
 
 function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string) {

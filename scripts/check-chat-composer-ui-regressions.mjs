@@ -373,6 +373,36 @@ assertNotIncludes(
   "智能体浮层内部不能保留自身滚动条。",
 );
 assertIncludes(
+  agentStatusDialog,
+  "flex-direction: row;",
+  "智能体浮层节点必须把智能体名称和状态放在同一行。",
+);
+assertIncludes(
+  agentStatusDialog,
+  "justify-content: flex-start;",
+  "智能体浮层节点状态必须紧跟名称后面，不能被推到浮层右侧。",
+);
+assertNotIncludes(
+  agentStatusDialog,
+  "justify-content: space-between;",
+  "智能体浮层节点不能使用两端对齐，否则状态会远离名称。",
+);
+assertIncludes(
+  agentConversationDialog,
+  "agent-conversation-panel-shell",
+  "智能体对话弹框必须提供稳定外壳，避免完整对话组件内容区被压缩为空。",
+);
+assertIncludes(
+  agentConversationDialog,
+  "min-height: 40vh;",
+  "智能体对话弹框内容区域至少需要 40vh。",
+);
+assertIncludes(
+  agentConversationDialog,
+  ".agent-conversation-dialog .agent-conversation-panel-shell .conversation-body",
+  "智能体对话弹框必须用高优先级选择器覆盖主页面 min-height: 0，确保内容区计算高度至少 40vh。",
+);
+assertIncludes(
   editDetailDialog,
   "composer-edit-actionbar",
   "编辑浮层必须提供 CCGUI 风格顶部操作条。",

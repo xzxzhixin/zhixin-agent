@@ -48,7 +48,14 @@ public final class ProjectIdentityService {
         // content：使用 UTF-8 读取中文文件名对应的 Markdown 内容。
         String content = new String(Files.readAllBytes(idFile), StandardCharsets.UTF_8);
         // trim：项目 ID 文件只保存 UUID 文本，允许末尾换行。
-        return content.trim();
+        String projectId = content.trim();
+        try {
+            // UUID.fromString：读取已有身份文件时必须校验格式，避免损坏内容登记到中心服务。
+            UUID.fromString(projectId);
+            return projectId;
+        } catch (IllegalArgumentException exception) {
+            throw new IOException(PROJECT_ID_FILE_NAME + " 内容不是合法 UUID，已停止登记项目。", exception);
+        }
     }
 
     /**

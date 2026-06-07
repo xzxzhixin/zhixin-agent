@@ -208,8 +208,30 @@ export function resolveFrontendDevServerRedirectUrl(
         return null;
     }
 
-    // targetUrl: 保留业务路由路径，追加中心服务端口，前端仍通过 8866 调 API。
-    const targetUrl = new URL(pathname === "/" ? "/" : pathname, `${frontendDevServerUrl}/`);
+    // targetUrl: Vite dev server 只承载根入口；业务路径统一放入 hash，避免生成 /chat?port=8866#/chat。
+    const targetUrl = new URL(
+        normalizeFrontendDevRedirectPath(pathname),
+        `${frontendDevServerUrl}/`,
+    );
     targetUrl.searchParams.set("port", String(centerPort));
     return targetUrl.toString();
+}
+
+/**
+ * normalizeFrontendDevRedirectPath：规范中心服务开发期跳转到 Vite 的入口路径。
+ *
+ * @param pathname 中心服务收到的不含查询参数路径。
+ * @returns Vite dev server 可识别的规范路径。
+ */
+export function normalizeFrontendDevRedirectPath(pathname: string): string {
+    if (pathname === "/" || pathname === "") {
+        return "/";
+    }
+
+    if (pathname === "/plugin.html") {
+        return "/plugin.html";
+    }
+
+    // hash: 前端使用 hash 路由；把浏览器直接访问的业务路径迁移到 hash，Vite pathname 始终保持根入口。
+    return `/#${pathname}`;
 }

@@ -27,18 +27,34 @@ const emit = defineEmits<{
       :title="props.node ? `${props.node.name} 对话` : '智能体对话'"
       @update:model-value="emit('update:modelValue', $event)"
   >
-    <ChatConversationPanel
-        v-if="props.node"
-        variant="agent"
-        :agent-node="props.node"
-    />
+    <section class="agent-conversation-panel-shell">
+      <ChatConversationPanel
+          v-if="props.node"
+          variant="agent"
+          :agent-node="props.node"
+      />
+    </section>
   </el-dialog>
 </template>
 
 <style scoped>
-:deep(.agent-conversation-dialog .el-dialog__body) {
+:global(.agent-conversation-dialog .el-dialog__body) {
   display: flex;
   height: min(72vh, 760px);
-  min-height: 0;
+  min-height: 40vh;
+}
+
+.agent-conversation-panel-shell {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 40vh;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+:global(.agent-conversation-dialog .agent-conversation-panel-shell .conversation-body),
+:global(.agent-conversation-dialog .agent-conversation-panel-shell .message-list) {
+  min-height: 40vh;
 }
 </style>

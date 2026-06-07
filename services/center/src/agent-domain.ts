@@ -11,6 +11,34 @@ import {AgentRepository} from "./data-access/agent-repository.js";
 // AGENT_DYNAMIC_CAPABILITY_BOUNDARY: 兼容旧 agents_index 字段；真实可用能力由当前会话窗口动态决定，不再由前端编辑。
 const AGENT_DYNAMIC_CAPABILITY_BOUNDARY = "可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。";
 
+/**
+ * MemoryWriteInput：智能体长期记忆写入入参。
+ *
+ * 来源：正常会话轮次完成、手动记忆写入和执行引擎归纳。
+ * 含义：描述要追加到智能体 Markdown 记忆和 SQLite 索引中的一段完整轮次记忆。
+ * 格式：agentId、关键词、摘要、原始问答文本和可追踪来源。
+ * 默认值：来源会话、轮次和附件引用可为空；正常会话完成时必须传入来源。
+ * 约束：记忆只能追加，不能覆盖或插入已有段落。
+ */
+export interface MemoryWriteInput {
+    /** agentId: 智能体 ID，主智能体固定为 main。 */
+    agentId?: string;
+    /** keywords: 关键词文本。 */
+    keywords?: string;
+    /** summary: 本轮对话摘要。 */
+    summary?: string;
+    /** userText: 用户本轮输入原文。 */
+    userText?: string;
+    /** assistantText: 助手本轮回复原文。 */
+    assistantText?: string;
+    /** sourceSessionId: 来源会话 ID，手动写入时可为空。 */
+    sourceSessionId?: string | null;
+    /** sourceTurnId: 来源轮次 ID，手动写入时可为空。 */
+    sourceTurnId?: string | null;
+    /** attachmentRefsJson: 正式附件结构化引用 JSON 字符串。 */
+    attachmentRefsJson?: string;
+}
+
 export function ensureMainAgent(
     database: CenterDatabase,
     events: CenterEventStore,
@@ -112,6 +140,9 @@ export function createAgent(
         `name: ${input.name}`,
         `roleDescription: ${input.roleDescription}`,
         `capabilityBoundary: ${capabilityBoundary}`,
+        "availablePlugins: []",
+        "availableMcp: []",
+        "availableSkills: []",
         `defaultProviderId: ${input.defaultProviderId ?? ""}`,
         `defaultModel: ${input.defaultModel ?? ""}`,
         `reasoningEffort: ${input.reasoningEffort ?? ""}`,
@@ -274,6 +305,10 @@ export function disableAgent(
     enabled: boolean;
     archiveMemory: boolean;
 } {
+    if (agentId === "main") {
+        throw new Error("MAIN_AGENT_DISABLE_FORBIDDEN");
+    }
+
     const now = new Date().toISOString();
     new AgentRepository(database).disableAgent(
         agentId,
@@ -440,6 +475,9 @@ export function renderAgentDefinition(input: {
         `name: ${input.name}`,
         `roleDescription: ${input.roleDescription}`,
         `capabilityBoundary: ${input.capabilityBoundary}`,
+        "availablePlugins: []",
+        "availableMcp: []",
+        "availableSkills: []",
         `defaultProviderId: ${input.defaultProviderId ?? ""}`,
         `defaultModel: ${input.defaultModel ?? ""}`,
         `reasoningEffort: ${input.reasoningEffort ?? ""}`,
@@ -492,13 +530,7 @@ export function writeAgentMemory(
     events: CenterEventStore,
     centerDirectory: string,
     memoryQueues: Map<string, MemoryQueueState>,
-    input: {
-        agentId?: string;
-        keywords?: string;
-        summary?: string;
-        userText?: string;
-        assistantText?: string;
-    },
+    input: MemoryWriteInput,
 ): {
     relativePath: string;
 } {
@@ -543,9 +575,9 @@ export function writeAgentMemory(
         agentId: input.agentId,
         keywords: input.keywords,
         summary: input.summary,
-        sourceSessionId: null,
-        sourceTurnId: null,
-        attachmentRefsJson: "[]",
+        sourceSessionId: input.sourceSessionId ?? null,
+        sourceTurnId: input.sourceTurnId ?? null,
+        attachmentRefsJson: input.attachmentRefsJson ?? "[]",
         memoryPath: relativePath,
         createdAt: now.toISOString(),
     });
@@ -553,8 +585,8 @@ export function writeAgentMemory(
         eventType: "memory.write",
         scopeType: "agent",
         scopeId: input.agentId ?? null,
-        sessionId: null,
-        turnId: null,
+        sessionId: input.sourceSessionId ?? null,
+        turnId: input.sourceTurnId ?? null,
         taskId: null,
         agentId: input.agentId,
         status: "completed",
@@ -563,6 +595,8 @@ export function writeAgentMemory(
         payload: {
             relativePath,
             memoryIndexId,
+            sourceSessionId: input.sourceSessionId ?? null,
+            sourceTurnId: input.sourceTurnId ?? null,
         },
     });
     leaveMemoryQueue(queueState);

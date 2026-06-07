@@ -184,4 +184,48 @@ export class WorkflowRepository {
             .prepare("SELECT agent_id AS agentId, keywords, summary, memory_path AS memoryPath FROM memory_index ORDER BY created_at DESC")
             .all();
     }
+
+    /**
+     * listRecentAgentMemorySummaries：读取指定智能体最近长期记忆摘要。
+     *
+     * @param agentId 智能体 ID。
+     * @param limit 最大返回数量。
+     * @returns 最近记忆摘要数组。
+     */
+    listRecentAgentMemorySummaries(agentId: string, limit: number): Array<{
+        agentId: string;
+        keywords: string;
+        summary: string;
+        sourceSessionId: string | null;
+        sourceTurnId: string | null;
+        memoryPath: string;
+        createdAt: string;
+    }> {
+        return this.database.connection()
+            .prepare(`
+                SELECT agent_id AS agentId,
+                       keywords,
+                       summary,
+                       source_session_id AS sourceSessionId,
+                       source_turn_id AS sourceTurnId,
+                       memory_path AS memoryPath,
+                       created_at AS createdAt
+                FROM memory_index
+                WHERE agent_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            `)
+            .all(
+                agentId,
+                limit,
+            ) as Array<{
+            agentId: string;
+            keywords: string;
+            summary: string;
+            sourceSessionId: string | null;
+            sourceTurnId: string | null;
+            memoryPath: string;
+            createdAt: string;
+        }>;
+    }
 }

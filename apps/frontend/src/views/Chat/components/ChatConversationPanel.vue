@@ -996,6 +996,61 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1 1 0;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.conversation-body {
+  display: flex;
+  min-height: 40vh;
+  flex: 1 1 0;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.conversation-timeline {
+  display: flex;
+  width: 54px;
+  min-height: 0;
+  flex: 0 0 54px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 4px;
+  overflow: hidden auto;
+  border-right: 1px solid var(--el-border-color-lighter);
+}
+
+.message-list {
+  min-width: 0;
+  min-height: 40vh;
+  flex: 1 1 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.composer {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 12px;
+  padding-bottom: 10px;
+  position: relative;
+  z-index: 2;
+}
+
+.composer-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
 }
 
 .composer-edit-diff-preview {

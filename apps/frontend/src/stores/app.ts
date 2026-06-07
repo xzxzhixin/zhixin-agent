@@ -58,6 +58,24 @@ import {
 import {
     createProjectActions,
 } from "./app-project-actions";
+
+/**
+ * SessionDeletedPayload：中心服务 `session.deleted` 专项 WebSocket 载荷。
+ *
+ * 来源：中心服务删除会话事件 payload。
+ * 含义：通知其他端某个会话已被中心服务删除。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：sessionId 必须来自中心服务事件，前端不能自行拼装其他候选字段。
+ */
+interface SessionDeletedPayload {
+    /** sessionId: 被删除会话的中心服务事实 ID。 */
+    sessionId: string;
+    /** sessionType: 被删除会话类型，用于导航刷新和审计展示。 */
+    sessionType: "normal" | "project";
+    /** projectId: 项目会话所属项目 ID；普通会话为 null。 */
+    projectId: string | null;
+}
 import type {
     AgentStatusTreeNode,
     AgentDraft,
@@ -900,6 +918,41 @@ export const useAppStore = defineStore("app", {
         },
 
         /**
+         * handleSessionDeleted：处理其他端删除会话后的实时同步。
+         *
+         * @param payload WebSocket `session.deleted` 载荷，来源于中心服务删除事件。
+         * @returns 导航、详情和本地草稿迁移完成后没有返回值。
+         */
+        async handleSessionDeleted(payload: SessionDeletedPayload): Promise<void> {
+            // sessions: 先移除本地列表项，避免广播到达后被删除会话继续短暂显示。
+            this.sessions = this.sessions.filter((session) => {
+                return session.sessionId !== payload.sessionId;
+            });
+
+            const deletingActiveSession = this.activeSessionId === payload.sessionId;
+            if (deletingActiveSession) {
+                // 当前会话已被其他端删除，必须立即清空详情和过程事件，防止继续展示过期事实。
+                this.activeSessionId = null;
+                this.sessionDetail = null;
+                this.events = [];
+                this.pendingSessionDraft = null;
+                this.composerEditFiles = [];
+                this.projectCapabilitySummary = null;
+            }
+
+            await this.loadNavigationData();
+            if (deletingActiveSession) {
+                // ensureSession: 删除当前会话后进入普通草稿或插件项目草稿，保持输入区处于可继续使用状态。
+                await this.ensureSession();
+                return;
+            }
+
+            if (this.activeSessionId) {
+                await this.loadActiveSessionSnapshot();
+            }
+        },
+
+        /**
          * ensureSession：没有会话时创建默认会话。
          *
          * @returns 创建或确认完成后没有返回值。
@@ -1100,7 +1153,7 @@ export const useAppStore = defineStore("app", {
                 }
                 await this.loadNavigationData();
                 if (this.activeSessionId) {
-                    await this.loadActiveSessionDetail();
+                    await this.loadActiveSessionSnapshot();
                     return;
                 }
                 await this.ensureSession();
@@ -1209,14 +1262,25 @@ export const useAppStore = defineStore("app", {
          * @returns 加载完成后没有返回值。
          */
         async loadActiveSessionDetail(): Promise<void> {
+            await this.loadActiveSessionSnapshot();
+        },
+
+        /**
+         * loadActiveSessionSnapshot：统一加载当前会话详情和事件快照。
+         *
+         * @returns 详情、过程事件和会话相关能力加载完成后没有返回值。
+         */
+        async loadActiveSessionSnapshot(): Promise<void> {
             if (!this.activeSessionId) {
                 this.sessionDetail = null;
+                this.events = [];
                 return;
             }
 
             this.sessionDetail = await this.api().getSessionDetail({
                 sessionId: this.activeSessionId,
             });
+            await this.refreshEvents();
             if (this.sessionDetail.session.sessionType === "project") {
                 await this.loadProjectCapabilitySources();
             }

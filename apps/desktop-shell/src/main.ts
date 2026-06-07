@@ -1,5 +1,6 @@
 import {
   createHash,
+  randomUUID,
 } from "node:crypto";
 import {
   app,
@@ -22,6 +23,7 @@ import {
   writeFileSync,
   existsSync,
   mkdirSync,
+  statSync,
 } from "node:fs";
 import {
   dirname,
@@ -140,6 +142,10 @@ const centerNodeExecutable = process.env.ZHIXIN_CENTER_NODE_EXECUTABLE || proces
 const desktopConfigPath = join(app.getPath("userData"), "desktop-config.json");
 // DEFAULT_CLOSE_ACTION_PREFERENCE: 首次关闭窗口时必须询问用户，符合常见桌面应用关闭习惯。
 const DEFAULT_CLOSE_ACTION_PREFERENCE: CloseActionPreference = "ask";
+// PROJECT_ID_FILE_NAME：项目根目录中的固定项目身份文件名。
+const PROJECT_ID_FILE_NAME = "致心项目ID.md";
+// PROJECT_ID_PATTERN：项目身份必须为 UUID，避免损坏文件或目录名伪身份进入中心服务。
+const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 // mainWindow: 主窗口引用，避免被垃圾回收。
 let mainWindow: BrowserWindow | null = null;
@@ -183,6 +189,32 @@ interface DesktopConfigFile {
    * closeActionPreference: 窗口关闭按钮行为偏好。
    */
   closeActionPreference: CloseActionPreference;
+}
+
+/**
+ * DesktopProjectIdentity：桌面端项目目录身份结果。
+ *
+ * 来源：用户选择的项目根目录和根目录内 `致心项目ID.md`。
+ * 含义：传给渲染进程登记中心服务项目索引。
+ * 格式：JSON 对象。
+ * 默认值：用户取消目录选择时由调用方返回 null。
+ * 约束：projectId 必须是 UUID，latestPath 必须是目录路径。
+ */
+interface DesktopProjectIdentity {
+  /**
+   * projectId: 项目 UUID，来源于项目身份文件。
+   */
+  projectId: string;
+
+  /**
+   * displayName: 项目文件夹名。
+   */
+  displayName: string;
+
+  /**
+   * latestPath: 当前选择的项目根目录绝对路径。
+   */
+  latestPath: string;
 }
 
 /**
@@ -299,6 +331,80 @@ function normalizePort(port: unknown): number {
   return Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
     ? parsedPort
     : DEFAULT_CENTER_PORT;
+}
+
+/**
+ * assertProjectId：校验项目身份文件内容必须是 UUID。
+ *
+ * @param projectId 从身份文件读取或新生成的项目 ID。
+ * @returns 去除首尾空白后的 UUID。
+ */
+function assertProjectId(projectId: string): string {
+  // normalizedProjectId: 文件内容允许末尾换行，但不能包含非 UUID 文本。
+  const normalizedProjectId = projectId.trim();
+  if (!PROJECT_ID_PATTERN.test(normalizedProjectId)) {
+    throw new Error(`${PROJECT_ID_FILE_NAME} 内容不是合法 UUID，已停止登记项目。`);
+  }
+  return normalizedProjectId;
+}
+
+/**
+ * ensureProjectDirectoryIdentity：读取或创建项目根目录身份文件。
+ *
+ * @param projectDirectory 用户选择的项目根目录。
+ * @returns 项目 UUID。
+ */
+function ensureProjectDirectoryIdentity(projectDirectory: string): string {
+  // identityFilePath: 身份文件必须位于项目根目录，不能写入中心目录或其他位置。
+  const identityFilePath = join(projectDirectory, PROJECT_ID_FILE_NAME);
+  if (existsSync(identityFilePath)) {
+    return assertProjectId(readFileSync(identityFilePath, "utf-8"));
+  }
+
+  // projectId: 文件缺失时生成新的 UUID，并写入“UUID 加换行”便于人工查看。
+  const projectId = randomUUID();
+  writeFileSync(
+    identityFilePath,
+    `${projectId}\n`,
+    "utf-8",
+  );
+  return projectId;
+}
+
+/**
+ * selectProjectDirectoryAndEnsureIdentity：通过桌面原生对话框选择项目目录并确保身份文件存在。
+ *
+ * @returns 用户取消时返回 null，否则返回项目身份、显示名和最新路径。
+ */
+async function selectProjectDirectoryAndEnsureIdentity(): Promise<DesktopProjectIdentity | null> {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: "选择项目文件夹",
+    properties: [
+      "openDirectory",
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  // latestPath: 原生目录选择只允许返回目录，但仍做一次目录校验，避免异常路径进入后续写入。
+  const latestPath = resolve(result.filePaths[0]);
+  if (!statSync(latestPath).isDirectory()) {
+    throw new Error("选择的路径不是文件夹，无法创建项目对话。");
+  }
+
+  // displayName: 项目主名称使用文件夹名，根路径无文件名时回退完整路径避免空名称。
+  const displayName = latestPath.split(/[\\/]/u).filter((part) => part.length > 0).pop() ?? latestPath;
+  if (displayName.trim().length === 0) {
+    throw new Error("项目文件夹名称为空，无法创建项目对话。");
+  }
+
+  return {
+    projectId: ensureProjectDirectoryIdentity(latestPath),
+    displayName,
+    latestPath,
+  };
 }
 
 /**
@@ -657,6 +763,22 @@ function stopCenterService(): void {
 }
 
 /**
+ * resolveDesktopWindowUrl：规范桌面主窗口加载入口。
+ *
+ * @returns 指向中心服务托管入口的 URL。
+ */
+function resolveDesktopWindowUrl(): string {
+  // targetUrl: 桌面壳始终从中心服务地址进入页面，开发期 HMR 由中心服务重定向处理，避免混出 /chat?port=8866#/chat。
+  const targetUrl = new URL(`http://127.0.0.1:${centerLaunchConfig.port}/`);
+  // port: 前端 API 客户端读取的中心服务端口，来源于桌面壳本机配置。
+  targetUrl.searchParams.set(
+    "port",
+    String(centerLaunchConfig.port),
+  );
+  return targetUrl.toString();
+}
+
+/**
  * createWindow：创建桌面端主窗口。
  *
  * @returns 窗口加载完成后没有返回值。
@@ -694,19 +816,14 @@ async function createWindow(): Promise<void> {
     void handleMainWindowClose(event);
   });
 
-  if (isDev && frontendDevUrl) {
+  if (isDev) {
     // clearCache: 开发期必须优先使用 Vite 最新模块，避免 Electron 会话缓存旧 RouterView 产物。
     await mainWindow.webContents.session.clearCache();
-    // 开发期优先加载 Vite dev server，避免每次开壳前构建前端。
-    const targetUrl = `${frontendDevUrl}?port=${centerLaunchConfig.port}`;
-    writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
-    await mainWindow.loadURL(targetUrl);
-    return;
   }
 
   // 生产期和无前端 dev server 的开发兜底都走中心服务 HTTP 页面。
   // Vite 拆包后的 ES module 不能可靠通过普通 file:// 页面加载，统一由中心服务托管静态资源。
-  const targetUrl = `http://127.0.0.1:${centerLaunchConfig.port}?port=${centerLaunchConfig.port}`;
+  const targetUrl = resolveDesktopWindowUrl();
   writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
   await mainWindow.loadURL(targetUrl);
 }
@@ -764,6 +881,8 @@ function registerIpc(): void {
     permission: Notification.isSupported() ? "supported" : "unsupported",
     checkedAt: new Date().toISOString(),
   }));
+
+  ipcMain.handle("zhixin:project-directory-select", () => selectProjectDirectoryAndEnsureIdentity());
 
   ipcMain.handle("zhixin:center-start", () => {
     lastCenterError = "";

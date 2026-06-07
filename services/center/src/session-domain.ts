@@ -17,6 +17,11 @@ import type {CenterEventStore} from "./events.js";
 import type {SendMessageResponse, TaskStepRecord} from "./types.js";
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
+    writeAgentMemory,
+    type MemoryWriteInput,
+} from "./agent-domain.js";
+import type {MemoryQueueState} from "./types.js";
+import {
     appendThinkingEvents,
     handleWorkerMessage,
     recordUsage,
@@ -563,6 +568,8 @@ export async function completeCreatedTurn(
     events: CenterEventStore,
     sent: SendMessageResponse,
     userText: string,
+    centerDirectory?: string,
+    memoryQueues?: Map<string, MemoryQueueState>,
 ): Promise<void> {
     const assistantMessageId = randomUUID();
     const now = new Date().toISOString();
@@ -747,6 +754,17 @@ export async function completeCreatedTurn(
             model: finalModelResult.model,
             usage: finalModelResult.usage,
         });
+        if (centerDirectory && memoryQueues) {
+            commitMainAgentMemoryAfterTurn(
+                database,
+                events,
+                centerDirectory,
+                memoryQueues,
+                sent,
+                userText,
+                assistantText,
+            );
+        }
         recordModelUsageAfterTurn(database, events, sent, finalModelResult);
         updateSessionTitleAfterTurn(database, events, sent, userText, assistantText);
         updateTurnStatus(database, events, sent.turnId, "completed");
@@ -783,6 +801,77 @@ export async function completeCreatedTurn(
             errorMessage: message,
         });
     }
+}
+
+/**
+ * commitMainAgentMemoryAfterTurn：正常会话完成后追加主智能体长期记忆。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param centerDirectory 中心目录。
+ * @param memoryQueues 智能体记忆单写队列。
+ * @param sent 当前轮次身份。
+ * @param userText 用户本轮输入。
+ * @param assistantText 助手本轮回复。
+ * @returns 没有返回值。
+ */
+function commitMainAgentMemoryAfterTurn(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    centerDirectory: string,
+    memoryQueues: Map<string, MemoryQueueState>,
+    sent: SendMessageResponse,
+    userText: string,
+    assistantText: string,
+): void {
+    // memoryInput: 记忆写入边界是一轮完整对话，索引必须绑定当前会话和轮次便于迁移后追溯。
+    const memoryInput: MemoryWriteInput = {
+        agentId: "main",
+        keywords: summarizeMemoryKeywords(userText),
+        summary: summarizeMemoryText(userText, assistantText),
+        userText,
+        assistantText,
+        sourceSessionId: sent.sessionId,
+        sourceTurnId: sent.turnId,
+        attachmentRefsJson: "[]",
+    };
+    writeAgentMemory(
+        database,
+        events,
+        centerDirectory,
+        memoryQueues,
+        memoryInput,
+    );
+}
+
+/**
+ * summarizeMemoryKeywords：从本轮用户输入生成简短关键词。
+ *
+ * @param userText 用户本轮输入。
+ * @returns 关键词文本。
+ */
+function summarizeMemoryKeywords(userText: string): string {
+    const normalized = userText.replace(/\s+/gu, " ").trim();
+    return normalized.length > 0
+        ? normalized.slice(0, 24)
+        : "对话";
+}
+
+/**
+ * summarizeMemoryText：生成长期记忆摘要。
+ *
+ * @param userText 用户本轮输入。
+ * @param assistantText 助手本轮回复。
+ * @returns 记忆摘要。
+ */
+function summarizeMemoryText(
+    userText: string,
+    assistantText: string,
+): string {
+    const normalized = `${userText}\n${assistantText}`.replace(/\s+/gu, " ").trim();
+    return normalized.length > 0
+        ? normalized.slice(0, 120)
+        : "本轮对话已完成。";
 }
 
 /**

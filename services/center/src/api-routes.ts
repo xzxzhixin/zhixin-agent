@@ -442,11 +442,33 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             );
         }
 
-        return createSuccessResponse(deleteSession(
+        // deleteResult: 删除结果必须保留，随后用已落库的 session.deleted 事件广播给其他端。
+        const deleteResult = deleteSession(
             database,
             events,
             session,
-        ));
+        );
+        // deletedEvents: 删除接口不重造事件，直接查询中心服务事件事实源，保证广播内容和历史恢复来源一致。
+        const deletedEvents = listEvents(
+            database,
+            {
+                sessionId: session.sessionId,
+                turnId: null,
+                afterSequence: -1,
+            },
+        ).filter((event) => {
+            return event.eventType === "session.deleted";
+        });
+        broadcastEvents(
+            realtimeClients,
+            session,
+            deletedEvents,
+        );
+
+        return createSuccessResponse({
+            sessionId: deleteResult.sessionId,
+            deleted: deleteResult.deleted,
+        });
     });
 
     registerSessionMessageRoute({
@@ -454,6 +476,8 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         database,
         events,
         realtimeClients,
+        centerDirectory: config.centerDirectory,
+        memoryQueues,
     });
     registerAgentEditRoutes({
         app,
@@ -627,6 +651,14 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
 
         if (!body.agentId || body.impactAccepted !== true) {
             return createErrorResponse("AGENT_DISABLE_REQUIRES_CONFIRM", "停用智能体需要确认影响", "停用长期智能体前必须确认记忆、调度入口和历史会话影响。");
+        }
+
+        if (body.agentId === "main") {
+            return createErrorResponse(
+                "MAIN_AGENT_DISABLE_FORBIDDEN",
+                "主智能体不可停用",
+                "主智能体“致心”是系统内置入口，只允许修改角色说明和默认模型。",
+            );
         }
 
         return createSuccessResponse(disableAgent(database, events, config.centerDirectory, body.agentId, Boolean(body.archiveMemory)));

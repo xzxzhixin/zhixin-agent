@@ -69,6 +69,13 @@ const bridge = {
    * @returns 通知权限和检测时间。
    */
   getNotificationPermission: () => ipcRenderer.invoke("zhixin:notification-permission"),
+
+  /**
+   * selectProjectDirectoryAndEnsureIdentity：选择项目目录并确保身份文件存在。
+   *
+   * @returns 项目 UUID、文件夹名和最新路径；用户取消选择时返回 null。
+   */
+  selectProjectDirectoryAndEnsureIdentity: () => ipcRenderer.invoke("zhixin:project-directory-select"),
 };
 
 contextBridge.exposeInMainWorld(

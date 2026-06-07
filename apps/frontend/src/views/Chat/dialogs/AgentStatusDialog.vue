@@ -151,12 +151,12 @@ const treeNodes = props.rows.filter((row) => {
 .composer-agent-node {
   display: flex;
   width: 100%;
-  min-height: 48px;
+  min-height: 32px;
   flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 3px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
   padding-top: 7px;
   padding-right: 10px;
   padding-bottom: 7px;
@@ -171,10 +171,18 @@ const treeNodes = props.rows.filter((row) => {
 .composer-agent-node span,
 .composer-agent-node strong {
   min-width: 0;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.composer-agent-node strong {
+  flex: 0 1 auto;
+}
+
+.composer-agent-node span {
+  flex: 0 0 auto;
+  color: var(--zhixin-text-muted);
 }
 
 </style>

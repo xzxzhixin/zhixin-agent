@@ -94,6 +94,16 @@ export function broadcastDomainEnvelopeForEvent(
             payload: event.payload,
             traceId: event.traceId,
         });
+        return;
+    }
+
+    // session.deleted: 会话删除会影响导航和当前详情，必须用专项包让前端立即迁移到草稿或其他会话。
+    if (event.eventType === "session.deleted") {
+        client.send({
+            type: "session.deleted",
+            payload: event.payload,
+            traceId: event.traceId,
+        });
     }
 }
 

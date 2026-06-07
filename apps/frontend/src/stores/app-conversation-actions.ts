@@ -407,6 +407,13 @@ export function createConversationActions() {
                     if (message.type === "session.updated") {
                         void this.handleSessionUpdated(message.payload as SessionUpdatedPayload);
                     }
+                    if (message.type === "session.deleted") {
+                        void this.handleSessionDeleted(message.payload as {
+                            sessionId: string;
+                            sessionType: "normal" | "project";
+                            projectId: string | null;
+                        });
+                    }
                 },
             });
             this.webSocketClient.connect();
