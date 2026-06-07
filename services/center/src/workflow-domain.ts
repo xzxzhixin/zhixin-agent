@@ -703,6 +703,7 @@ export function appendThinkingEvents(
         database,
         sessionId,
         turnId,
+        userText,
     );
     events.append({
         eventType: "thinking.delta",
@@ -745,12 +746,14 @@ export function appendThinkingEvents(
  * @param database 中心服务数据库。
  * @param sessionId 当前会话 ID。
  * @param turnId 当前轮次 ID。
+ * @param userText 当前轮次用户输入，用于公开摘要中说明本轮输入规模。
  * @returns 思考开始和完成时可展示的摘要。
  */
 function buildPublicThinkingContextSummary(
     database: CenterDatabase,
     sessionId: string,
     turnId: string,
+    userText: string,
 ): {
     /** runningText: 思考流式生成时展示的摘要。 */
     runningText: string;
@@ -776,9 +779,11 @@ function buildPublicThinkingContextSummary(
     const extensionCount = listPlugins(database).length
         + (centerDirectory ? listMcpConfigs(centerDirectory).length : 0)
         + (centerDirectory ? listInstalledSkills(centerDirectory).length : 0);
+    // userInputCharacterCount: 只写入字符规模，不泄露或复述完整用户输入，避免公开思考区显示固定模型化话术。
+    const userInputCharacterCount = userText.length;
     return {
-        runningText: `正在整理当前会话上下文：本轮前用户消息 ${previousUserMessageCount} 条，任务记录 ${taskCount} 条，供应商 ${providerCount} 个，扩展能力 ${extensionCount} 项。`,
-        completedText: `已读取当前会话、任务状态、可用供应商和扩展能力：本轮前用户消息 ${previousUserMessageCount} 条，可用于组织本轮回复。`,
+        runningText: `上下文读取范围：本轮输入 ${userInputCharacterCount} 字符；会话历史用户消息 ${previousUserMessageCount} 条，任务记录 ${taskCount} 条，供应商配置 ${providerCount} 个，扩展能力快照 ${extensionCount} 项。`,
+        completedText: `上下文读取完成：本轮公开摘要仅展示真实读取范围；会话历史用户消息 ${previousUserMessageCount} 条，任务记录 ${taskCount} 条，供应商配置 ${providerCount} 个，扩展能力快照 ${extensionCount} 项。`,
     };
 }
 

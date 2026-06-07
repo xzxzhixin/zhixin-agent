@@ -653,20 +653,19 @@ body {
     display: flex;
     min-width: 0;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
 }
 
 .process-card strong,
-.process-card small,
-.process-card p {
+.process-card pre {
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-.process-card p {
+.process-card pre {
     margin: 0;
     color: var(--zhixin-text-soft);
+    white-space: pre-wrap;
+    font: inherit;
 }
 
 .markdown-body {

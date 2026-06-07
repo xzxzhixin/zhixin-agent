@@ -438,22 +438,17 @@ export function createManagementActions() {
         },
 
         /**
-         * updateComposerContextUsage：估算当前窗口上下文已用量。
+         * updateComposerContextUsage：统计当前窗口已进入上下文的 token 用量。
          *
          * @returns 没有返回值。
          */
         async updateComposerContextUsage(): Promise<void> {
             const usageKey = JSON.stringify({
                 sessionId: this.activeSessionId,
-                draftText: this.draft.text,
-                referenceSummaries: this.draft.references.map((reference) => {
-                    return reference.displayName;
-                }),
-                attachmentSummaries: this.draft.attachments.map((attachment) => {
-                    return attachment.fileName;
-                }),
                 modelId: this.composerSettings.selectedModel,
                 windowLimitTokens: this.composerSelectedModelContextWindowTokens,
+                messageCount: this.sessionDetail?.messages.length ?? 0,
+                eventCount: this.events.length,
             });
             if (usageKey === this.composerContextUsageState.lastComposerContextUsageKey) {
                 return;
@@ -464,13 +459,9 @@ export function createManagementActions() {
             const requestSerial = this.composerContextUsageState.composerContextUsageRequestSerial;
             const result = await this.api().countComposerContextTokens({
                 sessionId: this.activeSessionId,
-                draftText: this.draft.text,
-                referenceSummaries: this.draft.references.map((reference) => {
-                    return reference.displayName;
-                }),
-                attachmentSummaries: this.draft.attachments.map((attachment) => {
-                    return attachment.fileName;
-                }),
+                draftText: "",
+                referenceSummaries: [],
+                attachmentSummaries: [],
                 modelId: this.composerSettings.selectedModel,
                 windowLimitTokens: this.composerSelectedModelContextWindowTokens,
             });
@@ -483,7 +474,7 @@ export function createManagementActions() {
         },
 
         /**
-         * updateComposerContextUsageFromExecution：执行中或完成后刷新 token 总览。
+         * updateComposerContextUsageFromExecution：模型响应过程或完成后刷新 token 总览。
          *
          * @returns 没有返回值。
          */

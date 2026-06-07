@@ -118,6 +118,16 @@ export function countComposerContextTokens(
         ? createDataAccess(database).tokenizer.listMessagesForContext(request.sessionId)
         : [];
     const adapter = new BuiltInTokenizerAdapter();
+    // currentMessageSegments: 当前窗口总量只在调用方显式传入草稿时统计；输入框展示的响应期总览传空草稿，因此不把未发送文本计入。
+    const currentMessageSegments = request.draftText.trim().length > 0
+        ? [
+            {
+                segmentKind: "current-message" as const,
+                sourceId: "composer-draft",
+                content: request.draftText,
+            },
+        ]
+        : [];
 
     return adapter.count({
         modelId: request.modelId || "未选择模型",
@@ -136,11 +146,7 @@ export function countComposerContextTokens(
                     content: `${message.role}: ${message.contentMarkdown}`,
                 };
             }),
-            {
-                segmentKind: "current-message",
-                sourceId: "composer-draft",
-                content: request.draftText,
-            },
+            ...currentMessageSegments,
             ...request.referenceSummaries.map((summary, index) => {
                 return {
                     segmentKind: "reference" as const,

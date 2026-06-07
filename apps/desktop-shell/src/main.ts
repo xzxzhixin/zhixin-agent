@@ -7,6 +7,7 @@ import {
   BrowserWindow,
   dialog,
   Notification,
+  shell,
   ipcMain,
   Menu,
   nativeImage,
@@ -150,6 +151,12 @@ const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9
 const CENTER_HEALTH_WAIT_TIMEOUT_MS = 30000;
 // CENTER_HEALTH_RETRY_INTERVAL_MS：健康检查轮询间隔，避免硬编码固定 sleep 后仍撞上慢启动。
 const CENTER_HEALTH_RETRY_INTERVAL_MS = 300;
+// EXTERNAL_LINK_PROTOCOLS: 桌面端主窗口外链交给系统默认处理器，避免主窗口跳出致心工作台。
+const EXTERNAL_LINK_PROTOCOLS = new Set([
+  "http:",
+  "https:",
+  "mailto:",
+]);
 
 // mainWindow: 主窗口引用，避免被垃圾回收。
 let mainWindow: BrowserWindow | null = null;
@@ -866,6 +873,75 @@ function resolveDesktopWindowUrl(): string {
 }
 
 /**
+ * isInternalDesktopUrl：判断 URL 是否允许在桌面主窗口内导航。
+ *
+ * @param rawUrl Electron WebContents 将要打开的 URL。
+ * @returns 允许主窗口内部导航时返回 true。
+ */
+function isInternalDesktopUrl(rawUrl: string): boolean {
+  try {
+    // target: 桌面主窗口允许访问中心服务本机地址和开发期 Vite 地址；其他 HTTP 链接都视为外部链接。
+    const target = new URL(rawUrl);
+    const localHosts = new Set([
+      "127.0.0.1",
+      "localhost",
+    ]);
+    if (!localHosts.has(target.hostname)) {
+      return false;
+    }
+    return target.port === String(centerLaunchConfig.port)
+      || target.port === "5173";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * openExternalUrl：用系统默认处理器打开外部链接。
+ *
+ * @param rawUrl 待打开的外部 URL。
+ * @returns 没有返回值。
+ */
+function openExternalUrl(rawUrl: string): void {
+  try {
+    const target = new URL(rawUrl);
+    if (!EXTERNAL_LINK_PROTOCOLS.has(target.protocol)) {
+      return;
+    }
+    void shell.openExternal(target.toString());
+  } catch (error) {
+    writeCenterRuntimeLog(`external-link-open-failed ${rawUrl} ${error instanceof Error ? error.message : ""}`);
+  }
+}
+
+/**
+ * installExternalLinkGuards：拦截桌面主窗口外部链接导航。
+ *
+ * @param window 桌面主窗口。
+ * @returns 没有返回值。
+ */
+function installExternalLinkGuards(window: BrowserWindow): void {
+  window.webContents.setWindowOpenHandler(({url}) => {
+    if (isInternalDesktopUrl(url)) {
+      return {
+        action: "allow",
+      };
+    }
+    openExternalUrl(url);
+    return {
+      action: "deny",
+    };
+  });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isInternalDesktopUrl(url)) {
+      return;
+    }
+    event.preventDefault();
+    openExternalUrl(url);
+  });
+}
+
+/**
  * delay：等待指定毫秒数。
  *
  * @param milliseconds 等待时长，单位毫秒。
@@ -997,6 +1073,7 @@ async function createWindow(): Promise<void> {
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
+  installExternalLinkGuards(mainWindow);
   mainWindow.webContents.on("did-navigate", (_event, url) => {
     // url: Electron 实际加载地址，写入日志用于区分 Vite 开发页和中心服务托管页。
     writeCenterRuntimeLog(`window-did-navigate ${url}`);

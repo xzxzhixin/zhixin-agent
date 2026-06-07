@@ -141,14 +141,14 @@ export interface ProcessMessageGroupRow {
     traceId: string;
     /** summary: 聚合摘要。 */
     summary: string;
+    /** responseText: 工具卡片响应内容，开始时显示等待响应，完成后显示输出或失败原因。 */
+    responseText: string;
     /** orderSequence: 当前过程在轮次内首次出现的事件序号。 */
     orderSequence: number;
     /** logs: 同一过程内按 sequence 排列的日志。 */
     logs: Array<{
         /** eventId: 事件 ID。 */
         eventId: string;
-        /** statusLabel: 当前片段状态中文文案。 */
-        statusLabel: string;
         /** text: 日志或过程输出。 */
         text: string;
         /** occurredAt: 统一格式时间。 */
@@ -451,11 +451,14 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
                     : "已完成",
             traceId: latestEvent.traceId,
             summary: resolveProcessSummary(latestEvent),
+            responseText: resolveProcessResponseText(
+                sortedEvents,
+                latestEvent,
+            ),
             orderSequence: sortedEvents[0].sequence,
             logs: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
-                    statusLabel: entry.statusMeta.label,
                     text: resolveProcessLogText(entry.event),
                     occurredAt: formatDisplayTime(entry.event.occurredAt),
                 };
@@ -585,7 +588,9 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             event,
             "command",
         );
-        return command || "命令";
+        return command
+            ? `执行：${command}`
+            : "执行：命令";
     }
     if (event.eventType.startsWith("tool.call.")) {
         return readEventText(
@@ -625,6 +630,40 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             : "skill";
     }
     return "工具";
+}
+
+/**
+ * resolveProcessResponseText：生成工具卡片唯一响应内容。
+ *
+ * @param sortedEvents 同一工具调用按事件序号排列后的事件。
+ * @param latestEvent 当前工具调用的最新事件。
+ * @returns 工具响应内容；工具未返回时显示等待响应。
+ */
+function resolveProcessResponseText(
+    sortedEvents: EventRecord[],
+    latestEvent: EventRecord,
+): string {
+    const responseParts = sortedEvents.map((event) => {
+        if (event.eventType === "tool.command.output") {
+            return resolveProcessLogText(event);
+        }
+        if (event.eventType.endsWith(".failed")) {
+            return resolveProcessSummary(event);
+        }
+        if (event.eventType.endsWith(".completed")) {
+            return resolveProcessSummary(event);
+        }
+        return "";
+    }).filter((text) => {
+        return text.trim().length > 0;
+    });
+
+    if (responseParts.length > 0) {
+        return responseParts.join("\n");
+    }
+
+    const title = resolveProcessGroupTitle(latestEvent);
+    return `${title} 已开始，等待响应。`;
 }
 
 /**

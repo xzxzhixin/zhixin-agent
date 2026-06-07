@@ -675,17 +675,8 @@ onBeforeUnmount(() => {
             <section class="process-card">
               <header>
                 <strong>{{ row.process.title }}</strong>
-                <small>{{ row.process.statusLabel }}</small>
               </header>
-              <p>{{ row.process.summary }}</p>
-              <div class="process-log-list">
-                <p
-                    v-for="log in row.process.logs"
-                    :key="log.eventId"
-                >
-                  <code>{{ log.text }}</code>
-                </p>
-              </div>
+              <pre>{{ row.process.responseText }}</pre>
             </section>
           </article>
           <article

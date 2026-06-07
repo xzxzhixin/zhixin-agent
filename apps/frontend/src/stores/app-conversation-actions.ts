@@ -415,10 +415,14 @@ export function createConversationActions() {
                 },
                 onMessage: (message) => {
                     if (message.type === "event.appended") {
-                        this.events.push(message.payload as EventRecord);
+                        const event = message.payload as EventRecord;
+                        this.events.push(event);
                         this.events.sort((left: EventRecord, right: EventRecord) => {
                             return left.sequence - right.sequence;
                         });
+                        if (shouldRefreshComposerContextUsage(event)) {
+                            void this.updateComposerContextUsageFromExecution();
+                        }
                         void this.refreshActiveConversationState();
                     }
                     if (message.type === "agent.state.changed") {
@@ -585,4 +589,19 @@ function mapPendingEditToComposerFile(record: PendingEditRecord) {
             }),
         ],
     };
+}
+
+/**
+ * shouldRefreshComposerContextUsage：判断事件是否代表模型响应上下文发生变化。
+ *
+ * @param event 中心服务实时事件。
+ * @returns 需要刷新输入框当前窗口 token 总览时返回 true。
+ */
+function shouldRefreshComposerContextUsage(event: EventRecord): boolean {
+    return event.eventType === "model.stream.started"
+        || event.eventType === "model.stream.delta"
+        || event.eventType === "model.stream.completed"
+        || event.eventType === "model.tool.result.appended"
+        || event.eventType === "message.created"
+        || event.eventType === "message.assistant.created";
 }
