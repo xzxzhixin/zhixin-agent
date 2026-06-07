@@ -350,17 +350,17 @@ export interface PluginDraft {
  * McpDraft：MCP 管理表单草稿。
  *
  * 来源：MCP 管理页面。
- * 含义：承载全局 MCP Server 的单服务配置 JSON。
- * 格式：serverId 是 mcpServers 对象 key，configJson 是该 Server 的配置对象。
+ * 含义：承载全局 MCP Server 的标准 MCP 配置 JSON。
+ * 格式：configJson 使用完整 `{"mcpServers":{"服务 ID":{...}}}`，但一次只允许一个服务。
  * 默认值：见 `createMcpDraft`。
- * 约束：保存时只提交一个 serverId 和 serverConfig，由中心服务合并写回全局配置。
+ * 约束：保存时从完整 JSON 抽取唯一 serverId 和 serverConfig，由中心服务合并写回全局配置。
  */
 export interface McpDraft {
     /** projectId: 历史兼容字段；MCP 管理页固定全局配置，因此保持空字符串。 */
     projectId: string;
-    /** serverId: 当前编辑的 MCP Server ID，来源于 mcpServers 对象 key。 */
+    /** serverId: 当前编辑的 MCP Server ID，来源于 configJson.mcpServers 的唯一 key。 */
     serverId: string;
-    /** configJson: 当前 MCP Server 的独立配置 JSON 文本，不包含外层 mcpServers。 */
+    /** configJson: 标准 MCP 配置 JSON 文本，根字段固定为 mcpServers。 */
     configJson: string;
 }
 

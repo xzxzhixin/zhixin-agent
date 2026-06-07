@@ -48,7 +48,7 @@ function openMcpConfigDialog(): void {
 }
 
 /**
- * editMcpConfigRow：编辑当前 Server 的独立 MCP 配置。
+ * editMcpConfigRow：编辑当前 Server 的完整 MCP JSON 片段。
  *
  * @param config MCP Server 行配置。
  * @returns 没有返回值。
@@ -263,20 +263,14 @@ onMounted(() => {
           label-position="top"
         >
         <p class="field-helper">
-          全局 MCP 管理页只维护全局服务；项目级配置由打开项目目录扫描，只在项目对话的项目能力详情中展示。
+          根字段为 mcpServers，本弹框一次只保存一个服务；保存时只更新该服务，不覆盖其他服务。项目级配置由打开项目目录扫描，只在项目对话的项目能力详情中展示。
         </p>
-        <el-form-item label="服务 ID">
-          <el-input
-              v-model="appStore.mcpDraft.serverId"
-              placeholder="例如 idea 或 chrome-devtools"
-          />
-        </el-form-item>
-        <el-form-item label="服务配置 JSON">
+        <el-form-item label="MCP 配置 JSON">
           <el-input
               v-model="appStore.mcpDraft.configJson"
               type="textarea"
-              :rows="10"
-              placeholder="{\n  &quot;type&quot;: &quot;http&quot;,\n  &quot;url&quot;: &quot;http://127.0.0.1:64342/stream&quot;\n}"
+              :rows="14"
+              placeholder="{\n  &quot;mcpServers&quot;: {\n    &quot;idea&quot;: {\n      &quot;type&quot;: &quot;http&quot;,\n      &quot;url&quot;: &quot;http://127.0.0.1:64342/stream&quot;\n    }\n  }\n}"
           />
         </el-form-item>
         <div class="management-actions">

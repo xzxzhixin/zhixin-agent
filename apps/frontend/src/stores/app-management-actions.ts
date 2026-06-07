@@ -18,6 +18,7 @@ import {
     findInvalidModelContextWindowLine,
     formatModelContextWindowsForDraft,
     formatJsonText,
+    isRecord,
     normalizeOptionalText,
     parseJsonObject,
     parseEnvironmentVariables,
@@ -1096,7 +1097,11 @@ export function createManagementActions() {
             this.mcpDraft = {
                 projectId: "",
                 serverId: config.serverId,
-                configJson: formatJsonText(config.serverConfig),
+                configJson: formatJsonText({
+                    mcpServers: {
+                        [config.serverId]: config.serverConfig,
+                    },
+                }),
             };
         },
 
@@ -1107,17 +1112,34 @@ export function createManagementActions() {
          */
         async saveMcpConfig(): Promise<boolean> {
             try {
-                const serverConfig = parseJsonObject(this.mcpDraft.configJson);
-                const serverId = typeof this.mcpDraft.serverId === "string"
-                    ? this.mcpDraft.serverId.trim()
-                    : "";
+                const config = parseJsonObject(this.mcpDraft.configJson);
+                if (!isRecord(config.mcpServers)) {
+                    throw new Error("MCP 配置根字段必须是 mcpServers 对象。");
+                }
+
+                const serverEntries = Object.entries(config.mcpServers);
+                if (serverEntries.length !== 1) {
+                    throw new Error("MCP 配置一次只能保存一个 mcpServers 服务。");
+                }
+
+                const [
+                    rawServerId,
+                    rawServerConfig,
+                ] = serverEntries[0];
+                const serverId = rawServerId.trim();
                 if (!serverId) {
                     throw new Error("MCP 服务 ID 不能为空。");
                 }
+                if (!isRecord(rawServerConfig)) {
+                    throw new Error("MCP 服务配置必须是 JSON 对象。");
+                }
+
+                // serverId: UI 展示字段只由标准 JSON key 同步，保存事实源以 configJson 为准。
+                this.mcpDraft.serverId = serverId;
                 await this.api().saveMcpConfig({
                     projectId: null,
                     serverId,
-                    serverConfig,
+                    serverConfig: rawServerConfig,
                 });
                 this.clearManagementError("mcp");
                 await this.loadMcpConfigs();

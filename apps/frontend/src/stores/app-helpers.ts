@@ -270,7 +270,9 @@ export function createMcpDraft(): McpDraft {
     return {
         projectId: "",
         serverId: "",
-        configJson: formatJsonText({}),
+        configJson: formatJsonText({
+            mcpServers: {},
+        }),
     };
 }
 

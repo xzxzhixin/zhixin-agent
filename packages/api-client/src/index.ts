@@ -505,7 +505,7 @@ export interface PluginConfigView {
  * 含义：展示全局 MCP JSON 配置中的单个 MCP Server 行。
  * 格式：根字段固定为 mcpServers。
  * 默认值：没有配置时由中心服务返回空对象。
- * 约束：页面保存时提交当前 serverId 和 serverConfig，完整 mcpServers 只作为兼容协议。
+ * 约束：页面编辑框使用完整 `{"mcpServers":{"服务 ID":{...}}}`，保存前抽取唯一 serverId 和 serverConfig。
  */
 export interface McpConfigView {
   /** scope: 配置来源，当前全局管理页只展示 global。 */
@@ -1353,7 +1353,7 @@ export class CenterApiClient {
   /**
    * saveMcpConfig：保存 MCP 配置。
    *
-   * @param payload 单服务保存使用 serverId 和 serverConfig，mcpServers 仅用于旧整包兼容。
+   * @param payload 前端从完整 MCP JSON 抽取唯一 serverId 和 serverConfig 后提交，mcpServers 仅用于旧整包兼容。
    * @returns 保存文件路径。
    */
   saveMcpConfig(payload: {
