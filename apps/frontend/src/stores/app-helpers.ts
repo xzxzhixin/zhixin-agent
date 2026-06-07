@@ -269,9 +269,8 @@ export function createPluginDraft(): PluginDraft {
 export function createMcpDraft(): McpDraft {
     return {
         projectId: "",
-        configJson: formatJsonText({
-            mcpServers: {},
-        }),
+        serverId: "",
+        configJson: formatJsonText({}),
     };
 }
 

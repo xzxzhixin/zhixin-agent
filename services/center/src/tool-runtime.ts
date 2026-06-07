@@ -676,6 +676,122 @@ export async function listConfiguredMcpToolViews(centerDirectory: string): Promi
 }
 
 /**
+ * listConfiguredMcpToolViewsByServer：按单个 MCP Server 读取工具列表。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @param serverId MCP Server ID，来源于 mcpServers 对象 key。
+ * @returns 当前 Server 的工具列表；失败时返回一条错误行用于 UI 展示。
+ */
+export async function listConfiguredMcpToolViewsByServer(
+    centerDirectory: string,
+    serverId: string,
+): Promise<Array<{
+    serverId: string;
+    transportType: "http" | "stdio";
+    toolName: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    errorMessage: string | null;
+}>> {
+    const serverConfig = readMcpServerConfig(
+        centerDirectory,
+        serverId,
+    );
+    try {
+        const tools = await listMcpTools(serverConfig);
+        return tools.map((tool) => ({
+            serverId: serverConfig.serverId,
+            transportType: serverConfig.type,
+            toolName: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            errorMessage: null,
+        }));
+    } catch (error) {
+        // errorMessage: 管理页按需查看工具时要能看到失败原因，但不能让单个 Server 失败导致整页不可用。
+        return [
+            {
+                serverId: serverConfig.serverId,
+                transportType: serverConfig.type,
+                toolName: "",
+                description: "",
+                inputSchema: {
+                    type: "object",
+                    properties: {},
+                },
+                errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
+            },
+        ];
+    }
+}
+
+/**
+ * listMcpToolViewsForServerConfig：从单个 mcpServers 条目读取工具列表。
+ *
+ * @param serverId MCP Server ID，来源于当前配置文件的 mcpServers key。
+ * @param rawConfig 当前 Server 原始配置对象。
+ * @returns 当前 Server 的工具列表；失败或配置无效时返回错误展示行。
+ */
+export async function listMcpToolViewsForServerConfig(
+    serverId: string,
+    rawConfig: unknown,
+): Promise<Array<{
+    serverId: string;
+    transportType: "http" | "stdio";
+    toolName: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    errorMessage: string | null;
+}>> {
+    const serverConfig = readMcpServerConfigFromValue(
+        serverId,
+        rawConfig,
+    );
+    if (!serverConfig) {
+        return [
+            {
+                serverId,
+                transportType: "http",
+                toolName: "",
+                description: "",
+                inputSchema: {
+                    type: "object",
+                    properties: {},
+                },
+                errorMessage: "MCP_SERVER_CONFIG_INVALID",
+            },
+        ];
+    }
+
+    try {
+        const tools = await listMcpTools(serverConfig);
+        return tools.map((tool) => ({
+            serverId: serverConfig.serverId,
+            transportType: serverConfig.type,
+            toolName: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            errorMessage: null,
+        }));
+    } catch (error) {
+        // errorMessage: 按需加载只影响当前行，错误返回给 UI 展示，不中断整个 MCP 页面。
+        return [
+            {
+                serverId: serverConfig.serverId,
+                transportType: serverConfig.type,
+                toolName: "",
+                description: "",
+                inputSchema: {
+                    type: "object",
+                    properties: {},
+                },
+                errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
+            },
+        ];
+    }
+}
+
+/**
  * readMcpDynamicToolName：把动态 MCP 模型工具名解码为 serverId 和 toolName。
  *
  * @param modelToolName 模型返回的工具名。

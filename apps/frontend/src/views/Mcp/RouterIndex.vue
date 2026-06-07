@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  reactive,
   ref,
 } from "vue";
 import {
@@ -11,6 +12,13 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import {
+  createMcpDraft,
+} from "@stores/app-helpers";
+import type {
+  McpConfigView,
+  McpToolView,
+} from "@api";
 
 // appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
@@ -24,6 +32,10 @@ const currentWorkspacePage = "mcp";
 const mcpDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.mcp ?? "");
+// mcpToolsByRowKey：按全局配置文件和 Server ID 缓存用户点击后异步加载的工具列表。
+const mcpToolsByRowKey = reactive<Record<string, McpToolView[]>>({});
+// loadingMcpToolRows：按全局配置文件和 Server ID 标记工具按钮 loading 状态。
+const loadingMcpToolRows = reactive<Record<string, boolean>>({});
 
 /**
  * openMcpConfigDialog：打开 MCP 配置弹框。
@@ -31,7 +43,58 @@ const managementError = computed(() => appStore.managementErrors.mcp ?? "");
  * @returns 没有返回值。
  */
 function openMcpConfigDialog(): void {
+  appStore.mcpDraft = createMcpDraft();
   mcpDialogVisible.value = true;
+}
+
+/**
+ * editMcpConfigRow：编辑当前 Server 的独立 MCP 配置。
+ *
+ * @param config MCP Server 行配置。
+ * @returns 没有返回值。
+ */
+function editMcpConfigRow(config: McpConfigView): void {
+  appStore.editMcpConfig(config);
+  mcpDialogVisible.value = true;
+}
+
+/**
+ * createMcpServerRowKey：生成 MCP Server 行唯一 key。
+ *
+ * @param config MCP Server 行配置。
+ * @returns 全局配置文件相对路径和 Server ID 组成的稳定 key。
+ */
+function createMcpServerRowKey(config: McpConfigView): string {
+  return `${config.relativePath}::${config.serverId}`;
+}
+
+/**
+ * loadMcpToolsForRow：按当前 MCP Server 行异步加载工具。
+ *
+ * @param config MCP Server 行配置。
+ * @returns 加载完成后没有返回值。
+ */
+async function loadMcpToolsForRow(config: McpConfigView): Promise<void> {
+  if (!config.serverId) {
+    return;
+  }
+
+  const rowKey = createMcpServerRowKey(config);
+  if (mcpToolsByRowKey[rowKey]) {
+    // 二次点击用于收起当前行工具列表，不重复请求 MCP Server。
+    delete mcpToolsByRowKey[rowKey];
+    return;
+  }
+
+  loadingMcpToolRows[rowKey] = true;
+  try {
+    mcpToolsByRowKey[rowKey] = await appStore.loadMcpServerTools({
+      relativePath: config.relativePath,
+      serverId: config.serverId,
+    });
+  } finally {
+    loadingMcpToolRows[rowKey] = false;
+  }
 }
 
 /**
@@ -40,8 +103,8 @@ function openMcpConfigDialog(): void {
  * @returns 保存完成后没有返回值。
  */
 async function saveMcpDialog(): Promise<void> {
-  await appStore.saveMcpConfig();
-  if (!appStore.managementErrors.mcp) {
+  const saved = await appStore.saveMcpConfig();
+  if (saved) {
     mcpDialogVisible.value = false;
   }
 }
@@ -174,7 +237,7 @@ onMounted(() => {
     <header class="page-header">
       <div>
         <h1>MCP</h1>
-        <p>全局扩展能力管理：配置 JSON 根字段必须是 mcpServers。</p>
+        <p>全局扩展能力管理：每个 MCP Server 独立编辑和保存。</p>
       </div>
       <el-button @click="appStore.loadMcpConfigs">
         刷新列表
@@ -200,13 +263,20 @@ onMounted(() => {
           label-position="top"
         >
         <p class="field-helper">
-          全局 MCP 管理页只展示 appStore.globalMcpConfigs；项目级配置由打开项目目录扫描，只在项目对话的项目能力详情中展示。
+          全局 MCP 管理页只维护全局服务；项目级配置由打开项目目录扫描，只在项目对话的项目能力详情中展示。
         </p>
-        <el-form-item label="MCP 配置 JSON">
+        <el-form-item label="服务 ID">
+          <el-input
+              v-model="appStore.mcpDraft.serverId"
+              placeholder="例如 idea 或 chrome-devtools"
+          />
+        </el-form-item>
+        <el-form-item label="服务配置 JSON">
           <el-input
               v-model="appStore.mcpDraft.configJson"
               type="textarea"
               :rows="10"
+              placeholder="{\n  &quot;type&quot;: &quot;http&quot;,\n  &quot;url&quot;: &quot;http://127.0.0.1:64342/stream&quot;\n}"
           />
         </el-form-item>
         <div class="management-actions">
@@ -225,25 +295,19 @@ onMounted(() => {
           empty-text="暂无全局 MCP 配置"
       >
         <el-table-column
-            label="配置文件"
-            min-width="260"
+            label="服务"
+            min-width="180"
         >
           <template #default="{ row: config }">
-            <strong>{{ config.relativePath }}</strong>
-            <small>项目级配置由项目对话详情展示，不在全局页混入。</small>
+            <strong>{{ config.serverId || "未配置服务" }}</strong>
           </template>
         </el-table-column>
         <el-table-column
-            label="作用域"
+            label="协议"
             width="110"
-            prop="scope"
-        />
-        <el-table-column
-            label="服务数量"
-            width="120"
         >
           <template #default="{ row: config }">
-            {{ Object.keys(config.mcpServers).length }}
+            {{ config.transportType }}
           </template>
         </el-table-column>
         <el-table-column
@@ -251,17 +315,29 @@ onMounted(() => {
             min-width="320"
         >
           <template #default="{ row: config }">
-            <div class="mcp-tool-list">
+            <div class="mcp-tool-actions">
+              <el-button
+                  :loading="loadingMcpToolRows[createMcpServerRowKey(config)]"
+                  :disabled="!config.serverId"
+                  @click="loadMcpToolsForRow(config)"
+              >
+                查看工具
+              </el-button>
+            </div>
+            <div
+                v-if="mcpToolsByRowKey[createMcpServerRowKey(config)]"
+                class="mcp-tool-list"
+            >
               <el-tag
-                  v-for="tool in config.tools"
+                  v-for="tool in mcpToolsByRowKey[createMcpServerRowKey(config)]"
                   :key="`${tool.serverId}-${tool.toolName || tool.errorMessage}`"
                   :type="tool.errorMessage ? 'danger' : 'success'"
                   effect="plain"
               >
                 {{ tool.transportType }} · {{ tool.serverId }}{{ tool.toolName ? ` · ${tool.toolName}` : "" }}
               </el-tag>
-              <small v-if="config.tools.length === 0">
-                暂未发现工具；请确认 MCP Server 可连接后刷新。
+              <small v-if="mcpToolsByRowKey[createMcpServerRowKey(config)].length === 0">
+                暂未发现工具；请确认 MCP Server 可连接后重试。
               </small>
             </div>
           </template>
@@ -280,7 +356,7 @@ onMounted(() => {
             width="110"
         >
           <template #default="{ row: config }">
-            <el-button @click="appStore.editMcpConfig(config)">
+            <el-button @click="editMcpConfigRow(config)">
               编辑
             </el-button>
           </template>
@@ -295,6 +371,12 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.mcp-tool-actions {
+  display: flex;
   align-items: center;
 }
 </style>

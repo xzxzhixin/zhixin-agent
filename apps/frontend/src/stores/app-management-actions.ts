@@ -19,6 +19,7 @@ import {
     formatModelContextWindowsForDraft,
     formatJsonText,
     normalizeOptionalText,
+    parseJsonObject,
     parseEnvironmentVariables,
     readPluginConfig,
     sortProviderModelsByNumericVersion,
@@ -1055,12 +1056,7 @@ export function createManagementActions() {
         async loadMcpConfigs(): Promise<void> {
             try {
                 const result = await this.api().listMcpConfigs();
-                this.mcpConfigs = result.configs.map((config) => ({
-                    ...config,
-                    tools: Array.isArray(config.tools)
-                        ? config.tools
-                        : [],
-                }));
+                this.mcpConfigs = result.configs;
                 this.clearManagementError("mcp");
             } catch (error) {
                 this.recordManagementError("mcp", error);
@@ -1068,40 +1064,67 @@ export function createManagementActions() {
         },
 
         /**
-         * editMcpConfig：把 MCP 配置项填入编辑区。
+         * loadMcpServerTools：按单个 MCP Server 加载工具列表。
          *
-         * @param config MCP 配置项。
+         * @param payload 配置文件相对路径和 Server ID。
+         * @returns 当前 Server 的工具列表。
+         */
+        async loadMcpServerTools(payload: {
+            relativePath: string;
+            serverId: string;
+        }): Promise<McpToolView[]> {
+            try {
+                const result = await this.api().listMcpTools({
+                    relativePath: payload.relativePath,
+                    serverId: payload.serverId,
+                });
+                this.clearManagementError("mcp");
+                return result.tools;
+            } catch (error) {
+                this.recordManagementError("mcp", error);
+                return [];
+            }
+        },
+
+        /**
+         * editMcpConfig：把单个 MCP Server 配置填入编辑区。
+         *
+         * @param config MCP Server 行配置。
          * @returns 没有返回值。
          */
         editMcpConfig(config: McpConfigView): void {
             this.mcpDraft = {
-                projectId: config.projectId ?? "",
-                configJson: formatJsonText({
-                    mcpServers: config.mcpServers,
-                }),
+                projectId: "",
+                serverId: config.serverId,
+                configJson: formatJsonText(config.serverConfig),
             };
         },
 
         /**
-         * saveMcpConfig：保存根字段为 mcpServers 的 MCP JSON。
+         * saveMcpConfig：保存单个全局 MCP Server 配置。
          *
-         * @returns 保存完成后没有返回值。
+         * @returns 本次保存成功时返回 true，失败时返回 false。
          */
-        async saveMcpConfig(): Promise<void> {
+        async saveMcpConfig(): Promise<boolean> {
             try {
-                const config = parseJsonObject(this.mcpDraft.configJson);
-                const mcpServers = config.mcpServers;
-                if (!isRecord(mcpServers)) {
-                    throw new Error("MCP 配置根字段 mcpServers 必须是对象。");
+                const serverConfig = parseJsonObject(this.mcpDraft.configJson);
+                const serverId = typeof this.mcpDraft.serverId === "string"
+                    ? this.mcpDraft.serverId.trim()
+                    : "";
+                if (!serverId) {
+                    throw new Error("MCP 服务 ID 不能为空。");
                 }
                 await this.api().saveMcpConfig({
                     projectId: null,
-                    mcpServers,
+                    serverId,
+                    serverConfig,
                 });
                 this.clearManagementError("mcp");
                 await this.loadMcpConfigs();
+                return true;
             } catch (error) {
                 this.recordManagementError("mcp", error);
+                return false;
             }
         },
 
@@ -1193,8 +1216,17 @@ export function createManagementActions() {
                 : rawMessage;
             this.managementErrors[page] = message;
             this.lastError = message;
+            // errorMessage: 浏览器控制台会把 Error 序列化成空对象，因此额外展开名称和消息用于排查。
+            const errorMessage = error instanceof Error
+                ? error.message
+                : String(error);
+            const errorName = error instanceof Error
+                ? error.name
+                : typeof error;
             // 控制台保留原始错误对象，方便排查 CORS、网络失败或中心服务业务错误。
             console.error("管理页接口请求失败", {
+                errorMessage,
+                errorName,
                 page,
                 error,
             });

@@ -502,22 +502,26 @@ export interface PluginConfigView {
  * McpConfigView：MCP 配置列表展示结构。
  *
  * 来源：`POST /api/mcp/list`。
- * 含义：展示全局或项目级 MCP JSON 配置。
+ * 含义：展示全局 MCP JSON 配置中的单个 MCP Server 行。
  * 格式：根字段固定为 mcpServers。
  * 默认值：没有配置时由中心服务返回空对象。
- * 约束：保存时仍按 mcpServers 根字段提交。
+ * 约束：页面保存时提交当前 serverId 和 serverConfig，完整 mcpServers 只作为兼容协议。
  */
 export interface McpConfigView {
-  /** scope: 配置作用域，global 或 project。 */
+  /** scope: 配置来源，当前全局管理页只展示 global。 */
   scope: "global" | "project";
   /** projectId: 项目级配置 ID，全局配置为 null。 */
   projectId: string | null;
   /** relativePath: 配置文件相对中心目录路径。 */
   relativePath: string;
-  /** mcpServers: MCP Server 配置对象。 */
+  /** mcpServers: 当前配置文件完整 MCP Server 配置对象，只用于兼容旧保存入口和调试。 */
   mcpServers: Record<string, unknown>;
-  /** tools: 中心服务从 MCP Server 实时发现到的工具清单；不可达时对应服务器返回空列表并写入错误。 */
-  tools: McpToolView[];
+  /** serverId: 当前行对应的 MCP Server ID，来自 mcpServers 对象 key。 */
+  serverId: string;
+  /** serverConfig: 当前行对应的单个 MCP Server 原始配置，不包含工具发现结果。 */
+  serverConfig: unknown;
+  /** transportType: 当前行 MCP Server 配置声明的传输类型。 */
+  transportType: string;
   /** updatedAt: 更新时间 ISO 字符串，文件缺失时为 null。 */
   updatedAt: string | null;
 }
@@ -1332,14 +1336,31 @@ export class CenterApiClient {
   }
 
   /**
+   * listMcpTools：按单个 MCP Server 查询工具列表。
+   *
+   * @param payload 配置文件相对路径和 MCP Server ID。
+   * @returns 当前 MCP Server 的工具列表。
+   */
+  listMcpTools(payload: {
+    relativePath: string;
+    serverId: string;
+  }): Promise<{
+    tools: McpToolView[];
+  }> {
+    return this.post("/api/mcp/tools", payload);
+  }
+
+  /**
    * saveMcpConfig：保存 MCP 配置。
    *
-   * @param payload 根字段为 mcpServers 的 MCP 配置。
+   * @param payload 单服务保存使用 serverId 和 serverConfig，mcpServers 仅用于旧整包兼容。
    * @returns 保存文件路径。
    */
   saveMcpConfig(payload: {
-    mcpServers: Record<string, unknown>;
+    mcpServers?: Record<string, unknown>;
     projectId?: string | null;
+    serverConfig?: Record<string, unknown>;
+    serverId?: string;
   }): Promise<{
     relativePath: string;
   }> {
