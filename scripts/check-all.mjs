@@ -155,6 +155,12 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-desktop-shell-center-health.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-frontend-workspace-ui.mjs",
     ],
   ],

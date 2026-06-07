@@ -146,6 +146,10 @@ const DEFAULT_CLOSE_ACTION_PREFERENCE: CloseActionPreference = "ask";
 const PROJECT_ID_FILE_NAME = "致心项目ID.md";
 // PROJECT_ID_PATTERN：项目身份必须为 UUID，避免损坏文件或目录名伪身份进入中心服务。
 const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+// CENTER_HEALTH_WAIT_TIMEOUT_MS：中心服务子进程从启动到监听端口允许的最长等待时间。
+const CENTER_HEALTH_WAIT_TIMEOUT_MS = 30000;
+// CENTER_HEALTH_RETRY_INTERVAL_MS：健康检查轮询间隔，避免硬编码固定 sleep 后仍撞上慢启动。
+const CENTER_HEALTH_RETRY_INTERVAL_MS = 300;
 
 // mainWindow: 主窗口引用，避免被垃圾回收。
 let mainWindow: BrowserWindow | null = null;
@@ -862,6 +866,114 @@ function resolveDesktopWindowUrl(): string {
 }
 
 /**
+ * delay：等待指定毫秒数。
+ *
+ * @param milliseconds 等待时长，单位毫秒。
+ * @returns 等待完成后 resolve。
+ */
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => {
+    setTimeout(
+      resolveDelay,
+      milliseconds,
+    );
+  });
+}
+
+/**
+ * resolveCenterHealthUrl：生成中心服务健康检查地址。
+ *
+ * @returns 当前端口对应的 /api/health 地址。
+ */
+function resolveCenterHealthUrl(): string {
+  const healthUrl = new URL(`http://127.0.0.1:${centerLaunchConfig.port}/api/health`);
+  return healthUrl.toString();
+}
+
+/**
+ * waitForCenterHealth：等待桌面壳管理的中心服务真正可访问。
+ *
+ * @returns 健康检查通过后没有返回值。
+ */
+async function waitForCenterHealth(): Promise<void> {
+  const startedAt = Date.now();
+  const healthUrl = resolveCenterHealthUrl();
+  let lastErrorMessage = "";
+
+  while (Date.now() - startedAt < CENTER_HEALTH_WAIT_TIMEOUT_MS) {
+    try {
+      // fetch: 中心服务子进程启动和端口监听存在异步竞态，必须以真实健康接口作为加载窗口前置条件。
+      const response = await fetch(healthUrl, {
+        method: "GET",
+      });
+      if (response.ok) {
+        writeCenterRuntimeLog(`center-health-ready ${healthUrl}`);
+        return;
+      }
+      lastErrorMessage = `健康检查返回 HTTP ${response.status}`;
+    } catch (error) {
+      lastErrorMessage = error instanceof Error ? error.message : "健康检查请求失败";
+    }
+
+    await delay(CENTER_HEALTH_RETRY_INTERVAL_MS);
+  }
+
+  throw new Error([
+    "中心服务启动后未在超时时间内通过健康检查。",
+    `健康地址：${healthUrl}`,
+    `最近错误：${lastErrorMessage || "无响应"}`,
+    `中心目录：${centerLaunchConfig.centerDirectory}`,
+    `端口：${centerLaunchConfig.port}`,
+  ].join("\n"));
+}
+
+/**
+ * escapeHtml：转义错误页中的诊断文本。
+ *
+ * @param value 原始诊断文本。
+ * @returns 可安全嵌入 HTML 的文本。
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&#39;");
+}
+
+/**
+ * renderWindowLoadFailurePage：生成桌面壳启动失败诊断页。
+ *
+ * @param message 可展示诊断信息。
+ * @returns data URL，供 Electron 窗口展示。
+ */
+function renderWindowLoadFailurePage(message: string): string {
+  const html = [
+    "<!doctype html>",
+    "<html lang=\"zh-CN\">",
+    "<head>",
+    "<meta charset=\"utf-8\">",
+    "<title>中心服务启动失败</title>",
+    "<style>",
+    "body{margin:0;font-family:system-ui,Segoe UI,sans-serif;background:#111827;color:#e5e7eb;}",
+    "main{max-width:820px;margin:64px auto;padding:0 24px;}",
+    "h1{font-size:24px;font-weight:650;margin:0 0 16px;}",
+    "pre{white-space:pre-wrap;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;line-height:1.6;}",
+    "</style>",
+    "</head>",
+    "<body>",
+    "<main>",
+    "<h1>中心服务暂时不可用</h1>",
+    `<pre>${escapeHtml(message)}</pre>`,
+    "</main>",
+    "</body>",
+    "</html>",
+  ].join("");
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+/**
  * createWindow：创建桌面端主窗口。
  *
  * @returns 窗口加载完成后没有返回值。
@@ -907,8 +1019,17 @@ async function createWindow(): Promise<void> {
   // 生产期和无前端 dev server 的开发兜底都走中心服务 HTTP 页面。
   // Vite 拆包后的 ES module 不能可靠通过普通 file:// 页面加载，统一由中心服务托管静态资源。
   const targetUrl = resolveDesktopWindowUrl();
-  writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
-  await mainWindow.loadURL(targetUrl);
+  try {
+    await waitForCenterHealth();
+    writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
+    await mainWindow.loadURL(targetUrl);
+  } catch (error) {
+    lastCenterError = error instanceof Error ? error.message : "桌面窗口加载中心服务页面失败";
+    writeCenterRuntimeLog(`window-load-failed ${lastCenterError}`);
+    await mainWindow.loadURL(renderWindowLoadFailurePage(lastCenterError)).catch((loadError) => {
+      writeCenterRuntimeLog(`window-load-fallback-failed ${loadError instanceof Error ? loadError.message : "诊断页加载失败"}`);
+    });
+  }
 }
 
 /**
