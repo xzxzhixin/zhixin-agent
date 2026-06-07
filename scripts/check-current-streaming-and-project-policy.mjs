@@ -149,6 +149,26 @@ assertIncludes(
   "AGENTS.md 必须写入项目对话测试目录规范。",
 );
 assertIncludes(
+  agents,
+  "用户后续提到的需求如果在 `需求.md` 中没有明确覆盖，必须先新增到 `需求.md`",
+  "AGENTS.md 必须写入后续需求默认写入需求源的规则。",
+);
+assertIncludes(
+  agents,
+  "如果新需求与已有 `需求.md` 内容冲突，以用户最新需求为准",
+  "AGENTS.md 必须写入新需求优先于旧需求的规则。",
+);
+assertIncludes(
+  agents,
+  "`dev:frontend` 是前端 Vite 开发服务器的独立启动入口",
+  "AGENTS.md 必须写入 dev:frontend 独立拉起前端的规则。",
+);
+assertIncludes(
+  agents,
+  "`dev:desktop-shell` 只启动桌面壳并由桌面壳拉起中心服务",
+  "AGENTS.md 必须写入 dev:desktop-shell 不拉起前端的规则。",
+);
+assertIncludes(
   architecture,
   "禁止使用 `dev:center:new`",
   "架构文档必须写入禁止独立启动中心服务的运行边界。",

@@ -663,7 +663,6 @@ onBeforeUnmount(() => {
                     v-for="segment in row.thinking.segments"
                     :key="segment.eventId"
                 >
-                  <strong>{{ segment.statusLabel }}</strong>
                   <span>{{ segment.summary }}</span>
                 </p>
               </div>

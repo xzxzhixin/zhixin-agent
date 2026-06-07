@@ -1,5 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync} from "node:fs";
+import {arch, platform, release, type} from "node:os";
 import {dirname, join} from "node:path";
 
 import type {CenterDatabase} from "./database.js";
@@ -506,14 +507,36 @@ export function renderAgentDefinition(input: {
  * @returns 只包含 HH:mm:ss 的标题时间文本。
  */
 export function formatMemoryTimeTitle(value: Date): string {
-    // timeText: 永久记忆 Markdown 标题只允许写时间，日期由目录 year/month/day 表达。
-    const timeText = value.toISOString()
-        .slice(
-            11,
-            19,
+    // timeText: 永久记忆 Markdown 标题使用本机时间，避免北京时间用户看到 UTC 记录。
+    const timeText = [
+        value.getHours(),
+        value.getMinutes(),
+        value.getSeconds(),
+    ].map((part) => {
+        return String(part).padStart(
+            2,
+            "0",
         );
+    }).join(":");
 
     return timeText;
+}
+
+/**
+ * formatMemoryComputerIdentity：生成长期记忆中的当前电脑身份。
+ *
+ * 关键逻辑：迁移中心目录后需要知道记忆写入发生在哪类操作系统环境，因此写入 OS 类型、
+ * 平台、版本和架构；这里不写中心服务角色名，避免把 center 误当成电脑身份。
+ *
+ * @returns 当前运行中心服务进程的操作系统身份。
+ */
+export function formatMemoryComputerIdentity(): string {
+    return [
+        type(),
+        platform(),
+        release(),
+        arch(),
+    ].join(" / ");
 }
 
 /**
@@ -536,9 +559,9 @@ export function writeAgentMemory(
 } {
     const queueState = enterMemoryQueue(memoryQueues, input.agentId ?? "");
     const now = new Date();
-    const year = String(now.getUTCFullYear());
-    const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(now.getUTCDate()).padStart(2, "0");
+    const year = String(now.getFullYear());
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
     const relativePath = `memory/agents/${input.agentId}/${year}/${month}/${day}.md`;
     const filePath = join(centerDirectory, relativePath);
     const memoryTimeTitle = formatMemoryTimeTitle(now);
@@ -558,7 +581,7 @@ export function writeAgentMemory(
         "",
         "## 使用的电脑",
         "",
-        "center",
+        formatMemoryComputerIdentity(),
         "",
         "## 用户说的",
         "",

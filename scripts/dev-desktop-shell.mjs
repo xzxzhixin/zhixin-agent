@@ -1,8 +1,8 @@
 /**
  * 桌面端开发启动编排。
  *
- * 用途：先启动 Vite 前端开发服务器，再启动 Electron 桌面壳。
- * 关键逻辑：开发期不先构建前端，Electron 通过本机 dev server 获得热更新体验。
+ * 用途：确认独立 Vite 前端开发服务器已启动，再启动 Electron 桌面壳。
+ * 关键逻辑：前端由 `dev:frontend` 独立管理，本脚本只负责桌面壳和桌面壳拉起的中心服务。
  */
 import {
   spawn,
@@ -52,7 +52,7 @@ function startProcess(label, command, args, env = {}) {
 }
 
 /**
- * waitForFrontend：轮询前端开发服务器直到可访问。
+ * waitForFrontend：轮询独立前端开发服务器直到可访问。
  *
  * @returns 前端服务可访问后没有返回值。
  */
@@ -76,14 +76,13 @@ async function waitForFrontend() {
     });
   }
 
-  throw new Error(`前端开发服务器未在 30 秒内就绪：${frontendDevUrl}`);
+  throw new Error(`前端开发服务器未就绪：请先运行 pnpm dev:frontend，再运行 pnpm dev:desktop-shell。目标地址：${frontendDevUrl}`);
 }
 
 /**
  * isFrontendAlreadyAvailable：判断本机 Vite 前端服务是否已经可访问。
  *
- * 关键逻辑：开发期可能已经手动启动过 `5173`，此时不能再用 strictPort 强行启动第二个 Vite，
- * 否则 pnpm 会退出并连带阻断 Electron 与中心服务 `8866` 启动。
+ * 关键逻辑：前端由 `dev:frontend` 独立拉起；本脚本只检查它是否存在，不启动第二个 Vite。
  *
  * @returns 已存在前端服务可访问时返回 true，否则返回 false。
  */
@@ -158,22 +157,8 @@ process.on("SIGTERM", () => {
 });
 
 try {
-  if (await isFrontendAlreadyAvailable()) {
-    console.log(`复用已存在的前端开发服务器：${frontendDevUrl}`);
-  } else {
-    startProcess(
-      "前端开发服务器",
-      "pnpm",
-      [
-        "--filter",
-        "@zhixin/frontend",
-        "dev",
-        "--",
-        "--host",
-        "127.0.0.1",
-        "--strictPort",
-      ],
-    );
+  if (!await isFrontendAlreadyAvailable()) {
+    throw new Error(`前端开发服务器未启动：请先运行 pnpm dev:frontend。目标地址：${frontendDevUrl}`);
   }
 
   await waitForFrontend();

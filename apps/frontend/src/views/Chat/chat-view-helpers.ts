@@ -180,9 +180,7 @@ export interface ThinkingProcessRow {
     segments: Array<{
         /** eventId: 片段事件 ID。 */
         eventId: string;
-        /** statusLabel: 片段状态中文说明。 */
-        statusLabel: string;
-        /** summary: 片段摘要。 */
+        /** summary: 片段摘要，只保存思考内容正文，不混入状态文案。 */
         summary: string;
     }>;
 }
@@ -730,7 +728,6 @@ export function createThinkingProcessRows(events: EventRecord[]): ThinkingProces
             segments: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
-                    statusLabel: entry.statusMeta.label,
                     summary: readEventText(
                         entry.event,
                         "thinkingText",

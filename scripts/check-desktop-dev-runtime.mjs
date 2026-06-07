@@ -2,7 +2,7 @@
  * 桌面端开发运行时检查。
  *
  * 用途：防止桌面端开发脚本退回先构建前端的慢路径，并避免本机入口误判为远程 Web。
- * 关键逻辑：开发期应先启动 Vite 前端服务器再开 Electron 壳；历史 file:// 入口也不是远程 Web。
+ * 关键逻辑：开发期前端由 dev:frontend 独立启动，dev:desktop-shell 只检查前端后启动 Electron 壳；历史 file:// 入口也不是远程 Web。
  */
 import {
   readFileSync,
@@ -40,7 +40,7 @@ const desktopPreloadPath = join(
   "src",
   "preload.cjs",
 );
-// desktopDevRuntimePath: 桌面壳开发编排脚本，必须能复用已存在的 Vite 服务。
+// desktopDevRuntimePath: 桌面壳开发编排脚本，只检查独立 Vite 服务是否已存在。
 const desktopDevRuntimePath = join(
   process.cwd(),
   "scripts",
@@ -51,7 +51,7 @@ const rootPackage = JSON.parse(readFileSync(
   rootPackagePath,
   "utf-8",
 ));
-// desktopDevScript: 桌面壳开发脚本，必须走开发服务器而不是先构建前端。
+// desktopDevScript: 桌面壳开发脚本，必须等待独立开发服务器而不是先构建前端。
 const desktopDevScript = rootPackage.scripts?.["dev:desktop-shell"] ?? "";
 // runtimeSource: 运行时识别源码文本，用于检查本机入口和桌面桥接保护。
 const runtimeSource = readFileSync(
@@ -114,27 +114,32 @@ const centerTypesSource = readFileSync(
 );
 
 if (desktopDevScript.includes("build:frontend")) {
-  console.error("dev:desktop-shell 不能先执行 build:frontend，开发期应启动前端 dev server 后再开 Electron 壳。");
+  console.error("dev:desktop-shell 不能先执行 build:frontend，开发期前端必须由 dev:frontend 独立启动。");
   process.exitCode = 1;
 }
 
 if (!desktopDevScript.includes("dev-desktop-shell")) {
-  console.error("dev:desktop-shell 应使用桌面端开发编排脚本统一启动前端 dev server 和 Electron 壳。");
+  console.error("dev:desktop-shell 应使用桌面端开发编排脚本启动 Electron 壳并由桌面壳拉起中心服务。");
   process.exitCode = 1;
 }
 
 if (!desktopDevRuntimeSource.includes("isFrontendAlreadyAvailable")) {
-  console.error("桌面端开发编排脚本必须先探测 5173 是否已有可访问前端，避免 strictPort 直接退出导致 8866 不启动。");
+  console.error("桌面端开发编排脚本必须先探测 5173 是否已有可访问前端。");
   process.exitCode = 1;
 }
 
-if (!desktopDevRuntimeSource.includes("复用已存在的前端开发服务器")) {
-  console.error("桌面端开发编排脚本复用已有 5173 时必须输出明确提示，方便在 IDEA 运行窗口排查。");
+if (!desktopDevRuntimeSource.includes("请先运行 pnpm dev:frontend")) {
+  console.error("桌面端开发编排脚本在 5173 未就绪时必须提示先运行 pnpm dev:frontend。");
   process.exitCode = 1;
 }
 
 if (!desktopDevRuntimeSource.includes("await isFrontendAlreadyAvailable()")) {
-  console.error("桌面端开发编排脚本必须在启动 Vite 前执行前端可用性探测。");
+  console.error("桌面端开发编排脚本必须在启动 Electron 前执行前端可用性探测。");
+  process.exitCode = 1;
+}
+
+if (desktopDevRuntimeSource.includes("@zhixin/frontend")) {
+  console.error("桌面端开发编排脚本不能启动前端包，前端必须由 dev:frontend 独立管理。");
   process.exitCode = 1;
 }
 

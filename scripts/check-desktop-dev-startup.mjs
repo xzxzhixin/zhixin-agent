@@ -1,7 +1,7 @@
 /**
  * 桌面端开发启动链路检查。
  *
- * 用途：锁定 dev:desktop-shell 必须启动桌面壳，并由桌面壳生命周期拉起中心服务。
+ * 用途：锁定 dev:frontend 独立启动前端，dev:desktop-shell 只启动桌面壳并由桌面壳生命周期拉起中心服务。
  * 关键逻辑：只做静态检查，不直接启动中心服务或 Electron。
  * 参数：无。
  * 返回值：检查通过退出 0，发现启动链路绕过桌面壳退出 1。
@@ -126,10 +126,19 @@ if (packageJson.scripts?.["dev:desktop-shell"] !== "node scripts/dev-desktop-she
   fail("根 dev:desktop-shell 必须通过 scripts/dev-desktop-shell.mjs 统一编排。");
 }
 
-assertIncludes(
+if (packageJson.scripts?.["dev:frontend"] !== "pnpm --filter @zhixin/frontend dev") {
+  fail("根 dev:frontend 必须作为唯一前端开发服务器启动入口。");
+}
+
+assertNotIncludes(
   devScript,
   "@zhixin/frontend",
-  "桌面开发脚本必须先启动前端 dev server。",
+  "桌面开发脚本不能启动前端 dev server；前端必须通过 dev:frontend 独立启动。",
+);
+assertIncludes(
+  devScript,
+  "isFrontendAlreadyAvailable",
+  "桌面开发脚本必须只检查前端 dev server 是否已由 dev:frontend 拉起。",
 );
 assertIncludes(
   devScript,
@@ -139,17 +148,12 @@ assertIncludes(
 assertIncludes(
   devScript,
   "ZHIXIN_FRONTEND_DEV_URL",
-  "桌面开发脚本必须把前端 dev server 地址注入桌面壳。",
-);
-assertIncludes(
-  devScript,
-  "--strictPort",
-  "桌面开发脚本必须使用 Vite strictPort，避免 5173 被占用时退避到其他端口。",
+  "桌面开发脚本必须把独立前端 dev server 地址注入桌面壳。",
 );
 assertIncludes(
   devScript,
   "waitForFrontend()",
-  "桌面开发脚本必须等待固定前端 URL 可访问后再启动 Electron。",
+  "桌面开发脚本必须等待独立前端 URL 可访问后再启动 Electron。",
 );
 assertIncludes(
   frontendViteConfig,

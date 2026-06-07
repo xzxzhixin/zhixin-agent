@@ -445,6 +445,10 @@ assert(
   "思考完成后必须默认折叠，仍在思考时必须默认展开。",
 );
 assert(
+  thinkingRows.every((row) => row.segments.every((segment) => !("statusLabel" in segment))),
+  "思考过程正文片段不能携带状态标签，状态只能显示在思考过程标题后面。",
+);
+assert(
   processRows.every((row) => row.kind !== "stream"),
   "模型 SSE 流必须进入助手最终回复气泡，不能在对话区渲染为模型输出过程卡片。",
 );

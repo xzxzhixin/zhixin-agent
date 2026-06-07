@@ -8,7 +8,12 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import {
+  platform,
+  release,
+  tmpdir,
+  type,
+} from "node:os";
 import { join } from "node:path";
 
 import {
@@ -338,7 +343,10 @@ async function main(): Promise<void> {
         assistantText: "回答内容",
       },
     });
-    assert(memoryResponse.json<ApiResponse<unknown>>().success, "智能体记忆写入失败");
+    const memoryResult = memoryResponse.json<ApiResponse<{
+      relativePath: string;
+    }>>();
+    assert(memoryResult.success, "智能体记忆写入失败");
 
     const memoryIndexRows = service.database.connection()
       .prepare("SELECT agent_id AS agentId, keywords, summary, memory_path AS memoryPath FROM memory_index WHERE agent_id = ?")
@@ -804,6 +812,18 @@ async function main(): Promise<void> {
     ].forEach((fragment) => {
       assert(mainMemoryContent.includes(fragment), `主智能体长期记忆缺少片段：${fragment}`);
     });
+    const memoryComputerSection = mainMemoryContent.match(/## 使用的电脑\n\n([^\n]+)/u)?.[1]?.trim() ?? "";
+    assert(memoryComputerSection !== "center", "永久记忆的使用电脑不能写入固定 center，必须写入当前操作系统信息。");
+    [
+      type(),
+      platform(),
+      release(),
+    ].forEach((fragment) => {
+      assert(
+        memoryComputerSection.includes(fragment),
+        `永久记忆的使用电脑缺少当前操作系统信息片段：${fragment}`,
+      );
+    });
     const workerContextAfterMemoryResponse = await service.app.inject({
       method: "POST",
       url: "/api/worker/context-request",
@@ -922,7 +942,7 @@ async function main(): Promise<void> {
     assert(usageQuery.data?.records.length === 1, "用量查询数量错误");
 
     const memoryContent = await readFile(
-      join(centerDirectory, "memory", "agents", agent.data?.agentId ?? "", new Date().getUTCFullYear().toString(), String(new Date().getUTCMonth() + 1).padStart(2, "0"), `${String(new Date().getUTCDate()).padStart(2, "0")}.md`),
+      join(centerDirectory, memoryResult.data?.relativePath ?? ""),
       "utf-8",
     );
     assert(memoryContent.includes("记忆写入检查"), "记忆 Markdown 未追加检查内容");

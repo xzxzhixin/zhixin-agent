@@ -1217,6 +1217,14 @@ if (!centerService.includes("const memoryTimeTitle = formatMemoryTimeTitle(now);
   process.exitCode = 1;
 }
 
+if (!centerService.includes("getFullYear()")
+    || !centerService.includes("getHours()")
+    || !centerService.includes("getMinutes()")
+    || !centerService.includes("getSeconds()")) {
+  console.error("永久记忆标题和日期目录必须使用本机时间，不能使用 UTC 时间。");
+  process.exitCode = 1;
+}
+
 const writeAgentMemoryStart = centerService.indexOf("function writeAgentMemory");
 const writeAgentMemoryEnd = centerService.indexOf("function enterMemoryQueue", writeAgentMemoryStart);
 const writeAgentMemorySource = centerService.slice(
@@ -1225,8 +1233,9 @@ const writeAgentMemorySource = centerService.slice(
 );
 if (writeAgentMemorySource.includes("`# 时间：${now.toISOString()}`")
     || writeAgentMemorySource.includes("# 时间：${now.toISOString()}")
-    || writeAgentMemorySource.includes("# 时间：${memoryTimeTitle}")) {
-  console.error("writeAgentMemory 不允许把 now.toISOString() 写入 Markdown 标题。");
+    || writeAgentMemorySource.includes("# 时间：${memoryTimeTitle}")
+    || writeAgentMemorySource.includes("getUTC")) {
+  console.error("writeAgentMemory 不允许把 UTC 或 ISO 时间写入 Markdown 标题和日期目录。");
   process.exitCode = 1;
 }
 
