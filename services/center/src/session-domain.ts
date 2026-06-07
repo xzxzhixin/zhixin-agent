@@ -707,6 +707,7 @@ async function completeCreatedTurnInGraph(
     try {
         appendThinkingEvents(
             events,
+            database,
             sent.sessionId,
             sent.taskId,
             sent.turnId,

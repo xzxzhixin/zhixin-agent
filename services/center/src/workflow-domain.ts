@@ -9,11 +9,18 @@ import {broadcastGlobalEvent} from "./realtime.js";
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import {createDataAccess} from "./data-access/index.js";
+import {SessionRepository} from "./data-access/session-repository.js";
 import {findProject, findSession, createMessageTurnAndTask} from "./session-domain.js";
 import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "./types.js";
 import {writeJsonFile} from "./helpers.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
+import {listProviderConfigs} from "./provider-domain.js";
+import {
+    listInstalledSkills,
+    listMcpConfigs,
+    listPlugins,
+} from "./extension-domain.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
@@ -682,6 +689,7 @@ export function orchestrateModelCall(events: CenterEventStore, taskId: string, a
 
 export function appendThinkingEvents(
     events: CenterEventStore,
+    database: CenterDatabase,
     sessionId: string,
     taskId: string,
     turnId: string,
@@ -690,8 +698,12 @@ export function appendThinkingEvents(
 ): void {
     // thinkingId: 同一次公开思考过程的稳定聚合键，前端依赖它把 delta 和 completed 合成一张卡片。
     const thinkingId = `${turnId}:context-planning`;
-    // thinkingText: 当前公开思考摘要，delta 与 completed 共用同一语义，避免完成事件没有正文时被渲染为空段。
-    const thinkingText = "读取当前会话、任务状态、可用供应商和扩展能力后组织回复。";
+    // contextSummary: 思考正文只展示当前轮次真实读取到的上下文统计，避免固定模板被误认为模型真实思考。
+    const contextSummary = buildPublicThinkingContextSummary(
+        database,
+        sessionId,
+        turnId,
+    );
     events.append({
         eventType: "thinking.delta",
         scopeType: "thinking",
@@ -705,7 +717,7 @@ export function appendThinkingEvents(
         payload: withOptionalGraphCheckpoint({
             thinkingId,
             phase: "上下文整理",
-            thinkingText,
+            thinkingText: contextSummary.runningText,
         }, graphCheckpoint),
     });
     events.append({
@@ -722,9 +734,52 @@ export function appendThinkingEvents(
             taskId,
             thinkingId,
             phase: "上下文整理",
-            thinkingText,
+            thinkingText: contextSummary.completedText,
         }, graphCheckpoint),
     });
+}
+
+/**
+ * buildPublicThinkingContextSummary：构造可公开展示的上下文整理摘要。
+ *
+ * @param database 中心服务数据库。
+ * @param sessionId 当前会话 ID。
+ * @param turnId 当前轮次 ID。
+ * @returns 思考开始和完成时可展示的摘要。
+ */
+function buildPublicThinkingContextSummary(
+    database: CenterDatabase,
+    sessionId: string,
+    turnId: string,
+): {
+    /** runningText: 思考流式生成时展示的摘要。 */
+    runningText: string;
+    /** completedText: 思考完成时展示的摘要。 */
+    completedText: string;
+} {
+    const repository = new SessionRepository(database);
+    // messages: 当前会话真实消息列表，来源是中心服务 messages 表。
+    const messages = repository.listMessages(sessionId);
+    // previousUserMessageCount: 排除本轮用户消息，得到当前窗口里本轮之前的用户消息数量。
+    const previousUserMessageCount = messages.filter((message) => {
+        return message.role === "user" && message.turnId !== turnId;
+    }).length;
+    // taskCount: 当前会话真实任务数量，用于说明任务状态读取范围。
+    const taskCount = repository.listTasks(sessionId).length;
+    // centerDirectory: 中心目录由桌面壳启动中心服务时写入 system meta，用于读取供应商和扩展能力配置。
+    const centerDirectory = createDataAccess(database).system.readMetaValue("centerDirectory") ?? "";
+    // providerCount: 当前中心目录已登记供应商数量，来源是中心服务供应商配置。
+    const providerCount = centerDirectory
+        ? listProviderConfigs(centerDirectory).length
+        : 0;
+    // extensionCount: 插件、MCP 和 skill 都属于扩展能力状态，统一按中心服务管理快照统计。
+    const extensionCount = listPlugins(database).length
+        + (centerDirectory ? listMcpConfigs(centerDirectory).length : 0)
+        + (centerDirectory ? listInstalledSkills(centerDirectory).length : 0);
+    return {
+        runningText: `正在整理当前会话上下文：本轮前用户消息 ${previousUserMessageCount} 条，任务记录 ${taskCount} 条，供应商 ${providerCount} 个，扩展能力 ${extensionCount} 项。`,
+        completedText: `已读取当前会话、任务状态、可用供应商和扩展能力：本轮前用户消息 ${previousUserMessageCount} 条，可用于组织本轮回复。`,
+    };
 }
 
 export function appendModelStreamEvent(

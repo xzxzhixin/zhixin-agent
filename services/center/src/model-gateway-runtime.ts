@@ -2,11 +2,13 @@ import {randomUUID} from "node:crypto";
 import {existsSync, readdirSync} from "node:fs";
 import {join} from "node:path";
 
-import type {ModelRequest, ModelToolCall, ModelToolSpec, ModelUsage} from "@zhixin/model-protocol";
+import type {ConversationMessage} from "@zhixin/shared";
+import type {ModelMessage, ModelRequest, ModelToolCall, ModelToolSpec, ModelUsage} from "@zhixin/model-protocol";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import {createDataAccess} from "./data-access/index.js";
+import {SessionRepository} from "./data-access/session-repository.js";
 import {
     readProviderConfig,
     readSecretValue,
@@ -96,6 +98,8 @@ interface AgentMemoryPromptEntry {
 const MAIN_AGENT_MEMORY_PROMPT_LIMIT = 5;
 // MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS：记忆系统消息长度上限，防止历史摘要异常膨胀。
 const MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS = 1200;
+// SESSION_HISTORY_PROMPT_LIMIT：当前会话历史消息上限，避免模型请求被历史窗口无界撑大。
+const SESSION_HISTORY_PROMPT_LIMIT = 20;
 
 /**
  * invokeProviderModelGateway：基于中心服务供应商配置执行最小模型调用。
@@ -119,6 +123,12 @@ export async function invokeProviderModelGateway(
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
+    const sessionHistoryMessages = listSessionHistoryPromptMessages(
+        database,
+        sessionId,
+        turnId,
+    );
+    const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
@@ -126,6 +136,8 @@ export async function invokeProviderModelGateway(
         runtime.modelSelection.reasoningEffort,
         listAvailableModelToolSpecs(),
         mainAgentMemories,
+        sessionContextPrompt,
+        sessionHistoryMessages,
     );
     const result = await sendProviderModelRequest(runtime, requestPayload, {
         events,
@@ -184,6 +196,12 @@ export function continueProviderModelGatewayWithToolResults(
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
+    const sessionHistoryMessages = listSessionHistoryPromptMessages(
+        database,
+        sessionId,
+        turnId,
+    );
+    const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
@@ -191,6 +209,8 @@ export function continueProviderModelGatewayWithToolResults(
         runtime.modelSelection.reasoningEffort,
         listAvailableModelToolSpecs(),
         mainAgentMemories,
+        sessionContextPrompt,
+        sessionHistoryMessages,
     );
     requestPayload.messages.push({
         role: "assistant",
@@ -360,6 +380,8 @@ function buildModelRequestPayload(
     reasoningEffort: string | null,
     tools: ModelToolSpec[],
     mainAgentMemories: AgentMemoryPromptEntry[],
+    sessionContextPrompt: string,
+    sessionHistoryMessages: ModelMessage[],
 ): ModelRequest {
     const memoryPrompt = buildMainAgentMemoryPrompt(mainAgentMemories);
     // memoryMessages: 主智能体记忆作为 system 消息注入，不改写用户本轮原文。
@@ -376,6 +398,18 @@ function buildModelRequestPayload(
             },
         ]
         : [];
+    // sessionContextMessages: 当前会话统计来自 messages 表历史，不混入长期记忆和其他会话。
+    const sessionContextMessages: ModelRequest["messages"] = [
+        {
+            role: "system",
+            content: [
+                {
+                    type: "text",
+                    text: sessionContextPrompt,
+                },
+            ],
+        },
+    ];
     return {
         requestId: randomUUID(),
         providerId,
@@ -383,6 +417,8 @@ function buildModelRequestPayload(
         reasoningEffort,
         messages: [
             ...memoryMessages,
+            ...sessionContextMessages,
+            ...sessionHistoryMessages,
             {
                 role: "user",
                 content: [
@@ -396,6 +432,76 @@ function buildModelRequestPayload(
         tools,
         stream: true,
     };
+}
+
+/**
+ * listSessionHistoryPromptMessages：读取当前会话历史消息并转换为模型上下文。
+ *
+ * @param database 中心服务数据库。
+ * @param sessionId 当前会话 ID。
+ * @param turnId 当前轮次 ID。
+ * @returns 可直接注入模型请求的历史消息。
+ */
+function listSessionHistoryPromptMessages(
+    database: CenterDatabase,
+    sessionId: string,
+    turnId: string,
+): ModelMessage[] {
+    // messages: 来源是中心服务 messages 表，排除本轮当前用户消息，避免和请求尾部 userText 重复。
+    const messages = new SessionRepository(database).listMessages(sessionId).filter((message) => {
+        return message.turnId !== turnId;
+    });
+    // recentMessages: 保留最近历史，确保当前窗口内对话记忆进入模型，但不让历史无限增长。
+    const recentMessages = messages.slice(-SESSION_HISTORY_PROMPT_LIMIT);
+    return recentMessages.map(toSessionHistoryModelMessage);
+}
+
+/**
+ * toSessionHistoryModelMessage：把中心服务会话消息转换成内部模型消息。
+ *
+ * @param message 中心服务会话消息。
+ * @returns 内部模型协议消息。
+ */
+function toSessionHistoryModelMessage(message: ConversationMessage): ModelMessage {
+    // role: messages.role 是中心服务统一会话角色；模型协议只支持 user/assistant/system/tool，这里只转换普通会话历史。
+    const role: ModelMessage["role"] = message.role === "assistant"
+        ? "assistant"
+        : message.role === "system"
+            ? "system"
+            : "user";
+    return {
+        role,
+        content: [
+            {
+                type: "text",
+                text: message.contentMarkdown,
+            },
+        ],
+    };
+}
+
+/**
+ * buildSessionContextPrompt：构造当前会话统计系统提示。
+ *
+ * @param sessionHistoryMessages 已排除本轮用户消息的当前会话历史。
+ * @returns 当前会话统计提示。
+ */
+function buildSessionContextPrompt(sessionHistoryMessages: ModelMessage[]): string {
+    // previousUserMessageCount: 当前轮次之前同一会话内的用户消息数，用于回答“本窗口且不包括本次”的计数问题。
+    const previousUserMessageCount = sessionHistoryMessages.filter((message) => {
+        return message.role === "user";
+    }).length;
+    // previousAssistantMessageCount: 当前轮次之前同一会话内的助手回复数，用于模型理解对话窗口历史。
+    const previousAssistantMessageCount = sessionHistoryMessages.filter((message) => {
+        return message.role === "assistant";
+    }).length;
+    return [
+        "当前会话上下文统计：",
+        `本轮前同一会话内用户消息 ${previousUserMessageCount} 条。`,
+        `本轮前同一会话内助手回复 ${previousAssistantMessageCount} 条。`,
+        "用户提到“本窗口”“本次窗口”“当前会话”时，只按当前会话消息表理解，不混入长期记忆或其他会话。",
+        "用户明确要求“不包括本次”时，使用本轮前同一会话内用户消息数量。",
+    ].join("\n");
 }
 
 /**
@@ -1244,9 +1350,12 @@ function parseModelToolCallsFromText(text: string): ModelToolCall[] {
 }
 
 function readUserTextFromRequest(request: ModelRequest): string {
-    const userMessage = request.messages.find((message) => {
+    // userMessages: 模型请求现在包含当前会话历史，最后一条 user 消息才是本轮真实输入。
+    const userMessages = request.messages.filter((message) => {
         return message.role === "user";
     });
+    // userMessage: 本轮用户消息始终由 buildModelRequestPayload 追加在历史上下文之后。
+    const userMessage = userMessages[userMessages.length - 1];
     return userMessage?.content.map((part) => {
         if (part.type === "text") {
             return part.text;
