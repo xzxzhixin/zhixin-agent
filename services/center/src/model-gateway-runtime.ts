@@ -14,7 +14,7 @@ import {
     readSecretValue,
     resolveProviderModelSelection,
 } from "./provider-domain.js";
-import {listAvailableModelToolSpecs} from "./tool-runtime.js";
+import {listAvailableModelToolSpecsForCenter} from "./tool-runtime.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
@@ -129,12 +129,13 @@ export async function invokeProviderModelGateway(
         turnId,
     );
     const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
+    const tools = await listAvailableModelToolSpecsForCenter(runtime.centerDirectory);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
         runtime.modelSelection.reasoningEffort,
-        listAvailableModelToolSpecs(),
+        tools,
         mainAgentMemories,
         sessionContextPrompt,
         sessionHistoryMessages,
@@ -181,7 +182,7 @@ export async function invokeProviderModelGateway(
  * @param toolResults 模型工具调用和执行结果摘要。
  * @returns 模型网关最终回复。
  */
-export function continueProviderModelGatewayWithToolResults(
+export async function continueProviderModelGatewayWithToolResults(
     database: CenterDatabase,
     events: CenterEventStore,
     sessionId: string,
@@ -202,12 +203,13 @@ export function continueProviderModelGatewayWithToolResults(
         turnId,
     );
     const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
+    const tools = await listAvailableModelToolSpecsForCenter(runtime.centerDirectory);
     const requestPayload = buildModelRequestPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
         runtime.modelSelection.reasoningEffort,
-        listAvailableModelToolSpecs(),
+        tools,
         mainAgentMemories,
         sessionContextPrompt,
         sessionHistoryMessages,
