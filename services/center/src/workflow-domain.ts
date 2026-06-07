@@ -14,6 +14,10 @@ import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "./types.js";
 import {writeJsonFile} from "./helpers.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
+import {
+    type TurnGraphCheckpoint,
+    withOptionalGraphCheckpoint,
+} from "./turn-graph-domain.js";
 
 export function collectOneSkill(
     centerDirectory: string,
@@ -682,6 +686,7 @@ export function appendThinkingEvents(
     taskId: string,
     turnId: string,
     userText: string,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     // thinkingId: 同一次公开思考过程的稳定聚合键，前端依赖它把 delta 和 completed 合成一张卡片。
     const thinkingId = `${turnId}:context-planning`;
@@ -697,11 +702,11 @@ export function appendThinkingEvents(
         status: "running",
         title: "思考片段",
         summary: `正在分析用户输入：${userText.slice(0, 80)}`,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             thinkingId,
             phase: "上下文整理",
             thinkingText,
-        },
+        }, graphCheckpoint),
     });
     events.append({
         eventType: "thinking.completed",
@@ -713,12 +718,12 @@ export function appendThinkingEvents(
         status: "completed",
         title: "思考完成",
         summary: "思考过程已完成，进入模型输出和工具过程记录。",
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             taskId,
             thinkingId,
             phase: "上下文整理",
             thinkingText,
-        },
+        }, graphCheckpoint),
     });
 }
 
@@ -728,6 +733,7 @@ export function appendModelStreamEvent(
     taskId: string,
     turnId: string,
     result: ProviderModelGatewayResult,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     events.append({
         eventType: "model.stream.delta",
@@ -739,12 +745,12 @@ export function appendModelStreamEvent(
         status: "running",
         title: "模型流式片段",
         summary: result.assistantText.slice(0, 120),
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             providerId: result.providerId,
             model: result.model,
             reasoningEffort: result.reasoningEffort,
             deltaText: result.assistantText,
-        },
+        }, graphCheckpoint),
     });
     events.append({
         eventType: "model.stream.completed",
@@ -756,11 +762,11 @@ export function appendModelStreamEvent(
         status: "completed",
         title: "模型流式结束",
         summary: "模型流式输出已结束。",
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             providerId: result.providerId,
             model: result.model,
             usage: result.usage,
-        },
+        }, graphCheckpoint),
     });
 }
 

@@ -649,7 +649,7 @@ export interface EventRecord {
   summary: string;
 
   /**
-   * payload: 结构化事件载荷，不能包含敏感明文。
+   * payload: 结构化事件载荷，不能包含敏感明文；payload.graph 可携带 TurnGraphCheckpoint，用于恢复对话内复杂任务编排。
    */
   payload: unknown;
 
@@ -657,6 +657,42 @@ export interface EventRecord {
    * traceId: 排查 ID。
    */
   traceId: string;
+}
+
+/**
+ * TurnGraphCheckpoint：对话图检查点。
+ *
+ * 来源：中心服务每个可恢复任务节点写入的事件 `payload.graph`。
+ * 含义：描述当前对话线程、轮次图运行、节点、superstep 和恢复边界。
+ * 格式：JSON 对象。
+ * 默认值：普通事件可以没有该字段。
+ * 约束：只保存恢复索引和摘要，不保存模型 token、命令输出正文或敏感信息。
+ */
+export interface TurnGraphCheckpoint {
+  /** graphRunId: 图运行 ID，当前映射为 turnId。 */
+  graphRunId: string;
+  /** threadId: 对话线程 ID，当前映射为 sessionId。 */
+  threadId: string;
+  /** nodeId: 图节点稳定 ID。 */
+  nodeId: string;
+  /** nodeKind: 图节点类型。 */
+  nodeKind: string;
+  /** superstep: 当前 superstep 序号，从 1 开始。 */
+  superstep: number;
+  /** checkpointId: 当前检查点 ID。 */
+  checkpointId: string;
+  /** parentCheckpointId: 上一个检查点 ID，首节点为 null。 */
+  parentCheckpointId: string | null;
+  /** attempt: 当前节点尝试次数。 */
+  attempt: number;
+  /** idempotencyKey: 恢复时避免副作用重复执行的幂等键。 */
+  idempotencyKey: string;
+  /** resumable: 是否允许从该节点边界恢复。 */
+  resumable: boolean;
+  /** nextNodeIds: 节点完成后可进入的后续节点。 */
+  nextNodeIds: string[];
+  /** stateSummary: 节点状态摘要。 */
+  stateSummary: string;
 }
 
 /**

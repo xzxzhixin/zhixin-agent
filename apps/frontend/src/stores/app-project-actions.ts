@@ -1,6 +1,12 @@
 import type {
     ProjectRecord,
 } from "@zhixin/shared";
+import {
+    CenterApiError,
+} from "@zhixin/api-client";
+import {
+    ElMessageBox,
+} from "element-plus";
 
 // PROJECT_ID_FILE_NAME：项目根目录身份文件固定名称，来源于项目文件与资源规则。
 const PROJECT_ID_FILE_NAME = "致心项目ID.md";
@@ -108,6 +114,105 @@ async function ensureBrowserProjectIdentity(directoryHandle: FileSystemDirectory
  */
 export function createProjectActions() {
     return {
+        /**
+         * removeDeletedProjectFromLocalState：清理已删除项目在当前客户端残留的导航、详情和草稿状态。
+         *
+         * @param projectId 被删除项目的 UUID，来源于中心服务删除请求或 PROJECT_NOT_FOUND 错误。
+         * @returns 删除项目是否命中了当前打开会话或本地草稿。
+         */
+        removeDeletedProjectFromLocalState(projectId: string): boolean {
+            const deletingActiveProject = this.sessionDetail?.session.projectId === projectId
+                || this.pendingSessionDraft?.projectId === projectId;
+
+            // projects/sessions: 中心服务已确认或提示项目不存在时，本地必须立即移除残留，避免左侧继续展示幽灵项目。
+            this.projects = this.projects.filter((project) => {
+                return project.projectId !== projectId;
+            });
+            this.sessions = this.sessions.filter((session) => {
+                return session.projectId !== projectId;
+            });
+            this.expandedProjectIds = this.expandedProjectIds.filter((item) => {
+                return item !== projectId;
+            });
+
+            if (deletingActiveProject) {
+                // 当前项目已经不可继续使用，清理所有依赖当前项目身份的前端状态。
+                this.activeSessionId = null;
+                this.sessionDetail = null;
+                this.events = [];
+                this.pendingSessionDraft = null;
+                this.composerEditFiles = [];
+            }
+
+            return deletingActiveProject;
+        },
+
+        /**
+         * deleteProject：删除中心服务中的项目索引和项目会话事实。
+         *
+         * @param projectId 项目 UUID。
+         * @returns 删除和刷新完成后没有返回值。
+         */
+        async deleteProject(projectId: string): Promise<void> {
+            let deletingActiveProject = false;
+            try {
+                await this.api().deleteProject({
+                    projectId,
+                });
+                deletingActiveProject = this.removeDeletedProjectFromLocalState(projectId);
+                await this.loadNavigationData();
+                if (this.activeSessionId) {
+                    await this.loadActiveSessionDetail();
+                    this.lastError = "";
+                    return;
+                }
+                await this.ensureSession();
+                this.lastError = "";
+            } catch (error) {
+                if (error instanceof CenterApiError && error.code === "PROJECT_NOT_FOUND") {
+                    // 后端已删除但前端中途异常或多端并发删除时，PROJECT_NOT_FOUND 仍应视为本地清理信号。
+                    deletingActiveProject = this.removeDeletedProjectFromLocalState(projectId);
+                    await this.loadNavigationData();
+                    if (this.activeSessionId) {
+                        await this.loadActiveSessionDetail();
+                    } else if (deletingActiveProject) {
+                        await this.ensureSession();
+                    }
+                    this.lastError = "";
+                    return;
+                }
+
+                // 删除项目失败必须进入可见错误状态，避免用户误以为项目和会话已清理。
+                this.lastError = error instanceof Error
+                    ? error.message
+                    : "删除项目失败，请稍后重试。";
+                console.error("删除项目失败", error);
+            }
+        },
+
+        /**
+         * requestDeleteProject：弹出项目删除确认后删除项目。
+         *
+         * @param project 项目记录。
+         * @returns 确认删除、取消或失败处理完成后没有返回值。
+         */
+        async requestDeleteProject(project: ProjectRecord): Promise<void> {
+            try {
+                await ElMessageBox.confirm(
+                    `确认删除项目“${project.displayName}”？将删除中心服务中的项目索引及该项目下的对话、消息、轮次和任务记录；不会删除项目目录和 致心项目ID.md。`,
+                    "项目删除",
+                    {
+                        confirmButtonText: "确认删除",
+                        cancelButtonText: "取消",
+                        type: "warning",
+                    },
+                );
+                await this.deleteProject(project.projectId);
+            } catch {
+                // 用户取消删除时不写错误，避免取消路径被误判为删除失败。
+            }
+        },
+
         /**
          * registerProjectFromDirectorySelection：把浏览器选择到的文件夹登记为项目。
          *

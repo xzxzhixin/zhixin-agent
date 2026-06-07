@@ -8,6 +8,7 @@ import type {
     EventRecord,
     ProjectRecord,
     TaskStatus,
+    TurnGraphCheckpoint,
 } from "@zhixin/shared";
 import {
     CircleCheck,
@@ -492,6 +493,31 @@ function resolveProcessGroupKey(event: EventRecord): string {
         event.taskId ?? "no-task",
         toolKind,
     ].join(":");
+}
+
+/**
+ * readEventGraphCheckpoint：读取历史事件中的图检查点。
+ *
+ * @param event 中心服务事件。
+ * @returns graphCheckpoint 存在且结构可识别时返回，否则返回 null。
+ */
+export function readEventGraphCheckpoint(event: EventRecord): TurnGraphCheckpoint | null {
+    if (typeof event.payload !== "object" || event.payload === null) {
+        return null;
+    }
+    const payload = event.payload as Record<string, unknown>;
+    const graphCheckpoint = payload.graph;
+    if (typeof graphCheckpoint !== "object" || graphCheckpoint === null) {
+        return null;
+    }
+    const graph = graphCheckpoint as Partial<TurnGraphCheckpoint>;
+    if (typeof graph.graphRunId !== "string"
+        || typeof graph.threadId !== "string"
+        || typeof graph.nodeId !== "string"
+        || typeof graph.checkpointId !== "string") {
+        return null;
+    }
+    return graph as TurnGraphCheckpoint;
 }
 
 /**

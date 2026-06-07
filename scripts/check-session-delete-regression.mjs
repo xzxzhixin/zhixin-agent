@@ -96,6 +96,32 @@ const appStore = readFileSync(
   ),
   "utf-8",
 );
+// appProjectActions: 项目选择、登记和删除动作位于 store 分片，避免主 store 文件继续超过行数上限。
+const appProjectActions = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "stores",
+    "app-project-actions.ts",
+  ),
+  "utf-8",
+);
+// appConversationActions: 会话发送和实时同步分片，包含删除事件竞态处理。
+const appConversationActions = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "stores",
+    "app-conversation-actions.ts",
+  ),
+  "utf-8",
+);
+// frontendStoreSource: 删除链路允许拆分到 store 分片，检查时合并源码片段。
+const frontendStoreSource = `${appStore}\n${appProjectActions}\n${appConversationActions}`;
 // chatPage: 对话页源码，按钮必须调用真实删除动作。
 const chatPage = readFileSync(
   join(
@@ -187,6 +213,16 @@ assertIncludes(
   "前端 store 删除失败没有写入可见错误状态。",
 );
 assertIncludes(
+  frontendStoreSource,
+  'error.code === "SESSION_NOT_FOUND"',
+  "实时事件刷新已删除会话详情时必须识别 SESSION_NOT_FOUND。",
+);
+assertIncludes(
+  frontendStoreSource,
+  "clearDeletedActiveSessionState()",
+  "前端缺少清理已删除当前会话本地状态的统一函数。",
+);
+assertIncludes(
   chatPage,
   "appStore.requestDeleteConversation(session)",
   "对话页删除按钮没有调用带确认的删除动作。",
@@ -248,17 +284,49 @@ assertIncludes(
   "API 客户端 deleteProject 没有调用中心服务删除接口。",
 );
 assertIncludes(
-  appStore,
+  frontendStoreSource,
   "async deleteProject(projectId: string): Promise<void>",
   "前端 store 缺少真实 deleteProject 动作。",
 );
 assertIncludes(
-  appStore,
+  frontendStoreSource,
+  "removeDeletedProjectFromLocalState(projectId: string): boolean",
+  "前端 store 缺少项目删除后的本地状态收尾函数。",
+);
+[
+  "this.projects = this.projects.filter",
+  "this.sessions = this.sessions.filter",
+  "this.expandedProjectIds = this.expandedProjectIds.filter",
+  "this.composerEditFiles = []",
+].forEach((fragment) => {
+  assertIncludes(
+    frontendStoreSource,
+    fragment,
+    `前端项目删除本地收尾缺少：${fragment}`,
+  );
+});
+assertIncludes(
+  frontendStoreSource,
+  'error.code === "PROJECT_NOT_FOUND"',
+  "前端项目删除遇到中心服务已删除时必须继续清理本地残留。",
+);
+assertIncludes(
+  frontendStoreSource,
+  "CenterApiError",
+  "前端项目删除需要识别中心服务业务错误码。",
+);
+assertNotIncludes(
+  frontendStoreSource,
+  "this.projectCapabilitySummary =",
+  "projectCapabilitySummary 是 Pinia getter，不能在删除项目或会话时直接赋值。",
+);
+assertIncludes(
+  frontendStoreSource,
   "await this.api().deleteProject",
   "前端 store 删除项目没有调用 API 客户端。",
 );
 assertIncludes(
-  appStore,
+  frontendStoreSource,
   "requestDeleteProject(project",
   "前端 store 缺少项目删除确认动作。",
 );
@@ -268,7 +336,7 @@ assertIncludes(
   "对话页项目删除按钮没有调用带确认的项目删除动作。",
 );
 assertNotIncludes(
-  appStore,
+  frontendStoreSource,
   "deleteProjectPlaceholder",
   "前端 store 仍保留项目删除占位函数。",
 );

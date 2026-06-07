@@ -39,6 +39,15 @@ import {
     commandRequestFromUnifiedToolIntent,
     runCommandTool,
 } from "./tool-runtime.js";
+import {
+    createTurnGraphCheckpoint,
+    createTurnGraphContext,
+    stepTaskFromGraphContext,
+    type TurnGraphCheckpoint,
+    type TurnGraphContext,
+    withOptionalGraphCheckpoint,
+    withTurnGraphCheckpoint,
+} from "./turn-graph-domain.js";
 
 export function upsertSyncClient(
     database: CenterDatabase,
@@ -265,6 +274,7 @@ export function createTaskStep(
     events: CenterEventStore,
     task: TaskRecord,
     title: string,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): TaskStepRecord {
     // stepId: 任务步骤身份。
     const stepId = randomUUID();
@@ -289,10 +299,10 @@ export function createTaskStep(
         status: "running",
         title: "任务步骤开始",
         summary: title,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             stepId,
             title,
-        },
+        }, graphCheckpoint),
     });
 
     return {
@@ -322,6 +332,7 @@ export function updateTaskStep(
     stepId: string,
     status: TaskRecord["status"],
     summary: string | null,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): TaskStepRecord | null {
     const existing = new SessionRepository(database).findTaskStepWithTask(stepId);
 
@@ -351,10 +362,10 @@ export function updateTaskStep(
         status,
         title: "任务步骤更新",
         summary: summary ?? existing.title,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             stepId,
             status,
-        },
+        }, graphCheckpoint),
     });
 
     return {
@@ -574,21 +585,85 @@ export async function completeCreatedTurn(
     const assistantMessageId = randomUUID();
     const now = new Date().toISOString();
     const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
+    const graphContext = createTurnGraphContext({
+        sessionId: sent.sessionId,
+        turnId: sent.turnId,
+        taskId: sent.taskId,
+    });
+    const thinkingCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "thinking.context",
+            nodeKind: "thinking",
+            superstep: 1,
+            parentNodeId: null,
+            nextNodeIds: [
+                "model.stream",
+            ],
+            stateSummary: "整理会话、项目、记忆和可用能力上下文。",
+        },
+    );
+    const modelCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "model.stream",
+            nodeKind: "model",
+            superstep: 2,
+            parentNodeId: "thinking.context",
+            nextNodeIds: [
+                "tool.command",
+                "tool.plan",
+            ],
+            stateSummary: "调用供应商模型并接收流式回复。",
+        },
+    );
+    const toolPlanCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "tool.plan",
+            nodeKind: "tool",
+            superstep: 4,
+            parentNodeId: "model.stream",
+            nextNodeIds: [
+                "extension.visibility",
+            ],
+            stateSummary: "记录模型工具计划和后续可用能力状态。",
+        },
+    );
+    const extensionCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "extension.visibility",
+            nodeKind: "extension",
+            superstep: 5,
+            parentNodeId: "tool.plan",
+            nextNodeIds: [
+                "message.persist",
+            ],
+            stateSummary: "记录插件、MCP 和 skill 当前可执行性。",
+        },
+    );
+    const messageCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "message.persist",
+            nodeKind: "message",
+            superstep: 6,
+            parentNodeId: "extension.visibility",
+            nextNodeIds: [
+                "memory.commit",
+            ],
+            stateSummary: "固化助手消息并完成当前轮次。",
+        },
+    );
 
     startWorkerTask(database, events, sent.taskId);
     const thinkingStep = createTaskStep(
         database,
         events,
-        {
-            taskId: sent.taskId,
-            turnId: sent.turnId,
-            sessionId: sent.sessionId,
-            status: "running",
-            title: "对话执行编排",
-            createdAt: now,
-            updatedAt: now,
-        },
+        stepTaskFromGraphContext(graphContext),
         "思考与上下文整理",
+        thinkingCheckpoint,
     );
     try {
         appendThinkingEvents(
@@ -597,6 +672,7 @@ export async function completeCreatedTurn(
             sent.taskId,
             sent.turnId,
             userText,
+            thinkingCheckpoint,
         );
         updateTaskStep(
             database,
@@ -604,20 +680,14 @@ export async function completeCreatedTurn(
             thinkingStep.stepId,
             "completed",
             "思考过程和上下文整理完成。",
+            thinkingCheckpoint,
         );
         const modelStep = createTaskStep(
             database,
             events,
-            {
-                taskId: sent.taskId,
-                turnId: sent.turnId,
-                sessionId: sent.sessionId,
-                status: "running",
-                title: "模型调用",
-                createdAt: now,
-                updatedAt: now,
-            },
+            stepTaskFromGraphContext(graphContext),
             "模型流式输出",
+            modelCheckpoint,
         );
         const modelResult = await invokeProviderModelGateway(
             database,
@@ -626,6 +696,7 @@ export async function completeCreatedTurn(
             sent.taskId,
             sent.turnId,
             userText,
+            modelCheckpoint,
         );
         updateTaskStep(
             database,
@@ -633,6 +704,7 @@ export async function completeCreatedTurn(
             modelStep.stepId,
             "completed",
             "模型流式输出完成并准备固化助手消息。",
+            modelCheckpoint,
         );
         const toolLoopResult = await runModelRequestedToolLoop(
             database,
@@ -641,21 +713,15 @@ export async function completeCreatedTurn(
             userText,
             modelResult,
             now,
+            graphContext,
         );
         const finalModelResult = toolLoopResult.finalModelResult;
         const toolPlanStep = createTaskStep(
             database,
             events,
-            {
-                taskId: sent.taskId,
-                turnId: sent.turnId,
-                sessionId: sent.sessionId,
-                status: "running",
-                title: "工具计划生成",
-                createdAt: now,
-                updatedAt: now,
-            },
+            stepTaskFromGraphContext(graphContext),
             "工具计划生成",
+            toolPlanCheckpoint,
         );
         events.append({
             eventType: "tool.plan.created",
@@ -669,7 +735,7 @@ export async function completeCreatedTurn(
             summary: toolLoopResult.executedTool
                 ? "模型已基于结构化工具定义请求工具调用。"
                 : "当前模型回复未请求工具调用，已记录插件、MCP 和 skill 可用性。",
-            payload: {
+            payload: withTurnGraphCheckpoint({
                 plannedToolId: toolLoopResult.executedTool?.toolId ?? null,
                 plannedToolKind: toolLoopResult.executedTool?.toolKind ?? null,
                 inputSummary: toolLoopResult.executedTool?.inputSummary ?? null,
@@ -678,7 +744,7 @@ export async function completeCreatedTurn(
                     "mcp",
                     "skill",
                 ],
-            },
+            }, toolPlanCheckpoint),
         });
         updateTaskStep(
             database,
@@ -688,26 +754,21 @@ export async function completeCreatedTurn(
             toolLoopResult.executedTool
                 ? "工具计划已由模型工具调用请求生成并执行。"
                 : "工具计划已生成，本轮模型未请求可执行工具。",
+            toolPlanCheckpoint,
         );
         const extensionStep = createTaskStep(
             database,
             events,
-            {
-                taskId: sent.taskId,
-                turnId: sent.turnId,
-                sessionId: sent.sessionId,
-                status: "running",
-                title: "插件、MCP 和 skill 状态记录",
-                createdAt: now,
-                updatedAt: now,
-            },
+            stepTaskFromGraphContext(graphContext),
             "插件、MCP 和 skill 状态记录",
+            extensionCheckpoint,
         );
         appendToolVisibilityEvents(
             events,
             sent.sessionId,
             sent.taskId,
             sent.turnId,
+            extensionCheckpoint,
         );
         updateTaskStep(
             database,
@@ -715,6 +776,7 @@ export async function completeCreatedTurn(
             extensionStep.stepId,
             "completed",
             "插件、MCP 和 skill 未解析到可执行实例，已按统一工具注册表写入不可用事件。",
+            extensionCheckpoint,
         );
         const assistantText = finalModelResult.assistantText;
         if (isIncompleteToolIntentReply(assistantText)) {
@@ -743,10 +805,10 @@ export async function completeCreatedTurn(
             status: "completed",
             title: "消息创建",
             summary: "助手回复已写入中心服务。",
-            payload: {
+            payload: withTurnGraphCheckpoint({
                 messageId: assistantMessageId,
                 role: "assistant",
-            },
+            }, messageCheckpoint),
         });
         handleWorkerMessage(database, events, "task.complete", sent.taskId, {
             assistantMessageId,
@@ -970,6 +1032,7 @@ async function runModelRequestedToolLoop(
     userText: string,
     modelResult: ProviderModelGatewayResult,
     now: string,
+    graphContext: TurnGraphContext,
 ): Promise<{
     finalModelResult: ProviderModelGatewayResult;
     executedTool: {
@@ -990,6 +1053,32 @@ async function runModelRequestedToolLoop(
         resultText: string;
         unifiedToolIntent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>;
     }> = [];
+    const commandCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "tool.command",
+            nodeKind: "tool",
+            superstep: 3,
+            parentNodeId: "model.stream",
+            nextNodeIds: [
+                "tool.plan",
+            ],
+            stateSummary: "执行模型请求的命令工具并记录副作用结果。",
+        },
+    );
+    const toolResultCheckpoint = createTurnGraphCheckpoint(
+        graphContext,
+        {
+            nodeId: "tool.result",
+            nodeKind: "model",
+            superstep: 4,
+            parentNodeId: "tool.command",
+            nextNodeIds: [
+                "tool.plan",
+            ],
+            stateSummary: "把工具结果回填给模型生成最终回复。",
+        },
+    );
 
     for (const toolCall of modelResult.toolCalls) {
         events.append({
@@ -1002,11 +1091,11 @@ async function runModelRequestedToolLoop(
             status: "running",
             title: "模型请求工具",
             summary: `模型请求调用 ${toolCall.name}`,
-            payload: {
+            payload: withTurnGraphCheckpoint({
                 toolCallId: toolCall.toolCallId,
                 toolName: toolCall.name,
                 argumentsJson: toolCall.argumentsJson,
-            },
+            }, commandCheckpoint),
         });
 
         const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(toolCall);
@@ -1021,10 +1110,10 @@ async function runModelRequestedToolLoop(
                 status: "failed",
                 title: "模型工具请求未执行",
                 summary: "模型请求的工具不存在、不可用或当前最小闭环暂不支持。",
-                payload: {
+                payload: withTurnGraphCheckpoint({
                     toolCallId: toolCall.toolCallId,
                     toolName: toolCall.name,
-                },
+                }, commandCheckpoint),
             });
             continue;
         }
@@ -1032,16 +1121,9 @@ async function runModelRequestedToolLoop(
         const commandStep = createTaskStep(
             database,
             events,
-            {
-                taskId: sent.taskId,
-                turnId: sent.turnId,
-                sessionId: sent.sessionId,
-                status: "running",
-                title: "命令工具执行",
-                createdAt: now,
-                updatedAt: now,
-            },
+            stepTaskFromGraphContext(graphContext),
             "命令工具执行",
+            commandCheckpoint,
         );
         const commandResult = await runCommandTool(
             events,
@@ -1052,6 +1134,7 @@ async function runModelRequestedToolLoop(
                 ...commandRequestFromUnifiedToolIntent(unifiedToolIntent),
                 toolCallId: toolCall.toolCallId,
             },
+            commandCheckpoint,
         );
         updateTaskStep(
             database,
@@ -1061,6 +1144,7 @@ async function runModelRequestedToolLoop(
             commandResult.status === "completed"
                 ? `命令工具执行完成：${commandResult.outputSummary || "命令没有输出。"}`
                 : `命令工具执行失败：${commandResult.failureReason ?? "未返回失败原因。"}`,
+            commandCheckpoint,
         );
         toolResults.push({
             toolCall,
@@ -1091,6 +1175,7 @@ async function runModelRequestedToolLoop(
                 resultText: toolResult.resultText,
             };
         }),
+        toolResultCheckpoint,
     );
     const firstToolResult = toolResults[0];
 

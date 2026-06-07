@@ -13,6 +13,10 @@ import {
     resolveProviderModelSelection,
 } from "./provider-domain.js";
 import {listAvailableModelToolSpecs} from "./tool-runtime.js";
+import {
+    type TurnGraphCheckpoint,
+    withOptionalGraphCheckpoint,
+} from "./turn-graph-domain.js";
 
 /**
  * ProviderModelGatewayResult：中心服务模型网关统一返回。
@@ -73,6 +77,8 @@ interface ProviderStreamEventContext {
     taskId: string;
     /** turnId: 当前轮次 ID，用于过程卡片排序。 */
     turnId: string;
+    /** graphCheckpoint: 当前模型节点检查点，用于断线或失败后恢复。 */
+    graphCheckpoint?: TurnGraphCheckpoint;
 }
 
 interface AgentMemoryPromptEntry {
@@ -109,6 +115,7 @@ export async function invokeProviderModelGateway(
     taskId: string,
     turnId: string,
     userText: string,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
@@ -125,6 +132,7 @@ export async function invokeProviderModelGateway(
         sessionId,
         taskId,
         turnId,
+        graphCheckpoint,
     });
 
     events.append({
@@ -137,99 +145,16 @@ export async function invokeProviderModelGateway(
         status: "completed",
         title: "模型编排",
         summary: result.toolCalls.length > 0 ? "中心服务已收到模型工具调用请求。" : "中心服务已准备模型网关调用。",
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             providerId: result.providerId,
             model: result.model,
             toolCallName: result.toolCall?.name ?? null,
             toolCallCount: result.toolCalls.length,
             assistantTextPreview: result.assistantText.slice(0, 120),
-        },
+        }, graphCheckpoint),
     });
 
     return result;
-}
-
-/**
- * continueProviderModelGatewayWithToolResult：把工具结果回填给模型并获取最终回复。
- *
- * @param database 中心服务数据库。
- * @param events 事件日志仓储。
- * @param sessionId 会话 ID。
- * @param taskId 任务 ID。
- * @param turnId 轮次 ID。
- * @param userText 用户原始输入。
- * @param toolCall 模型请求的工具调用。
- * @param toolResultText 工具结果摘要。
- * @returns 模型网关最终回复。
- */
-export function continueProviderModelGatewayWithToolResult(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    sessionId: string,
-    taskId: string,
-    turnId: string,
-    userText: string,
-    toolCall: ModelToolCall,
-    toolResultText: string,
-): Promise<ProviderModelGatewayResult> {
-    const runtime = resolveProviderModelRuntime(database, taskId);
-    const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
-    const requestPayload = buildModelRequestPayload(
-        userText,
-        runtime.provider.providerId,
-        runtime.modelSelection.model,
-        runtime.modelSelection.reasoningEffort,
-        listAvailableModelToolSpecs(),
-        mainAgentMemories,
-    );
-    requestPayload.messages.push(
-        {
-            role: "assistant",
-            toolCalls: [
-                toolCall,
-            ],
-            content: [
-                {
-                    type: "text",
-                    text: `已请求工具：${toolCall.name}`,
-                },
-            ],
-        },
-        {
-            role: "tool",
-            content: [
-                {
-                    type: "tool_result",
-                    toolCallId: toolCall.toolCallId,
-                    resultText: toolResultText,
-                },
-            ],
-        },
-    );
-
-    events.append({
-        eventType: "model.tool.result.appended",
-        scopeType: "model",
-        scopeId: taskId,
-        sessionId,
-        turnId,
-        taskId,
-        status: "completed",
-        title: "工具结果回填模型",
-        summary: toolResultText.slice(0, 160),
-        payload: {
-            toolCallId: toolCall.toolCallId,
-            toolName: toolCall.name,
-            resultSummary: toolResultText.slice(0, 240),
-        },
-    });
-
-    return sendProviderModelRequest(runtime, requestPayload, {
-        events,
-        sessionId,
-        taskId,
-        turnId,
-    });
 }
 
 /**
@@ -255,6 +180,7 @@ export function continueProviderModelGatewayWithToolResults(
         toolCall: ModelToolCall;
         resultText: string;
     }>,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
     const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
@@ -301,7 +227,7 @@ export function continueProviderModelGatewayWithToolResults(
         status: "completed",
         title: "工具结果回填模型",
         summary: `已回填 ${toolResults.length} 个工具结果。`,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             toolResults: toolResults.map((toolResult) => {
                 return {
                     toolCallId: toolResult.toolCall.toolCallId,
@@ -309,7 +235,7 @@ export function continueProviderModelGatewayWithToolResults(
                     resultSummary: toolResult.resultText.slice(0, 240),
                 };
             }),
-        },
+        }, graphCheckpoint),
     });
 
     return sendProviderModelRequest(runtime, requestPayload, {
@@ -317,6 +243,7 @@ export function continueProviderModelGatewayWithToolResults(
         sessionId,
         taskId,
         turnId,
+        graphCheckpoint,
     });
 }
 
@@ -1131,10 +1058,10 @@ function appendProviderStreamDelta(
         status: "running",
         title: "模型流式片段",
         summary: deltaText.slice(0, 120),
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             deltaText,
             streamSource: "provider-sse",
-        },
+        }, streamContext.graphCheckpoint),
     });
 }
 
@@ -1159,10 +1086,10 @@ function appendProviderStreamCompleted(
         status: "completed",
         title: "模型流式结束",
         summary: "真实供应商 SSE 流式输出已结束。",
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             usage,
             streamSource: "provider-sse",
-        },
+        }, streamContext.graphCheckpoint),
     });
 }
 
@@ -1438,6 +1365,7 @@ function toChatCompletionMessage(message: ModelRequest["messages"][number]): Rec
     }
     return providerMessage;
 }
+
 
 /**
  * toChatCompletionToolCall：把内部工具调用记录转换为 OpenAI 兼容 assistant tool_calls。

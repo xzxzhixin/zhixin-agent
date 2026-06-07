@@ -1433,7 +1433,6 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             enabled?: boolean;
             status?: string;
         };
-
         return createSuccessResponse({
             shouldSend: Boolean(body.enabled) && (body.status === "completed" || body.status === "failed" || body.status === "waiting_user"),
         });
@@ -1445,7 +1444,6 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             approved?: boolean;
             reason?: string;
         };
-
         return createSuccessResponse(events.append({
             eventType: "approval.recorded",
             scopeType: "approval",

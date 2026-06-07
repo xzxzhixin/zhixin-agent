@@ -2,6 +2,7 @@ import type {
     SessionUpdatedPayload,
 } from "@zhixin/api-client";
 import {
+    CenterApiError,
     ReconnectingWebSocketClient,
 } from "@zhixin/api-client";
 import {
@@ -32,8 +33,32 @@ export function createConversationActions() {
             if (!this.activeSessionId) {
                 return;
             }
-            await this.loadActiveSessionDetail();
-            await this.loadPendingEditsForActiveSession();
+            try {
+                await this.loadActiveSessionDetail();
+                await this.loadPendingEditsForActiveSession();
+            } catch (error) {
+                if (error instanceof CenterApiError && error.code === "SESSION_NOT_FOUND") {
+                    // 删除事件和普通事件可能交错到达；当前会话已被删时只清理本地状态，不能把竞态错误冒泡到控制台。
+                    this.clearDeletedActiveSessionState();
+                    await this.loadNavigationData();
+                    await this.ensureSession();
+                    return;
+                }
+                throw error;
+            }
+        },
+
+        /**
+         * clearDeletedActiveSessionState：清理已删除当前会话的本地展示状态。
+         *
+         * @returns 没有返回值。
+         */
+        clearDeletedActiveSessionState(): void {
+            this.activeSessionId = null;
+            this.sessionDetail = null;
+            this.events = [];
+            this.pendingSessionDraft = null;
+            this.composerEditFiles = [];
         },
 
         /**

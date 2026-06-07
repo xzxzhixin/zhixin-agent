@@ -7,6 +7,10 @@ import type {
 import type {ModelToolCall, ModelToolSpec} from "@zhixin/model-protocol";
 
 import type {CenterEventStore} from "./events.js";
+import {
+    type TurnGraphCheckpoint,
+    withOptionalGraphCheckpoint,
+} from "./turn-graph-domain.js";
 
 /**
  * UNIFIED_TOOL_CAPABILITY_REGISTRY：中心服务统一工具能力注册表。
@@ -224,6 +228,7 @@ export function appendToolVisibilityEvents(
     sessionId: string,
     taskId: string,
     turnId: string,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     for (const capability of listUnifiedToolCapabilities()) {
         if (capability.availability === "available") {
@@ -235,6 +240,7 @@ export function appendToolVisibilityEvents(
             taskId,
             turnId,
             capability,
+            graphCheckpoint,
         );
     }
 }
@@ -255,6 +261,7 @@ function appendUnifiedToolUnavailableEvent(
     taskId: string,
     turnId: string,
     capability: UnifiedToolCapability,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     events.append({
         eventType: `tool.${capability.toolKind}.unavailable`,
@@ -266,13 +273,13 @@ function appendUnifiedToolUnavailableEvent(
         status: "completed",
         title: `${capability.displayName}状态`,
         summary: `当前会话未解析到可执行${capability.displayName}，已记录为不可用状态。`,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             toolId: capability.toolId,
             toolKind: capability.toolKind,
             availability: capability.availability,
             requiredPermission: capability.requiredPermission,
             unavailableReason: capability.unavailableReason,
-        },
+        }, graphCheckpoint),
     });
 }
 
@@ -433,6 +440,7 @@ export async function runCommandTool(
     taskId: string,
     turnId: string,
     request: CommandToolRequest,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<CommandToolResult> {
     const capability = resolveUnifiedToolCapability("builtin.command.run");
     const execution = resolveCommandExecution(request);
@@ -447,14 +455,14 @@ export async function runCommandTool(
         status: "running",
         title: "命令工具开始",
         summary: request.inputSummary,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             toolId: capability?.toolId ?? "builtin.command.run",
             toolKind: "command",
             toolCallId: request.toolCallId ?? null,
             requiredPermission: capability?.requiredPermission ?? "command.run",
             command,
             inputSummary: request.inputSummary,
-        },
+        }, graphCheckpoint),
     });
 
     return new Promise<CommandToolResult>((resolve) => {
@@ -490,14 +498,14 @@ export async function runCommandTool(
                 status: "running",
                 title: "命令工具输出",
                 summary: normalizedChunk,
-                payload: {
+                payload: withOptionalGraphCheckpoint({
                     toolId: capability?.toolId ?? "builtin.command.run",
                     toolKind: "command",
                     toolCallId: request.toolCallId ?? null,
                     requiredPermission: capability?.requiredPermission ?? "command.run",
                     command,
                     outputChunk: normalizedChunk,
-                },
+                }, graphCheckpoint),
             });
         };
 
@@ -524,6 +532,7 @@ export async function runCommandTool(
                 chunks,
                 null,
                 resolve,
+                graphCheckpoint,
             );
         });
         child.on("close", (exitCode) => {
@@ -542,6 +551,7 @@ export async function runCommandTool(
                 chunks,
                 exitCode,
                 resolve,
+                graphCheckpoint,
             );
         });
     });
@@ -714,6 +724,7 @@ function resolveCommandToolResult(
     chunks: string[],
     exitCode: number | null,
     resolve: (result: CommandToolResult) => void,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     const outputSummary = chunks.join("\n").trim();
     const status = exitCode === 0 ? "completed" : "failed";
@@ -727,7 +738,7 @@ function resolveCommandToolResult(
         status,
         title: status === "completed" ? "命令工具完成" : "命令工具失败",
         summary: outputSummary || "命令没有输出。",
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             toolId: capability?.toolId ?? "builtin.command.run",
             toolKind: "command",
             toolCallId,
@@ -736,7 +747,7 @@ function resolveCommandToolResult(
             outputSummary,
             exitCode,
             failureReason: status === "completed" ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
-        },
+        }, graphCheckpoint),
     });
 
     resolve({
