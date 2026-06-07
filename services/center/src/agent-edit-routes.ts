@@ -17,6 +17,7 @@ import {
 import {
     findSession,
 } from "./session-domain.js";
+import {AgentEditRepository} from "./data-access/agent-edit-repository.js";
 export {
     recordPendingFileEdit,
     writeFileAndRecordPendingEdit,
@@ -50,6 +51,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
         database,
         events,
     } = context;
+    const agentEditRepository = new AgentEditRepository(database);
 
     app.post("/api/agent-sub-conversation/detail", async (request) => {
         const body = request.body as {
@@ -71,7 +73,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             agentId: body.agentId ?? "",
             agentName: body.agentName ?? body.agentId ?? "",
             messages: listAgentSubConversationMessages(
-                database,
+                agentEditRepository,
                 body.parentSessionId ?? "",
                 body.agentId ?? "",
             ),
@@ -102,7 +104,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
         }
 
         const message = insertAgentSubConversationMessage(
-            database,
+            agentEditRepository,
             {
                 parentSessionId: body.parentSessionId ?? "",
                 agentId: body.agentId ?? "",
@@ -137,7 +139,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             agentId: message.agentId,
             agentName: body.agentName ?? message.agentId,
             messages: listAgentSubConversationMessages(
-                database,
+                agentEditRepository,
                 message.parentSessionId,
                 message.agentId,
             ),
@@ -158,7 +160,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
 
         return createSuccessResponse({
             edits: listPendingEditRecords(
-                database,
+                agentEditRepository,
                 body.sessionId,
             ),
         });
@@ -169,7 +171,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             editId?: string;
         };
         const record = findPendingEditRecord(
-            database,
+            agentEditRepository,
             body.editId ?? "",
         );
         if (!record) {
@@ -181,7 +183,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
         }
 
         const saved = updatePendingEditStatus(
-            database,
+            agentEditRepository,
             record,
             "accepted",
         );
@@ -201,14 +203,14 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             sessionId?: string;
         };
         const records = listPendingEditRecords(
-            database,
+            agentEditRepository,
             body.sessionId ?? "",
         ).filter((record) => {
             return record.status === "pending";
         });
         const edits: PendingEditRecord[] = records.map((record) => {
             const saved = updatePendingEditStatus(
-                database,
+                agentEditRepository,
                 record,
                 "accepted",
             );
@@ -230,7 +232,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             editId?: string;
         };
         const result = revertPendingEdit(
-            database,
+            agentEditRepository,
             body.editId ?? "",
         );
         if (!result.ok) {
@@ -256,7 +258,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             sessionId?: string;
         };
         const records = listPendingEditRecords(
-            database,
+            agentEditRepository,
             body.sessionId ?? "",
         ).filter((record) => {
             return record.status === "pending";
@@ -264,7 +266,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
         const edits: PendingEditRecord[] = [];
         for (const record of records) {
             const result = revertPendingEdit(
-                database,
+                agentEditRepository,
                 record.editId,
             );
             if (result.ok) {
@@ -287,7 +289,7 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             editId?: string;
         };
         const record = findPendingEditRecord(
-            database,
+            agentEditRepository,
             body.editId ?? "",
         );
         if (!record) {
@@ -347,25 +349,14 @@ function validateAgentSubConversationInput(
  * @returns 子对话消息数组。
  */
 function listAgentSubConversationMessages(
-    database: CenterDatabase,
+    repository: AgentEditRepository,
     parentSessionId: string,
     agentId: string,
 ): AgentSubConversationMessage[] {
-    return database.connection().prepare(`
-        SELECT id               AS messageId,
-               parent_session_id AS parentSessionId,
-               agent_id         AS agentId,
-               role,
-               content_markdown AS contentMarkdown,
-               created_at       AS createdAt
-        FROM agent_sub_conversation_messages
-        WHERE parent_session_id = ?
-          AND agent_id = ?
-        ORDER BY created_at ASC
-    `).all(
+    return repository.listAgentSubConversationMessages(
         parentSessionId,
         agentId,
-    ) as AgentSubConversationMessage[];
+    );
 }
 
 /**
@@ -376,7 +367,7 @@ function listAgentSubConversationMessages(
  * @returns 已创建消息。
  */
 function insertAgentSubConversationMessage(
-    database: CenterDatabase,
+    repository: AgentEditRepository,
     input: {
         parentSessionId: string;
         agentId: string;
@@ -386,24 +377,14 @@ function insertAgentSubConversationMessage(
 ): AgentSubConversationMessage {
     const messageId = randomUUID();
     const now = new Date().toISOString();
-    database.connection().prepare(`
-        INSERT INTO agent_sub_conversation_messages (id,
-                                                     parent_session_id,
-                                                     agent_id,
-                                                     agent_name,
-                                                     role,
-                                                     content_markdown,
-                                                     created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    repository.insertAgentSubConversationMessage({
         messageId,
-        input.parentSessionId,
-        input.agentId,
-        input.agentName,
-        "user",
-        input.contentMarkdown,
-        now,
-    );
+        parentSessionId: input.parentSessionId,
+        agentId: input.agentId,
+        agentName: input.agentName,
+        contentMarkdown: input.contentMarkdown,
+        createdAt: now,
+    });
     return {
         messageId,
         parentSessionId: input.parentSessionId,
@@ -422,11 +403,10 @@ function insertAgentSubConversationMessage(
  * @returns 编辑记录数组。
  */
 function listPendingEditRecords(
-    database: CenterDatabase,
+    repository: AgentEditRepository,
     sessionId: string,
 ): PendingEditRecord[] {
-    return database.connection().prepare(pendingEditSelectSql("WHERE session_id = ? ORDER BY created_at DESC"))
-        .all(sessionId) as PendingEditRecord[];
+    return repository.listPendingEditRecords(sessionId);
 }
 
 /**
@@ -437,12 +417,10 @@ function listPendingEditRecords(
  * @returns 编辑记录或 null。
  */
 function findPendingEditRecord(
-    database: CenterDatabase,
+    repository: AgentEditRepository,
     editId: string,
 ): PendingEditRecord | null {
-    const row = database.connection().prepare(pendingEditSelectSql("WHERE id = ?"))
-        .get(editId) as PendingEditRecord | undefined;
-    return row ?? null;
+    return repository.findPendingEditRecord(editId);
 }
 
 /**
@@ -454,17 +432,16 @@ function findPendingEditRecord(
  * @returns 更新后的编辑记录。
  */
 function updatePendingEditStatus(
-    database: CenterDatabase,
+    repository: AgentEditRepository,
     record: PendingEditRecord,
     status: PendingEditRecord["status"],
 ): PendingEditRecord {
     const now = new Date().toISOString();
-    database.connection().prepare("UPDATE pending_edit_records SET status = ?, updated_at = ? WHERE id = ?")
-        .run(
-            status,
-            now,
-            record.editId,
-        );
+    repository.updatePendingEditStatus(
+        record.editId,
+        status,
+        now,
+    );
     return {
         ...record,
         status,
@@ -480,7 +457,7 @@ function updatePendingEditStatus(
  * @returns 撤回结果。
  */
 function revertPendingEdit(
-    database: CenterDatabase,
+    repository: AgentEditRepository,
     editId: string,
 ): {
     ok: true;
@@ -491,10 +468,7 @@ function revertPendingEdit(
     message: string;
     displayMessage: string;
 } {
-    const record = findPendingEditRecord(
-        database,
-        editId,
-    );
+    const record = findPendingEditRecord(repository, editId);
     if (!record) {
         return {
             ok: false,
@@ -513,7 +487,7 @@ function revertPendingEdit(
     }
     if (!existsSync(record.filePath)) {
         updatePendingEditStatus(
-            database,
+            repository,
             record,
             "conflicted",
         );
@@ -531,7 +505,7 @@ function revertPendingEdit(
     );
     if (currentContent !== record.afterContent) {
         const conflicted = updatePendingEditStatus(
-            database,
+            repository,
             record,
             "conflicted",
         );
@@ -551,36 +525,11 @@ function revertPendingEdit(
     return {
         ok: true,
         edit: updatePendingEditStatus(
-            database,
+            repository,
             record,
             "reverted",
         ),
     };
-}
-
-/**
- * pendingEditSelectSql：生成编辑记录查询 SQL。
- *
- * @param whereSql WHERE 与排序子句。
- * @returns SQL 文本。
- */
-function pendingEditSelectSql(whereSql: string): string {
-    return `
-        SELECT id             AS editId,
-               session_id     AS sessionId,
-               agent_id       AS agentId,
-               file_path      AS filePath,
-               change_kind    AS changeKind,
-               before_content AS beforeContent,
-               after_content  AS afterContent,
-               status,
-               added_lines    AS addedLines,
-               removed_lines  AS removedLines,
-               created_at     AS createdAt,
-               updated_at     AS updatedAt
-        FROM pending_edit_records
-        ${whereSql}
-    `;
 }
 
 /**

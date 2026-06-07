@@ -157,7 +157,10 @@ async function main(): Promise<void> {
     await devRedirectService.close();
 
     assert(redirectResponse.statusCode === 302, "开发期中心服务 /chat 应跳转到前端 Vite dev server。");
-    assert(redirectResponse.headers.location === `http://127.0.0.1:5173/chat?port=${port}`, "开发期中心服务跳转地址没有携带中心服务端口。");
+    assert(
+      redirectResponse.headers.location === `http://127.0.0.1:5173/?port=${port}#/chat`,
+      "开发期中心服务跳转地址必须携带中心服务端口并把业务路径规范到 hash。",
+    );
     assert(assetResponse.statusCode === 200 && assetResponse.body.length > 1000, "开发期 /assets/* 请求仍应能读取 dist 静态资源。");
   } finally {
     await service.close();

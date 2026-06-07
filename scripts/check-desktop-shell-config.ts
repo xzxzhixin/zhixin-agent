@@ -35,10 +35,18 @@ async function main(): Promise<void> {
   const mainSource = await readFile(join(root, "apps", "desktop-shell", "src", "main.ts"), "utf-8");
   // preloadSource: Electron preload 源码。
   const preloadSource = await readFile(join(root, "apps", "desktop-shell", "src", "preload.ts"), "utf-8");
-  // storeSource: 统一前端状态源码。
+  // storeSource: 统一前端状态入口源码。
   const storeSource = await readFile(join(root, "apps", "frontend", "src", "stores", "app.ts"), "utf-8");
-  // viewSource: 统一前端主视图源码。
-  const viewSource = await readFile(join(root, "apps", "frontend", "src", "views", "MainView.vue"), "utf-8");
+  // desktopActionsSource: 桌面壳动作拆分源码，保存中心服务配置和目录选择逻辑。
+  const desktopActionsSource = await readFile(
+    join(root, "apps", "frontend", "src", "stores", "app-desktop-actions.ts"),
+    "utf-8",
+  );
+  // centerViewSource: 中心服务页面源码，进入页面后直接展示编辑面板。
+  const centerViewSource = await readFile(
+    join(root, "apps", "frontend", "src", "views", "Center", "RouterIndex.vue"),
+    "utf-8",
+  );
 
   assertIncludes(mainSource, "zhixin:center-config-update", "桌面壳缺少中心服务配置更新 IPC");
   assertIncludes(mainSource, "zhixin:access-account-save", "桌面壳缺少远程 Web 账号密码保存 IPC");
@@ -48,12 +56,16 @@ async function main(): Promise<void> {
   assertIncludes(preloadSource, "updateCenterConfig", "preload 没有暴露中心服务配置更新能力");
   assertIncludes(preloadSource, "saveAccessAccount", "preload 没有暴露远程 Web 账号密码保存能力");
   assertIncludes(preloadSource, "getNotificationPermission", "preload 没有暴露系统通知权限检测能力");
-  assertIncludes(storeSource, "syncDesktopStatus", "前端状态没有同步桌面壳中心服务配置");
-  assertIncludes(storeSource, "saveDesktopConfig", "前端状态没有保存桌面壳配置");
-  assertIncludes(storeSource, "saveRemoteAccessAccount", "前端状态没有保存远程 Web 账号密码");
-  assertIncludes(storeSource, "saveNotificationConfig", "前端状态没有把系统通知权限同步给中心服务");
-  assertIncludes(viewSource, "中心服务", "主界面没有中心服务配置页面入口");
-  assertIncludes(viewSource, "外部中心目录不会随程序目录删除", "主界面没有外部中心目录删除提示");
+  assertIncludes(storeSource, "createDesktopActions", "前端状态入口没有挂载桌面壳动作集合");
+  assertIncludes(desktopActionsSource, "syncDesktopStatus", "前端状态没有同步桌面壳中心服务配置");
+  assertIncludes(desktopActionsSource, "saveDesktopConfig", "前端状态没有保存桌面壳配置");
+  assertIncludes(desktopActionsSource, "selectCenterDirectory", "前端状态没有选择中心目录能力");
+  assertIncludes(desktopActionsSource, "saveRemoteAccessAccount", "前端状态没有保存远程 Web 账号密码");
+  assertIncludes(desktopActionsSource, "saveNotificationConfig", "前端状态没有把系统通知权限同步给中心服务");
+  assertIncludes(centerViewSource, "中心服务", "中心服务页面没有中心服务配置入口");
+  assertIncludes(centerViewSource, "center-service-form", "中心服务页面没有直接展示编辑面板");
+  assertIncludes(centerViewSource, "选择中心目录", "中心服务页面没有中心目录选择入口");
+  assertIncludes(centerViewSource, "外部中心目录不会随程序目录删除", "中心服务页面没有外部中心目录删除提示");
 }
 
 void main().catch((error) => {

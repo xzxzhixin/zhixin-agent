@@ -35,8 +35,6 @@ function assertFileContains(filePath: string, patterns: RegExp[], purpose: strin
 async function main(): Promise<void> {
   assertFileContains("apps/frontend/src/stores/app.ts", [
     /handleComposerPaste/u,
-    /createTemporaryAttachment/u,
-    /commitAttachment/u,
     /insertIdeContextReference/u,
     /registerRuntimeProject/u,
     /createProjectConversationTab/u,
@@ -44,14 +42,21 @@ async function main(): Promise<void> {
     /references/u,
     /attachments/u,
   ], "前端输入框状态层");
-  assertFileContains("apps/frontend/src/views/MainView.vue", [
+  assertFileContains("apps/frontend/src/stores/app-conversation-actions.ts", [
+    /createTemporaryAttachment/u,
+    /commitAttachment/u,
+    /addClipboardImageAttachment/u,
+  ], "前端输入框附件动作层");
+  assertFileContains("apps/frontend/src/views/Chat/RouterIndex.vue", [
     /@paste="appStore\.handleComposerPaste"/u,
-    /project-reference-popover/u,
-    /v-if="appStore\.canUseProjectReferences/u,
-    /新建项目页签/u,
+  ], "前端移动输入框界面");
+  assertFileContains("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue", [
+    /appStore\.handleComposerPaste/u,
+    /floating-picker/u,
+    /v-if="!isAgentConversation && appStore\.canUseProjectReferences/u,
     /composer-reference-tag/u,
-    /composer-attachment-tag/u,
-  ], "前端输入框界面");
+    /composer-attachment-tag|temporaryAttachmentId/u,
+  ], "前端完整输入框界面");
   assertFileContains("apps/frontend/src/runtime.ts", [
     /projectContext/u,
     /projectId/u,
@@ -61,7 +66,6 @@ async function main(): Promise<void> {
   assertFileContains("packages/api-client/src/index.ts", [
     /createTemporaryAttachment/u,
     /commitAttachment/u,
-    /FormData/u,
     /\/api\/file\/temp\/create/u,
     /\/api\/session\/attachment\/commit/u,
   ], "前端 API 客户端");

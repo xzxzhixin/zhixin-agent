@@ -53,6 +53,13 @@ const bridge = {
   ),
 
   /**
+   * selectCenterDirectory：选择中心目录位置。
+   *
+   * @returns 用户取消时返回 null，否则返回中心目录绝对路径。
+   */
+  selectCenterDirectory: () => ipcRenderer.invoke("zhixin:center-directory-select"),
+
+  /**
    * saveAccessAccount：保存远程 Web 访问账号和密码。
    *
    * @param payload 远程访问账号密码。

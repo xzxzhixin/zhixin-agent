@@ -53,6 +53,9 @@ import {
     createManagementActions,
 } from "./app-management-actions";
 import {
+    createDesktopActions,
+} from "./app-desktop-actions";
+import {
     createConversationActions,
 } from "./app-conversation-actions";
 import {
@@ -369,6 +372,15 @@ export const useAppStore = defineStore("app", {
             port: 8866,
             centerDirectory: "",
         },
+
+        /**
+         * restartRequired: 最近一次中心服务配置保存后的重启状态。
+         *
+         * 来源：桌面壳 `updateCenterConfig` 的返回结果。
+         * 默认值：false，表示尚未发生需要展示的配置切换。
+         * 约束：中心服务切换目录时桌面壳会立即停止、初始化并重启，这里只表达 UI 状态。
+         */
+        restartRequired: false,
 
         /**
          * remoteAccessDraft: 远程 Web 账号密码配置草稿。
@@ -722,69 +734,7 @@ export const useAppStore = defineStore("app", {
             this.applyTheme();
         },
 
-        /**
-         * syncDesktopStatus：同步桌面壳中心服务状态。
-         *
-         * @returns 同步完成后没有返回值。
-         */
-        async syncDesktopStatus(): Promise<void> {
-            if (!window.zhixinDesktop) {
-                return;
-            }
-
-            this.desktopStatus = await window.zhixinDesktop.getCenterStatus();
-            this.desktopConfigDraft = {
-                port: this.desktopStatus.port,
-                centerDirectory: this.desktopStatus.centerDirectory,
-            };
-            const permission = await window.zhixinDesktop.getNotificationPermission();
-            this.notificationPermission = `${permission.permission} · ${permission.checkedAt}`;
-            await this.api().saveNotificationConfig({
-                clientType: "desktop-shell",
-                enabled: true,
-                notifyOnFailure: true,
-                notifyOnWaitingUser: true,
-                systemPermission: permission.permission,
-            });
-        },
-
-        /**
-         * saveDesktopConfig：保存桌面壳中心服务配置。
-         *
-         * @returns 保存完成后没有返回值。
-         */
-        async saveDesktopConfig(): Promise<void> {
-            if (!window.zhixinDesktop) {
-                return;
-            }
-
-            const result = await window.zhixinDesktop.updateCenterConfig({
-                port: this.desktopConfigDraft.port,
-                centerDirectory: this.desktopConfigDraft.centerDirectory,
-            });
-            this.desktopStatus = result;
-            this.lastError = result.errorMessage;
-        },
-
-        /**
-         * saveRemoteAccessAccount：保存远程 Web 访问账号密码。
-         *
-         * @returns 保存完成后没有返回值。
-         */
-        async saveRemoteAccessAccount(): Promise<void> {
-            if (!window.zhixinDesktop) {
-                return;
-            }
-
-            const result = await window.zhixinDesktop.saveAccessAccount({
-                account: this.remoteAccessDraft.account,
-                password: this.remoteAccessDraft.password,
-            });
-            this.lastError = result.errorMessage;
-            if (result.ok) {
-                this.remoteAccessDraft.password = "";
-            }
-        },
+        ...createDesktopActions(),
 
         /**
          * authorizeLocal：本机客户端向中心服务申请授权。

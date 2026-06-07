@@ -31,6 +31,12 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-langgraph-mem0-center-config.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-stage1-protocols.mjs",
     ],
   ],

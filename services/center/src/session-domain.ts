@@ -20,6 +20,8 @@ import {
     writeAgentMemory,
     type MemoryWriteInput,
 } from "./agent-domain.js";
+import {runLangGraphTurn} from "./langgraph-runner.js";
+import {syncTurnMemoryToMem0} from "./memory-engine.js";
 import type {MemoryQueueState} from "./types.js";
 import {
     appendThinkingEvents,
@@ -582,6 +584,43 @@ export async function completeCreatedTurn(
     centerDirectory?: string,
     memoryQueues?: Map<string, MemoryQueueState>,
 ): Promise<void> {
+    await runLangGraphTurn({
+        database,
+        events,
+        sent,
+        userText,
+        centerDirectory,
+        memoryQueues,
+        completeCreatedTurn: async (createdTurn, createdUserText) => {
+            await completeCreatedTurnInGraph(
+                database,
+                events,
+                createdTurn,
+                createdUserText,
+                centerDirectory,
+                memoryQueues,
+            );
+        },
+    });
+}
+
+/**
+ * completeCreatedTurnInGraph：LangGraphJS 节点内执行现有轮次闭环。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param sent 发送接口创建的消息、轮次和任务身份。
+ * @param userText 用户原始输入。
+ * @returns 没有返回值。
+ */
+async function completeCreatedTurnInGraph(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    sent: SendMessageResponse,
+    userText: string,
+    centerDirectory?: string,
+    memoryQueues?: Map<string, MemoryQueueState>,
+): Promise<void> {
     const assistantMessageId = randomUUID();
     const now = new Date().toISOString();
     const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
@@ -817,7 +856,7 @@ export async function completeCreatedTurn(
             usage: finalModelResult.usage,
         });
         if (centerDirectory && memoryQueues) {
-            commitMainAgentMemoryAfterTurn(
+            await commitMainAgentMemoryAfterTurn(
                 database,
                 events,
                 centerDirectory,
@@ -877,7 +916,7 @@ export async function completeCreatedTurn(
  * @param assistantText 助手本轮回复。
  * @returns 没有返回值。
  */
-function commitMainAgentMemoryAfterTurn(
+async function commitMainAgentMemoryAfterTurn(
     database: CenterDatabase,
     events: CenterEventStore,
     centerDirectory: string,
@@ -885,7 +924,7 @@ function commitMainAgentMemoryAfterTurn(
     sent: SendMessageResponse,
     userText: string,
     assistantText: string,
-): void {
+): Promise<void> {
     // memoryInput: 记忆写入边界是一轮完整对话，索引必须绑定当前会话和轮次便于迁移后追溯。
     const memoryInput: MemoryWriteInput = {
         agentId: "main",
@@ -897,12 +936,24 @@ function commitMainAgentMemoryAfterTurn(
         sourceTurnId: sent.turnId,
         attachmentRefsJson: "[]",
     };
-    writeAgentMemory(
+    const memoryResult = writeAgentMemory(
         database,
         events,
         centerDirectory,
         memoryQueues,
         memoryInput,
+    );
+    await syncTurnMemoryToMem0(
+        events,
+        centerDirectory,
+        {
+            agentId: memoryInput.agentId,
+            projectId: null,
+            sourceSessionId: sent.sessionId,
+            sourceTurnId: sent.turnId,
+            sourceMemoryPath: memoryResult.relativePath,
+            sourceMemoryText: memoryInput.summary,
+        },
     );
 }
 

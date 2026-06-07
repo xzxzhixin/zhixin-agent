@@ -1,4 +1,5 @@
 import type {CenterDatabase} from "../database.js";
+import {AgentEditRepository} from "./agent-edit-repository.js";
 import {AgentRepository} from "./agent-repository.js";
 import {EventRepository} from "./event-repository.js";
 import {ExtensionRepository} from "./extension-repository.js";
@@ -19,6 +20,8 @@ import {WorkflowRepository} from "./workflow-repository.js";
 export function createDataAccess(database: CenterDatabase): {
     /** agents: 智能体和记忆索引持久层。 */
     agents: AgentRepository;
+    /** agentEdits: 智能体子对话和待确认编辑持久层。 */
+    agentEdits: AgentEditRepository;
     /** events: 事件日志持久层。 */
     events: EventRepository;
     /** extensions: 插件安装和扩展调用持久层。 */
@@ -35,6 +38,7 @@ export function createDataAccess(database: CenterDatabase): {
     workflow: WorkflowRepository;
 } {
     return {
+        agentEdits: new AgentEditRepository(database),
         agents: new AgentRepository(database),
         events: new EventRepository(database),
         extensions: new ExtensionRepository(database),
@@ -47,6 +51,7 @@ export function createDataAccess(database: CenterDatabase): {
 }
 
 export {AgentRepository} from "./agent-repository.js";
+export {AgentEditRepository} from "./agent-edit-repository.js";
 export {EventRepository} from "./event-repository.js";
 export {ExtensionRepository} from "./extension-repository.js";
 export {SessionRepository} from "./session-repository.js";

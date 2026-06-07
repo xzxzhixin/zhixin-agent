@@ -7,6 +7,11 @@ import {createCenterService} from "./service.js";
 
 export {readCenterServiceConfig} from "./config.js";
 export {createCenterService} from "./service.js";
+export {
+    CENTER_DIRECTORY_LAYOUT,
+    CORE_SQLITE_TABLES,
+} from "./types.js";
+export {CenterStartupLock} from "./startup-lock.js";
 export type {CenterService, CenterListenResult} from "./service.js";
 export type {CenterServiceConfig, CenterServiceConfigInput} from "./types.js";
 

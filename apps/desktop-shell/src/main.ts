@@ -523,6 +523,59 @@ function applyDesktopConfig(config: DesktopConfigFile): void {
 }
 
 /**
+ * initializeCenterDirectory：校验并初始化新的中心目录。
+ *
+ * @param centerDirectory 用户选择或输入的中心目录。
+ * @returns 解析后的中心目录绝对路径。
+ */
+function initializeCenterDirectory(centerDirectory: string): string {
+  const resolvedCenterDirectory = resolve(centerDirectory);
+  if (existsSync(resolvedCenterDirectory) && !statSync(resolvedCenterDirectory).isDirectory()) {
+    throw new Error("中心目录目标路径不是文件夹，无法切换。");
+  }
+
+  // requiredDirectories: 只初始化中心目录基础迁移边界；中心服务启动后仍负责数据库迁移和事实源初始化。
+  const requiredDirectories = [
+    "db",
+    "config",
+    "memory",
+    join(
+      "memory",
+      "mem0",
+    ),
+    "agents",
+    "providers",
+    "plugins",
+    "mcp",
+    "skills",
+    "runtimes",
+    join(
+      "sessions",
+      "attachments",
+    ),
+    "personal",
+    "temp",
+    "logs",
+  ];
+  mkdirSync(resolvedCenterDirectory, {
+    recursive: true,
+  });
+  for (const relativeDirectory of requiredDirectories) {
+    mkdirSync(
+      join(
+        resolvedCenterDirectory,
+        relativeDirectory,
+      ),
+      {
+        recursive: true,
+      },
+    );
+  }
+
+  return resolvedCenterDirectory;
+}
+
+/**
  * saveAccessAccountConfig：保存远程 Web 账号密码摘要到中心目录。
  *
  * @param account 远程 Web 访问账号。
@@ -763,6 +816,36 @@ function stopCenterService(): void {
 }
 
 /**
+ * stopManagedCenterService：停止桌面壳当前管理的中心服务。
+ *
+ * @returns 没有返回值。
+ */
+function stopManagedCenterService(): void {
+  stopCenterService();
+}
+
+/**
+ * selectCenterDirectory：通过原生目录选择器选择中心目录。
+ *
+ * @returns 用户取消时返回 null，否则返回中心目录绝对路径。
+ */
+async function selectCenterDirectory(): Promise<string | null> {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: "选择中心目录",
+    properties: [
+      "openDirectory",
+      "createDirectory",
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return resolve(result.filePaths[0]);
+}
+
+/**
  * resolveDesktopWindowUrl：规范桌面主窗口加载入口。
  *
  * @returns 指向中心服务托管入口的 URL。
@@ -847,17 +930,25 @@ function registerIpc(): void {
     centerDirectory?: string;
   }) => {
     lastCenterError = "";
+    const previousConfig = {
+      ...desktopConfig,
+    };
+    const nextCenterDirectory = payload.centerDirectory
+      ? initializeCenterDirectory(payload.centerDirectory)
+      : centerLaunchConfig.centerDirectory;
     const nextConfig: DesktopConfigFile = {
       port: normalizePort(payload.port),
-      centerDirectory: payload.centerDirectory
-        ? resolve(payload.centerDirectory)
-        : centerLaunchConfig.centerDirectory,
+      centerDirectory: nextCenterDirectory,
       closeActionPreference: desktopConfig.closeActionPreference,
     };
     applyDesktopConfig(nextConfig);
     persistDesktopConfig(nextConfig);
-    stopCenterService();
+    stopManagedCenterService();
     startCenterService();
+    if (lastCenterError) {
+      applyDesktopConfig(previousConfig);
+      persistDesktopConfig(previousConfig);
+    }
     mainWindow?.webContents.send("zhixin:center-config-changed", {
       port: centerLaunchConfig.port,
       centerDirectory: centerLaunchConfig.centerDirectory,
@@ -884,6 +975,8 @@ function registerIpc(): void {
 
   ipcMain.handle("zhixin:project-directory-select", () => selectProjectDirectoryAndEnsureIdentity());
 
+  ipcMain.handle("zhixin:center-directory-select", () => selectCenterDirectory());
+
   ipcMain.handle("zhixin:center-start", () => {
     lastCenterError = "";
     startCenterService();
@@ -895,7 +988,7 @@ function registerIpc(): void {
 
   ipcMain.handle("zhixin:center-stop", () => {
     lastCenterError = "";
-    stopCenterService();
+    stopManagedCenterService();
     return {
       ok: true,
       errorMessage: "",
@@ -904,7 +997,7 @@ function registerIpc(): void {
 
   ipcMain.handle("zhixin:center-restart", () => {
     lastCenterError = "";
-    stopCenterService();
+    stopManagedCenterService();
     startCenterService();
     return {
       ok: !lastCenterError,

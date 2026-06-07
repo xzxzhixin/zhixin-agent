@@ -61,6 +61,11 @@ interface DesktopBridge {
     }>;
 
     /**
+     * selectCenterDirectory: 打开桌面原生目录选择器选择中心目录。
+     */
+    selectCenterDirectory: () => Promise<string | null>;
+
+    /**
      * saveAccessAccount: 保存远程 Web 账号密码。
      */
     saveAccessAccount: (payload: {

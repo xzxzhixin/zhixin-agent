@@ -825,6 +825,7 @@ onBeforeUnmount(() => {
             <el-tag
                 v-for="(attachment, index) in appStore.draft.attachments"
                 :key="attachment.temporaryAttachmentId"
+                class="composer-attachment-tag"
                 closable
                 type="info"
                 @close="appStore.removeAttachment(index)"
@@ -834,6 +835,7 @@ onBeforeUnmount(() => {
             <el-tag
                 v-for="(reference, index) in appStore.draft.references"
                 :key="`${reference.type}-${index}`"
+                class="composer-reference-tag"
                 closable
                 type="success"
                 @close="appStore.removeReference(index)"

@@ -23,6 +23,9 @@ import {
   createCenterService,
   readCenterServiceConfig,
 } from "../services/center/src/index";
+import type {
+  CenterService,
+} from "../services/center/src/index";
 
 /**
  * assert：用统一错误格式表达检查失败原因。
@@ -61,6 +64,8 @@ async function main(): Promise<void> {
 
   // centerDirectory: 临时中心目录名称仍使用架构约定的 center-data，验证默认目录名没有漂移。
   const centerDirectory = join(tempRoot, CENTER_DATA_DIR_NAME);
+  // service: 放在 try 外部，确保任意断言失败时 finally 仍能先关闭 SQLite 连接再清理目录。
+  let service: CenterService | null = null;
 
   try {
   // config: 检查环境显式传入端口和中心目录，避免读取用户本机配置。
@@ -76,7 +81,7 @@ async function main(): Promise<void> {
   assert(config.centerDirectory === centerDirectory, "中心服务中心目录解析错误");
 
   // service: 使用模块化工厂创建中心服务，便于桌面壳后续复用。
-  const service = await createCenterService(config);
+  service = await createCenterService(config);
 
   await service.initialize();
 
@@ -174,13 +179,43 @@ async function main(): Promise<void> {
   );
   assert(logContent.includes("center.bootstrap.initialized"), "中心服务日志未写入初始化事件");
 
-    await service.close();
   } finally {
+    await service?.close();
     // cleanup: 检查结束后删除临时中心目录，避免留下测试数据。
-    await rm(tempRoot, {
-      force: true,
-      recursive: true,
-    });
+    await removeTemporaryDirectoryWithRetry(tempRoot);
+  }
+}
+
+/**
+ * removeTemporaryDirectoryWithRetry：带重试删除临时中心目录。
+ *
+ * @param directory 临时目录绝对路径。
+ * @returns 删除完成后没有返回值。
+ */
+async function removeTemporaryDirectoryWithRetry(directory: string): Promise<void> {
+  const maxAttempts = 8;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await rm(directory, {
+        force: true,
+        recursive: true,
+      });
+      return;
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error
+        ? String((error as {code?: unknown}).code)
+        : "";
+      if (code !== "EBUSY" || attempt === maxAttempts) {
+        throw error;
+      }
+      // Windows 上 better-sqlite3 close 后 SQLite 文件句柄可能短暂滞留，检查脚本等待后重试清理临时目录。
+      await new Promise((resolve) => {
+        setTimeout(
+          resolve,
+          attempt * 150,
+        );
+      });
+    }
   }
 }
 

@@ -166,9 +166,13 @@ async function main(): Promise<void> {
       method: "POST",
       url: "/api/usage/aggregate",
       payload: {},
-    })).json<ApiResponse<{ stats: unknown[] }>>();
+    })).json<ApiResponse<{ stats: Array<{summaryType?: string}> }>>();
     assert(aggregate.success, "用量聚合失败");
-    assert(aggregate.data?.stats.length === 1, "用量聚合数量错误");
+    const summaryTypes = new Set((aggregate.data?.stats ?? []).map((item) => item.summaryType));
+    assert(summaryTypes.has("total-summary"), "用量聚合缺少总量统计");
+    assert(summaryTypes.has("provider-summary"), "用量聚合缺少供应商维度统计");
+    assert(summaryTypes.has("project-summary"), "用量聚合缺少项目维度统计");
+    assert(summaryTypes.has("model-project-detail"), "用量聚合缺少模型项目明细统计");
 
     const notificationConfig = (await service.app.inject({
       method: "POST",

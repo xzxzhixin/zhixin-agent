@@ -80,6 +80,8 @@ async function main(): Promise<void> {
   let service: CenterService | null = null;
   // socket: WebSocket 客户端，finally 中统一关闭。
   let socket: WebSocket | null = null;
+  // appListening: 本检查脚本直接监听 Fastify 随机端口，finally 必须显式关闭，避免 HTTP server 存活导致脚本挂住。
+  let appListening = false;
 
   try {
     // config: 使用随机端口和临时中心目录运行检查。
@@ -97,6 +99,7 @@ async function main(): Promise<void> {
       host: "127.0.0.1",
       port: 0,
     });
+    appListening = true;
     // baseUrl: WebSocket 地址由 Fastify 监听地址转换而来。
     const baseUrl = address.replace("http://", "ws://");
 
@@ -209,6 +212,11 @@ async function main(): Promise<void> {
     assert(Boolean(notificationMessage.payload.notificationId), "notification.created 没有携带通知 ID");
   } finally {
     socket?.close();
+    if (appListening) {
+      await service?.app.close().catch(() => {
+        // ignore: 检查失败时仍继续释放数据库和清理临时目录。
+      });
+    }
     await service?.close().catch(() => {
       // ignore: 检查失败时仍继续清理临时目录。
     });

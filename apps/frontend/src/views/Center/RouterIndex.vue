@@ -2,7 +2,6 @@
 import {
   computed,
   onMounted,
-  ref,
 } from "vue";
 import {
   use,
@@ -20,8 +19,6 @@ const usageChartModulesRegistered = use;
 
 // currentWorkspacePage：当前页面协议值，来源于当前 views 目录对应路由。
 const currentWorkspacePage = "center";
-// centerDialogVisible: 中心服务本机配置弹框显隐。
-const centerDialogVisible = ref(false);
 // managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
 const managementError = computed(() => appStore.managementErrors.center ?? "");
 
@@ -161,9 +158,9 @@ onMounted(() => {
       >
         <el-button
             type="primary"
-            @click="centerDialogVisible = true"
+            @click="appStore.saveDesktopConfig"
         >
-          打开配置
+          保存中心服务配置
         </el-button>
       </div>
     </header>
@@ -181,28 +178,6 @@ onMounted(() => {
         v-else
         class="page-scroll"
     >
-      <section class="management-list">
-        <article class="management-item">
-          <div>
-            <strong>中心服务配置</strong>
-            <span>端口：{{ appStore.desktopConfigDraft.port }} · 目录：{{ appStore.desktopConfigDraft.centerDirectory || "未配置" }}</span>
-            <small>Web 远程访问账号、密码和外部中心目录提示在配置弹框内维护。</small>
-          </div>
-          <div class="management-actions">
-            <el-button @click="centerDialogVisible = true">
-              编辑
-            </el-button>
-          </div>
-        </article>
-      </section>
-      <el-dialog
-          v-model="centerDialogVisible"
-          append-to-body
-          class="management-config-dialog center-config-dialog"
-          title="中心服务配置"
-          width="80vw"
-          destroy-on-close
-      >
         <el-form
           class="center-service-form"
           label-position="top"
@@ -215,7 +190,12 @@ onMounted(() => {
           />
         </el-form-item>
         <el-form-item label="中心目录">
-          <el-input v-model="appStore.desktopConfigDraft.centerDirectory"/>
+          <div class="center-directory-row">
+            <el-input v-model="appStore.desktopConfigDraft.centerDirectory"/>
+            <el-button @click="appStore.selectCenterDirectory">
+              选择中心目录
+            </el-button>
+          </div>
         </el-form-item>
         <el-alert
             v-if="appStore.desktopStatus?.isExternalCenterDirectory"
@@ -223,6 +203,18 @@ onMounted(() => {
             :closable="false"
             title="外部中心目录不会随程序目录删除"
         />
+        <el-alert
+            v-if="appStore.restartRequired"
+            type="success"
+            :closable="false"
+            title="中心服务配置已保存，桌面壳已按最新端口和中心目录重启中心服务。"
+        />
+        <el-button
+            type="primary"
+            @click="appStore.saveDesktopConfig"
+        >
+          保存中心服务配置
+        </el-button>
         <el-divider/>
         <el-form-item label="Web 远程访问账号">
           <el-input v-model="appStore.remoteAccessDraft.account"/>
@@ -241,7 +233,6 @@ onMounted(() => {
           系统通知：{{ appStore.notificationPermission || "未检测" }}
         </p>
         </el-form>
-      </el-dialog>
     </section>
   </section>
 </template>

@@ -70,6 +70,7 @@ function assertIncludes(
 
 const globalStyles = readProjectFile("apps/frontend/src/styles.css");
 const chatPage = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
+const chatConversationPanel = readProjectFile("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
 const chatStyle = readProjectFile("apps/frontend/src/views/Chat/style.css");
 const chatHelpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 const chatConversation = readProjectFile("apps/frontend/src/views/Chat/useChatConversation.ts");
@@ -89,6 +90,9 @@ const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts")
 const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
 const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
+const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
+const langgraphRunner = readProjectFile("services/center/src/langgraph-runner.ts");
+const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;
 
 for (const signal of [
   ".el-dialog",
@@ -129,7 +133,7 @@ for (const signal of [
   "resolveProcessSummary",
 ]) {
     assertIncludes(
-    chatPage + chatHelpers + chatStyle + appConversationActions,
+    chatRuntimeSource + chatHelpers + appConversationActions,
     signal,
     `主对话流式/思考展示缺少：${signal}`,
   );
@@ -145,7 +149,7 @@ for (const signal of [
   "currentTurnNotice",
 ]) {
   assertIncludes(
-    taskDialog + chatPage + chatConversation,
+    taskDialog + chatRuntimeSource + chatConversation,
     signal,
     `任务编排详情缺少：${signal}`,
   );
@@ -168,7 +172,7 @@ for (const signal of [
   "SKILL_NOT_SELECTED",
 ]) {
   assertIncludes(
-    chatPage + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + toolRuntime,
+    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + toolRuntime,
     signal,
     `自动工具可见闭环缺少：${signal}`,
   );
@@ -176,37 +180,40 @@ for (const signal of [
 
 for (const signal of [
   "capabilities: listUnifiedToolCapabilities()",
-  "formatAssistantTextWithCommandResult",
   "commandRequestFromUnifiedToolIntent",
-  "已收到命令工具请求。",
+  "model.tool.requested",
+  "model.tool.result.appended",
   "requiredPermission",
+  "runLangGraphTurn",
+  "StateGraph",
 ]) {
   assertIncludes(
-    apiRoutes + sessionDomain + toolRuntime,
+    apiRoutes + sessionDomain + toolRuntime + modelGatewayRuntime + langgraphRunner,
     signal,
     `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
   );
 }
 
-const commandIntentIndex = sessionDomain.indexOf("const unifiedToolIntent = planUnifiedToolCallForUserText(userText);");
-const modelGatewayIndex = sessionDomain.indexOf("const modelResult = invokeProviderModelGateway");
-const commandBranchIndex = sessionDomain.indexOf("if (unifiedToolIntent?.toolKind === \"command\")");
-const commandBranchEndIndex = sessionDomain.indexOf("const modelStep = createTaskStep", commandBranchIndex);
-const commandBranchSource = commandBranchIndex >= 0 && commandBranchEndIndex >= 0
-  ? sessionDomain.slice(
-    commandBranchIndex,
-    commandBranchEndIndex,
-  )
-  : "";
-if (commandIntentIndex < 0 || modelGatewayIndex < 0 || commandIntentIndex > modelGatewayIndex) {
-  console.error("明确命令工具意图必须在模型网关调用前规划，避免模型回复先于命令事件。");
+const modelGatewayIndex = sessionDomain.indexOf("const modelResult = await invokeProviderModelGateway");
+const toolLoopIndex = sessionDomain.indexOf("const toolLoopResult = await runModelRequestedToolLoop");
+if (modelGatewayIndex < 0 || toolLoopIndex < 0 || modelGatewayIndex > toolLoopIndex) {
+  console.error("结构化工具调用闭环必须先接收模型工具请求，再执行中心服务工具并回填模型。");
   process.exitCode = 1;
 }
 
-if (!commandBranchSource.includes("runCommandTool(")
-    || !commandBranchSource.includes("formatAssistantTextWithCommandResult(")
-    || !commandBranchSource.includes("return;")) {
-  console.error("明确命令请求必须先执行命令工具、写入命令结果助手回复，并在进入模型流式调用前结束本轮。");
+const toolLoopSourceStart = sessionDomain.indexOf("async function runModelRequestedToolLoop");
+const toolLoopSourceEnd = sessionDomain.indexOf("export function recordModelUsageAfterTurn", toolLoopSourceStart);
+const toolLoopSource = toolLoopSourceStart >= 0 && toolLoopSourceEnd >= 0
+  ? sessionDomain.slice(
+    toolLoopSourceStart,
+    toolLoopSourceEnd,
+  )
+  : "";
+if (!toolLoopSource.includes("model.tool.requested")
+    || !toolLoopSource.includes("runCommandTool(")
+    || !toolLoopSource.includes("continueProviderModelGatewayWithToolResults(")
+    || !modelGatewayRuntime.includes("model.tool.result.appended")) {
+  console.error("模型请求命令工具后必须执行命令、回填工具结果，并生成最终回复。");
   process.exitCode = 1;
 }
 
@@ -223,7 +230,7 @@ for (const signal of [
   "currentTurnNotice",
 ]) {
   assertIncludes(
-    appHelpers + chatPage + agentDialog,
+    appHelpers + chatRuntimeSource + agentDialog,
     signal,
     `智能体两级树或引导能力缺少：${signal}`,
   );
@@ -250,12 +257,11 @@ for (const forbiddenSignal of [
   "title=\"智能体状态\"\n      width=\"720px\"",
   "title=\"任务\"\n      width=\"720px\"",
   "append-to-body",
-  "<el-dialog",
   "optimistic-thinking",
   "optimistic-stream",
   "sequence: -",
 ]) {
-  if ((chatPage + taskDialog + agentDialog + editDialog + appConversationActions).includes(forbiddenSignal)) {
+  if ((chatRuntimeSource + taskDialog + agentDialog + editDialog + appConversationActions).includes(forbiddenSignal)) {
     console.error(`发现本轮禁止回归片段：${forbiddenSignal}`);
     process.exitCode = 1;
   }
@@ -274,7 +280,7 @@ for (const signal of [
   "currentTurnNotice",
 ]) {
   assertIncludes(
-    chatConversation + chatPage + agentDialog,
+    chatConversation + chatRuntimeSource + agentDialog,
     signal,
     `统一完整对话组合能力缺少：${signal}`,
   );
@@ -317,7 +323,7 @@ for (const signal of [
   "@scroll=\"updateMessageListPinnedState\"",
 ]) {
   assertIncludes(
-    chatPage + chatAutoScroll,
+    chatRuntimeSource + chatAutoScroll,
     signal,
     `消息列表贴底和用户离底暂停逻辑缺少：${signal}`,
   );
@@ -353,7 +359,7 @@ for (const signal of [
   "max-height: 40vh;",
 ]) {
   assertIncludes(
-    chatPage + chatStyle + chatComposerResize,
+    chatRuntimeSource + chatComposerResize,
     signal,
     `Chat 固定视口 flex 高度或主滚动区域约束缺少：${signal}`,
   );
@@ -389,10 +395,11 @@ for (const signal of [
   "<AgentConversationDialog",
   "agentConversationDialogVisible",
   "openAgentConversationDialog",
-  "composer-edit-description",
+  "composer-edit-row",
+  "composer-edit-stat",
 ]) {
   assertIncludes(
-    chatPage + chatStyle + editDialog + appStore,
+    chatRuntimeSource + editDialog + appStore,
     signal,
     `本轮输入区 flex、点击关闭或智能体入口文案约束缺少：${signal}`,
   );
@@ -410,20 +417,19 @@ if (chatStyle.includes(".composer-shell:has(.composer-mini-popover)")) {
 
 for (const signal of [
   "agent-conversation-dialog",
-  "agent-dialog-message-list",
-  "agent-dialog-composer-shell",
-  "agent-dialog-entry-strip",
-  "sendAgentConversationDraft",
-  "发送到当前会话",
+  "variant=\"agent\"",
+  "agentDraft",
+  "sendAgentDraft",
+  "sendAgentSubConversationMessage",
 ]) {
   assertIncludes(
-    agentConversationDialog + chatPage,
+    agentConversationDialog + chatConversationPanel + appStore,
     signal,
     `智能体点击后的完整对话弹窗缺少：${signal}`,
   );
 }
 
-if (chatPage.includes("status-scope-note")) {
+if (chatRuntimeSource.includes("status-scope-note")) {
   console.error("右侧状态栏不能常驻解释性说明，任务和智能体说明应收敛到输入区小浮层。");
   process.exitCode = 1;
 }

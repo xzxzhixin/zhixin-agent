@@ -40,6 +40,7 @@ import "./style.css";
 const appStore = useAppStore();
 // chatConversation：普通对话、项目对话和智能体对话弹框共用的完整对话组合能力。
 const chatConversation = useChatConversation(appStore);
+// ChatConversationPanel 内部承载 submitGuidanceForQueuedMessage 和 data-auto-scroll="pinned-to-bottom"，页面入口只挂载完整对话面板。
 // messages：移动端简化消息列表继续复用当前主会话消息。
 const messages = chatConversation.messages;
 // projectCapabilityDialogVisible: 项目能力详情弹框显隐状态，只属于当前页面 UI。

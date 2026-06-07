@@ -128,6 +128,11 @@ export interface DesktopBridge {
   }) => Promise<DesktopCenterStatus & DesktopOperationResult>;
 
   /**
+   * selectCenterDirectory: 选择中心目录位置。
+   */
+  selectCenterDirectory: () => Promise<string | null>;
+
+  /**
    * saveAccessAccount: 保存远程 Web 访问账号和密码。
    */
   saveAccessAccount: (payload: {
@@ -165,6 +170,7 @@ const bridge: DesktopBridge = {
     errorMessage: string;
   }>,
   updateCenterConfig: (payload) => ipcRenderer.invoke("zhixin:center-config-update", payload) as Promise<DesktopCenterStatus & DesktopOperationResult>,
+  selectCenterDirectory: () => ipcRenderer.invoke("zhixin:center-directory-select") as Promise<string | null>,
   saveAccessAccount: (payload) => ipcRenderer.invoke("zhixin:access-account-save", payload) as Promise<DesktopOperationResult>,
   getNotificationPermission: () => ipcRenderer.invoke("zhixin:notification-permission") as Promise<{
     permission: string;

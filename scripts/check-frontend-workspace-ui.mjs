@@ -85,6 +85,33 @@ const chatPage = readFileSync(
   chatPagePath,
   "utf-8",
 );
+// chatConversationPanel: 对话主体组件源码，输入区、三入口和消息流已从页面入口拆入该组件。
+const chatConversationPanel = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "components",
+    "ChatConversationPanel.vue",
+  ),
+  "utf-8",
+);
+// composerContextUsage: 输入区上下文用量组合函数源码，负责百分比和 hover 明细。
+const composerContextUsage = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "useComposerContextUsage.ts",
+  ),
+  "utf-8",
+);
 const chatOptions = readFileSync(
   join(
     process.cwd(),
@@ -98,7 +125,7 @@ const chatOptions = readFileSync(
   "utf-8",
 );
 // mainView: 工作台整体源码，合并公共壳和对话页入口，适配页面主体已迁出 MainView 的结构。
-const mainView = `${mainViewShell}\n${chatPage}\n${chatOptions}\n${workspaceRouteHost}`;
+const mainView = `${mainViewShell}\n${chatPage}\n${chatConversationPanel}\n${composerContextUsage}\n${chatOptions}\n${workspaceRouteHost}`;
 // centerService: 中心服务源码文本。
 const centerService = readFileSync(
   centerServicePath,
@@ -516,17 +543,17 @@ const expectations = [
   [
     mainView,
     "<TaskDetailDialog",
-    "MainView 必须通过任务详情独立弹框组件承载任务详情。",
+    "对话组件必须通过任务详情独立弹框组件承载任务详情。",
   ],
   [
     mainView,
     "<AgentStatusDialog",
-    "MainView 必须通过智能体状态独立弹框组件承载状态树和对话。",
+    "对话组件必须通过智能体状态独立弹框组件承载状态树和对话。",
   ],
   [
     mainView,
     "<EditDetailDialog",
-    "MainView 必须通过编辑详情独立弹框组件承载编辑摘要。",
+    "对话组件必须通过编辑详情独立弹框组件承载编辑摘要。",
   ],
   [
     mainView,
@@ -570,22 +597,22 @@ const expectations = [
   ],
   [
     mainView,
-    "sendAgentConversationDraft",
+    "sendAgentDraft",
     "智能体对话详情必须能基于当前会话发送消息闭环。",
   ],
   [
-    mainView,
-    "仍通过当前会话发送",
-    "中心服务缺少独立智能体会话 API 时，代码注释或传参必须明确仍通过当前会话发送。",
+    mainView + appStore,
+    "sendAgentSubConversationMessage",
+    "中心服务必须提供独立智能体子对话发送 API，不能继续只通过当前会话发送。",
   ],
   [
-    agentConversationDialog,
-    "agent-dialog-message-list",
+    agentConversationDialog + chatConversationPanel,
+    "variant=\"agent\"",
     "智能体状态弹框必须提供智能体对话消息列表。",
   ],
   [
-    agentConversationDialog,
-    "draft",
+    agentConversationDialog + chatConversationPanel,
+    "agentDraft",
     "智能体对话详情必须提供输入草稿。",
   ],
   [
@@ -684,7 +711,7 @@ const expectations = [
     "任务、智能体状态和编辑小弹框样式必须写入页面专属 Vue 组件。",
   ],
   [
-    chatPage,
+    mainView,
     "execution-mode-option-row",
     "执行模式下拉面板必须提供带说明的选项行。",
   ],
@@ -1208,8 +1235,10 @@ if (mainView.includes("文件上下文") || mainView.includes("openProjectFileCo
   process.exitCode = 1;
 }
 
-if (!mainView.includes("composerContextUsageText") || !mainView.includes("composer-context-usage")) {
-  console.error("输入区必须展示当前窗口上下文用量。");
+if (!mainView.includes("composerContextPercentText")
+    || !mainView.includes("contextUsageTooltip")
+    || !mainView.includes("composer-context-usage")) {
+  console.error("输入区必须展示当前窗口上下文用量百分比，并通过 hover 展示明细。");
   process.exitCode = 1;
 }
 

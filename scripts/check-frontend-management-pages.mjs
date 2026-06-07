@@ -150,6 +150,33 @@ const chatPageOnly = readFileSync(
   chatPagePath,
   "utf-8",
 );
+// chatConversationPanelOnly: 对话主体组件源码，输入区和执行模式下拉已从页面入口拆到该组件。
+const chatConversationPanelOnly = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "components",
+    "ChatConversationPanel.vue",
+  ),
+  "utf-8",
+);
+// chatOptionsOnly: 对话选项源码，执行模式说明文案在这里统一维护。
+const chatOptionsOnly = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "views",
+    "Chat",
+    "chat-view-options.ts",
+  ),
+  "utf-8",
+);
 // workspacePageHost: 供应商真实路由入口源码文本，用于检查真实表单、列表和操作按钮。
 const workspacePageHost = readFileSync(
   workspacePageHostPath,
@@ -180,7 +207,7 @@ const allManagementPages = pageComponentPaths.map((relativePath) => {
 // managementPageError: 独立页面通过 managementError computed 读取当前页面错误状态；保留旧检查关键字兼容回归语义。
 const managementPageError = allManagementPages.includes("const managementError = computed");
 // mainView: 管理页能力检查使用主页面和页面宿主合并文本，适配管理页面已从 MainView 拆出的架构。
-const mainView = `${mainViewOnly}\n${chatPageOnly}\n${workspacePageHost}\n${allManagementPages}\n${managementPageError ? "managementPageError" : ""}`;
+const mainView = `${mainViewOnly}\n${chatPageOnly}\n${chatConversationPanelOnly}\n${chatOptionsOnly}\n${workspacePageHost}\n${allManagementPages}\n${managementPageError ? "managementPageError" : ""}`;
 // store: 用于检查页面是否通过状态容器调用 API 客户端；P01 已把管理动作和 helper 拆出，因此这里合并当前职责文件。
 const store = [
   storePath,
@@ -783,7 +810,6 @@ for (const pagePath of [
   "apps/frontend/src/views/Plugins/RouterIndex.vue",
   "apps/frontend/src/views/Mcp/RouterIndex.vue",
   "apps/frontend/src/views/Skills/RouterIndex.vue",
-  "apps/frontend/src/views/Center/RouterIndex.vue",
 ]) {
   const pageSource = readFileSync(
     join(
@@ -810,6 +836,29 @@ for (const pagePath of [
     process.exitCode = 1;
   }
 }
+
+const centerPageSource = readFileSync(
+  join(
+    process.cwd(),
+    "apps/frontend/src/views/Center/RouterIndex.vue",
+  ),
+  "utf-8",
+);
+assertIncludes(
+  centerPageSource,
+  "center-service-form",
+  "中心服务页必须进入后直接展示配置编辑面板。",
+);
+assertIncludes(
+  centerPageSource,
+  "选择中心目录",
+  "中心服务页必须提供中心目录选择入口。",
+);
+assertNotIncludes(
+  centerPageSource,
+  "<el-dialog",
+  "中心服务页不能再通过弹框维护本机配置。",
+);
 
 // tableManagementPagePaths: T10 覆盖的管理页必须继续使用 Element Plus el-table 展示主体信息。
 const tableManagementPagePaths = [
@@ -1214,17 +1263,17 @@ assertIncludes(
   "顶部菜单激活状态必须由真实路由推导。",
 );
 assertIncludes(
-  chatPageOnly,
+  chatConversationPanelOnly + chatOptionsOnly,
   "每一步副作用操作都需要用户确认",
   "执行模式下拉必须展示建议模式说明。",
 );
 assertIncludes(
-  chatPageOnly,
+  chatConversationPanelOnly + chatOptionsOnly,
   "低风险读取或编辑流程可自动执行",
   "执行模式下拉必须展示自动编辑说明。",
 );
 assertIncludes(
-  chatPageOnly,
+  chatConversationPanelOnly + chatOptionsOnly,
   "在权限和沙箱范围内自动执行",
   "执行模式下拉必须展示全自动说明。",
 );

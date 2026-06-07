@@ -7,6 +7,7 @@ import type {
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
+import {AgentEditRepository} from "./data-access/agent-edit-repository.js";
 
 /**
  * PendingFileEditInput：真实文件编辑后的待确认记录输入。
@@ -68,35 +69,6 @@ export function recordPendingFileEdit(
         input.afterContent,
     );
 
-    database.connection().prepare(`
-        INSERT INTO pending_edit_records (id,
-                                          session_id,
-                                          agent_id,
-                                          file_path,
-                                          change_kind,
-                                          before_content,
-                                          after_content,
-                                          status,
-                                          added_lines,
-                                          removed_lines,
-                                          created_at,
-                                          updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-        editId,
-        input.sessionId,
-        input.agentId,
-        input.filePath,
-        input.changeKind,
-        input.beforeContent,
-        input.afterContent,
-        "pending",
-        lineStats.addedLines,
-        lineStats.removedLines,
-        now,
-        now,
-    );
-
     const record: PendingEditRecord = {
         editId,
         sessionId: input.sessionId,
@@ -111,6 +83,7 @@ export function recordPendingFileEdit(
         createdAt: now,
         updatedAt: now,
     };
+    new AgentEditRepository(database).insertPendingEdit(record);
 
     if (events) {
         events.append({
