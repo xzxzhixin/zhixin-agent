@@ -1,6 +1,5 @@
 import {spawn} from "node:child_process";
-import {existsSync, readFileSync} from "node:fs";
-import {join} from "node:path";
+import type {ChildProcessWithoutNullStreams} from "node:child_process";
 import {existsSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
@@ -386,6 +385,8 @@ export function buildUnifiedToolCallIntentFromModelCall(toolCall: ModelToolCall)
 export interface McpToolRequest {
     /** toolCallId: 模型工具调用 ID，用于 UI 聚合同一次 MCP 调用；非模型触发时为 null。 */
     toolCallId?: string | null;
+    /** transportType: MCP 传输类型；运行时读取配置后补齐。 */
+    transportType?: "http" | "stdio" | null;
     /** serverId: MCP Server ID，来源于 mcp/global.json 或项目级 MCP 配置。 */
     serverId: string;
     /** toolName: MCP Server 暴露的工具名称。 */
@@ -468,6 +469,8 @@ export async function runMcpTool(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<McpToolResult> {
     const capability = resolveUnifiedToolCapability("builtin.mcp.call");
+    const serverConfig = readMcpServerConfig(centerDirectory, request.serverId);
+    request.transportType = serverConfig.type;
     events.append({
         eventType: "tool.mcp.started",
         scopeType: "tool",
@@ -481,6 +484,7 @@ export async function runMcpTool(
         payload: withOptionalGraphCheckpoint({
             toolId: capability?.toolId ?? "builtin.mcp.call",
             toolKind: "mcp",
+            transportType: serverConfig.type,
             toolCallId: request.toolCallId ?? null,
             requiredPermission: capability?.requiredPermission ?? "mcp.call",
             serverId: request.serverId,
@@ -490,8 +494,7 @@ export async function runMcpTool(
     });
 
     try {
-        const serverConfig = readMcpServerConfig(centerDirectory, request.serverId);
-        const outputSummary = await callHttpMcpTool(
+        const outputSummary = await callMcpTool(
             serverConfig,
             request.toolName,
             request.arguments,
@@ -552,14 +555,31 @@ function readToolInputSummary(argumentsJson: Record<string, unknown>, fallbackSu
         : fallbackSummary;
 }
 
-interface McpServerConfig {
+interface HttpMcpServerConfig {
     /** serverId: MCP Server ID，来源于 mcpServers 对象 key。 */
     serverId: string;
-    /** type: MCP 传输类型；当前真实执行只支持 http。 */
+    /** type: MCP HTTP Streamable transport。 */
     type: "http";
     /** url: MCP HTTP Streamable endpoint。 */
     url: string;
 }
+
+interface StdioMcpServerConfig {
+    /** serverId: MCP Server ID，来源于 mcpServers 对象 key。 */
+    serverId: string;
+    /** type: MCP stdio transport。 */
+    type: "stdio";
+    /** command: 启动 MCP Server 的可执行命令。 */
+    command: string;
+    /** args: 启动 MCP Server 的参数数组。 */
+    args: string[];
+    /** env: 追加环境变量；事件中不得泄露具体值。 */
+    env: Record<string, string>;
+    /** cwd: MCP Server 工作目录；未配置时继承中心服务工作目录。 */
+    cwd: string | null;
+}
+
+type McpServerConfig = HttpMcpServerConfig | StdioMcpServerConfig;
 
 interface JsonRpcResponse {
     /** id: JSON-RPC 请求 ID。 */
@@ -584,7 +604,7 @@ interface JsonRpcResponse {
 async function listConfiguredMcpModelToolSpecs(centerDirectory: string): Promise<ModelToolSpec[]> {
     const specs: ModelToolSpec[] = [];
     for (const serverConfig of readAllMcpServerConfigs(centerDirectory)) {
-        const tools = await listHttpMcpTools(serverConfig).catch(() => {
+        const tools = await listMcpTools(serverConfig).catch(() => {
             // catch: MCP Server 不可达时不阻断模型调用，静态 builtin.mcp.call 仍可返回失败事件。
             return [];
         });
@@ -601,6 +621,58 @@ async function listConfiguredMcpModelToolSpecs(centerDirectory: string): Promise
         }
     }
     return specs;
+}
+
+/**
+ * listConfiguredMcpToolViews：读取已配置 MCP Server 暴露的工具，供管理页展示。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @returns 已发现工具列表；单个 Server 失败时返回一条错误行。
+ */
+export async function listConfiguredMcpToolViews(centerDirectory: string): Promise<Array<{
+    serverId: string;
+    transportType: "http" | "stdio";
+    toolName: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    errorMessage: string | null;
+}>> {
+    const rows: Array<{
+        serverId: string;
+        transportType: "http" | "stdio";
+        toolName: string;
+        description: string;
+        inputSchema: Record<string, unknown>;
+        errorMessage: string | null;
+    }> = [];
+    for (const serverConfig of readAllMcpServerConfigs(centerDirectory)) {
+        try {
+            const tools = await listMcpTools(serverConfig);
+            for (const tool of tools) {
+                rows.push({
+                    serverId: serverConfig.serverId,
+                    transportType: serverConfig.type,
+                    toolName: tool.name,
+                    description: tool.description,
+                    inputSchema: tool.inputSchema,
+                    errorMessage: null,
+                });
+            }
+        } catch (error) {
+            rows.push({
+                serverId: serverConfig.serverId,
+                transportType: serverConfig.type,
+                toolName: "",
+                description: "",
+                inputSchema: {
+                    type: "object",
+                    properties: {},
+                },
+                errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
+            });
+        }
+    }
+    return rows;
 }
 
 /**
@@ -723,15 +795,485 @@ function readMcpServerConfigFromValue(
         return null;
     }
     const type = typeof rawConfig.type === "string" ? rawConfig.type : "";
-    const url = typeof rawConfig.url === "string" ? rawConfig.url : "";
-    if (type !== "http" || !url) {
-        return null;
+    if (type === "http") {
+        const url = typeof rawConfig.url === "string" ? rawConfig.url : "";
+        if (!url) {
+            return null;
+        }
+        return {
+            serverId,
+            type,
+            url,
+        };
+    }
+    if (type === "stdio") {
+        const command = typeof rawConfig.command === "string" ? rawConfig.command : "";
+        if (!command) {
+            return null;
+        }
+        return {
+            serverId,
+            type,
+            command,
+            args: Array.isArray(rawConfig.args)
+                ? rawConfig.args.map((arg) => String(arg))
+                : [],
+            env: isRecord(rawConfig.env)
+                ? Object.fromEntries(Object.entries(rawConfig.env).map(([key, value]) => [
+                    key,
+                    String(value),
+                ]))
+                : {},
+            cwd: typeof rawConfig.cwd === "string" && rawConfig.cwd.length > 0
+                ? rawConfig.cwd
+                : null,
+        };
+    }
+    return null;
+}
+
+/**
+ * listMcpTools：按 MCP transport 分发工具发现请求。
+ *
+ * @param serverConfig MCP Server 配置。
+ * @returns 工具定义列表。
+ */
+async function listMcpTools(serverConfig: McpServerConfig): Promise<Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+}>> {
+    if (serverConfig.type === "http") {
+        return listHttpMcpTools(serverConfig);
+    }
+    return listStdioMcpTools(serverConfig);
+}
+
+/**
+ * callMcpTool：按 MCP transport 分发工具调用请求。
+ *
+ * @param serverConfig MCP Server 配置。
+ * @param toolName MCP 工具名。
+ * @param toolArguments MCP 工具参数。
+ * @returns 工具输出摘要。
+ */
+async function callMcpTool(
+    serverConfig: McpServerConfig,
+    toolName: string,
+    toolArguments: Record<string, unknown>,
+): Promise<string> {
+    if (serverConfig.type === "http") {
+        return callHttpMcpTool(
+            serverConfig,
+            toolName,
+            toolArguments,
+        );
+    }
+    return callStdioMcpTool(
+        serverConfig,
+        toolName,
+        toolArguments,
+    );
+}
+
+/**
+ * normalizeMcpToolsResult：把 tools/list result 转换为内部工具定义。
+ *
+ * @param result MCP tools/list result。
+ * @returns 规范化后的工具定义列表。
+ */
+function normalizeMcpToolsResult(result: unknown): Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+}> {
+    const tools = isRecord(result) && Array.isArray(result.tools)
+        ? result.tools
+        : [];
+    return tools.map((tool) => {
+        if (!isRecord(tool) || typeof tool.name !== "string") {
+            return null;
+        }
+        return {
+            name: tool.name,
+            description: typeof tool.description === "string" ? tool.description : "",
+            inputSchema: isRecord(tool.inputSchema)
+                ? tool.inputSchema
+                : {
+                    type: "object",
+                    properties: {},
+                },
+        };
+    }).filter((tool): tool is {
+        name: string;
+        description: string;
+        inputSchema: Record<string, unknown>;
+    } => tool !== null);
+}
+
+/**
+ * listStdioMcpTools：通过 stdio MCP tools/list 读取 Server 工具清单。
+ *
+ * @param serverConfig stdio MCP Server 配置。
+ * @returns 工具定义列表。
+ */
+async function listStdioMcpTools(serverConfig: StdioMcpServerConfig): Promise<Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+}>> {
+    return withStdioMcpSession(serverConfig, async (session) => {
+        await session.initialize();
+        const result = await session.request(
+            "tools/list",
+            {},
+        );
+        return normalizeMcpToolsResult(result);
+    });
+}
+
+/**
+ * callStdioMcpTool：通过 stdio MCP tools/call 执行指定工具。
+ *
+ * @param serverConfig stdio MCP Server 配置。
+ * @param toolName MCP 工具名。
+ * @param toolArguments MCP 工具参数。
+ * @returns 工具输出摘要。
+ */
+async function callStdioMcpTool(
+    serverConfig: StdioMcpServerConfig,
+    toolName: string,
+    toolArguments: Record<string, unknown>,
+): Promise<string> {
+    return withStdioMcpSession(serverConfig, async (session) => {
+        await session.initialize();
+        const result = await session.request(
+            "tools/call",
+            {
+                name: toolName,
+                arguments: toolArguments,
+            },
+        );
+        return summarizeMcpToolResult(result);
+    });
+}
+
+class StdioMcpSession {
+    /** child: 当前 stdio MCP Server 子进程。 */
+    private readonly child: ChildProcessWithoutNullStreams;
+    /** buffer: stdout 累积缓冲，用于解析换行 JSON 或 Content-Length 帧。 */
+    private buffer = "";
+    /** stderrChunks: 子进程 stderr 诊断摘要，失败时用于定位启动问题。 */
+    private readonly stderrChunks: string[] = [];
+    /** pending: JSON-RPC 请求等待表，按 id 关联响应。 */
+    private readonly pending = new Map<string, {
+        resolve: (value: unknown) => void;
+        reject: (error: Error) => void;
+        timeout: NodeJS.Timeout;
+    }>();
+
+    /**
+     * constructor：创建 stdio MCP 会话。
+     *
+     * @param serverConfig stdio MCP Server 配置。
+     */
+    constructor(private readonly serverConfig: StdioMcpServerConfig) {
+        const execution = resolveStdioExecution(serverConfig);
+        this.child = spawn(
+            execution.command,
+            execution.args,
+            {
+                cwd: serverConfig.cwd ?? undefined,
+                env: createStdioProcessEnv(serverConfig.env),
+                windowsHide: true,
+                stdio: "pipe",
+            },
+        );
+        this.child.stdout.on("data", (chunk: Buffer) => {
+            this.handleStdout(chunk.toString("utf-8"));
+        });
+        this.child.stderr.on("data", (chunk: Buffer) => {
+            // stderr: MCP Server 调试日志不进入 JSON-RPC 协议流，只在启动或调用失败时作为短摘要返回。
+            const text = chunk.toString("utf-8").trim();
+            if (text) {
+                this.stderrChunks.push(text);
+            }
+        });
+        this.child.on("error", (error) => {
+            this.rejectAll(error);
+        });
+        this.child.on("close", (code) => {
+            const stderrSummary = this.stderrChunks.join("\n").slice(0, 500);
+            this.rejectAll(new Error(`MCP_STDIO_CLOSED:${code ?? "UNKNOWN"}${stderrSummary ? `:${stderrSummary}` : ""}`));
+        });
+    }
+
+    /**
+     * initialize：完成 MCP initialize 和 initialized 通知。
+     *
+     * @returns 没有返回值。
+     */
+    async initialize(): Promise<void> {
+        await this.request(
+            "initialize",
+            {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: {
+                    name: "zhixin-agent-center",
+                    version: "0.1.0",
+                },
+            },
+        );
+        this.notify(
+            "notifications/initialized",
+            {},
+        );
+    }
+
+    /**
+     * request：发送 JSON-RPC 请求并等待 result。
+     *
+     * @param method MCP 方法名。
+     * @param params MCP 参数对象。
+     * @returns JSON-RPC result。
+     */
+    request(method: string, params: Record<string, unknown>): Promise<unknown> {
+        const id = randomMcpRequestId(method);
+        const body = {
+            jsonrpc: "2.0",
+            id,
+            method,
+            params,
+        };
+        this.writeJsonRpc(body);
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.pending.delete(id);
+                reject(new Error(`MCP_STDIO_TIMEOUT:${method}`));
+            }, 30_000);
+            this.pending.set(
+                id,
+                {
+                    resolve,
+                    reject,
+                    timeout,
+                },
+            );
+        });
+    }
+
+    /**
+     * notify：发送 JSON-RPC notification。
+     *
+     * @param method MCP 通知方法名。
+     * @param params MCP 通知参数。
+     * @returns 没有返回值。
+     */
+    notify(method: string, params: Record<string, unknown>): void {
+        this.writeJsonRpc({
+            jsonrpc: "2.0",
+            method,
+            params,
+        });
+    }
+
+    /**
+     * close：关闭当前 stdio MCP 子进程。
+     *
+     * @returns 没有返回值。
+     */
+    close(): void {
+        for (const entry of this.pending.values()) {
+            clearTimeout(entry.timeout);
+        }
+        this.pending.clear();
+        if (!this.child.killed) {
+            this.child.kill();
+        }
+    }
+
+    /**
+     * writeJsonRpc：按 stdio transport 写入 JSON-RPC 消息。
+     *
+     * @param body JSON-RPC 消息体。
+     * @returns 没有返回值。
+     */
+    private writeJsonRpc(body: Record<string, unknown>): void {
+        // JSON 行协议：chrome-devtools-mcp 等 Node stdio MCP Server 接受每行一个 JSON-RPC 消息。
+        this.child.stdin.write(`${JSON.stringify(body)}\n`);
+    }
+
+    /**
+     * handleStdout：解析 stdout 中的换行 JSON 或 Content-Length 帧。
+     *
+     * @param chunk stdout 文本块。
+     * @returns 没有返回值。
+     */
+    private handleStdout(chunk: string): void {
+        this.buffer += chunk;
+        this.drainContentLengthFrames();
+        this.drainJsonLines();
+    }
+
+    /**
+     * drainContentLengthFrames：兼容 Content-Length framed stdio 消息。
+     *
+     * @returns 没有返回值。
+     */
+    private drainContentLengthFrames(): void {
+        while (this.buffer.startsWith("Content-Length:")) {
+            const headerEnd = this.buffer.indexOf("\r\n\r\n");
+            if (headerEnd < 0) {
+                return;
+            }
+            const header = this.buffer.slice(0, headerEnd);
+            const lengthMatch = /Content-Length:\s*(\d+)/iu.exec(header);
+            if (!lengthMatch) {
+                return;
+            }
+            const length = Number(lengthMatch[1]);
+            const bodyStart = headerEnd + 4;
+            const bodyEnd = bodyStart + length;
+            if (this.buffer.length < bodyEnd) {
+                return;
+            }
+            this.handleJsonRpcText(this.buffer.slice(bodyStart, bodyEnd));
+            this.buffer = this.buffer.slice(bodyEnd);
+        }
+    }
+
+    /**
+     * drainJsonLines：解析每行一个 JSON-RPC 消息的 stdio 输出。
+     *
+     * @returns 没有返回值。
+     */
+    private drainJsonLines(): void {
+        let newlineIndex = this.buffer.indexOf("\n");
+        while (newlineIndex >= 0) {
+            const line = this.buffer.slice(0, newlineIndex).trim();
+            this.buffer = this.buffer.slice(newlineIndex + 1);
+            if (line.length > 0) {
+                this.handleJsonRpcText(line);
+            }
+            newlineIndex = this.buffer.indexOf("\n");
+        }
+    }
+
+    /**
+     * handleJsonRpcText：处理一条 JSON-RPC 响应或通知。
+     *
+     * @param text JSON-RPC 文本。
+     * @returns 没有返回值。
+     */
+    private handleJsonRpcText(text: string): void {
+        const parsed = tryParseRecord(text);
+        if (!parsed || typeof parsed.id !== "string") {
+            return;
+        }
+        const pending = this.pending.get(parsed.id);
+        if (!pending) {
+            return;
+        }
+        this.pending.delete(parsed.id);
+        clearTimeout(pending.timeout);
+        if (isRecord(parsed.error)) {
+            pending.reject(new Error(`MCP_JSON_RPC_ERROR:${String(parsed.error.message ?? parsed.error.code ?? "UNKNOWN")}`));
+            return;
+        }
+        pending.resolve(parsed.result ?? null);
+    }
+
+    /**
+     * rejectAll：子进程异常时拒绝所有等待中的请求。
+     *
+     * @param error 失败原因。
+     * @returns 没有返回值。
+     */
+    private rejectAll(error: Error): void {
+        for (const [
+            id,
+            entry,
+        ] of this.pending.entries()) {
+            clearTimeout(entry.timeout);
+            entry.reject(error);
+            this.pending.delete(id);
+        }
+    }
+}
+
+/**
+ * createStdioProcessEnv：创建 stdio MCP 子进程环境变量。
+ *
+ * @param extraEnv MCP 配置追加环境变量。
+ * @returns 只包含字符串值的环境变量对象。
+ */
+function createStdioProcessEnv(extraEnv: Record<string, string>): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const [
+        key,
+        value,
+    ] of Object.entries(process.env)) {
+        if (typeof value === "string") {
+            result[key] = value;
+        }
     }
     return {
-        serverId,
-        type,
-        url,
+        ...result,
+        ...extraEnv,
     };
+}
+
+/**
+ * resolveStdioCommandExecutable：修正 Windows 下 npm 系命令需要 .cmd 才能 spawn 的问题。
+ *
+ * @param command MCP 配置中的命令。
+ * @returns 可传给 spawn 的命令。
+ */
+function resolveStdioExecution(serverConfig: StdioMcpServerConfig): {
+    command: string;
+    args: string[];
+} {
+    if (process.platform === "win32" && [
+        "npx",
+        "npm",
+        "pnpm",
+        "yarn",
+    ].includes(serverConfig.command)) {
+        return {
+            command: "cmd.exe",
+            args: [
+                "/d",
+                "/s",
+                "/c",
+                serverConfig.command,
+                ...serverConfig.args,
+            ],
+        };
+    }
+    return {
+        command: serverConfig.command,
+        args: serverConfig.args,
+    };
+}
+
+/**
+ * withStdioMcpSession：创建短生命周期 stdio MCP 会话并自动关闭。
+ *
+ * @param serverConfig stdio MCP Server 配置。
+ * @param handler 会话使用逻辑。
+ * @returns handler 的返回值。
+ */
+async function withStdioMcpSession<T>(
+    serverConfig: StdioMcpServerConfig,
+    handler: (session: StdioMcpSession) => Promise<T>,
+): Promise<T> {
+    const session = new StdioMcpSession(serverConfig);
+    try {
+        return await handler(session);
+    } finally {
+        session.close();
+    }
 }
 
 /**
@@ -1035,7 +1577,7 @@ function appendMcpToolResult(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): McpToolResult {
     const event = events.append({
-        eventType: status === "completed" ? "tool.mcp.completed" : "tool.call.failed",
+        eventType: status === "completed" ? "tool.mcp.completed" : "tool.mcp.failed",
         scopeType: "tool",
         scopeId: taskId,
         sessionId,
@@ -1047,6 +1589,7 @@ function appendMcpToolResult(
         payload: withOptionalGraphCheckpoint({
             toolId: capability?.toolId ?? "builtin.mcp.call",
             toolKind: "mcp",
+            transportType: request.transportType ?? null,
             toolCallId: request.toolCallId ?? null,
             requiredPermission: capability?.requiredPermission ?? "mcp.call",
             serverId: request.serverId,

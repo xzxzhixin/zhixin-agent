@@ -247,6 +247,26 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column
+            label="工具"
+            min-width="320"
+        >
+          <template #default="{ row: config }">
+            <div class="mcp-tool-list">
+              <el-tag
+                  v-for="tool in config.tools"
+                  :key="`${tool.serverId}-${tool.toolName || tool.errorMessage}`"
+                  :type="tool.errorMessage ? 'danger' : 'success'"
+                  effect="plain"
+              >
+                {{ tool.transportType }} · {{ tool.serverId }}{{ tool.toolName ? ` · ${tool.toolName}` : "" }}
+              </el-tag>
+              <small v-if="config.tools.length === 0">
+                暂未发现工具；请确认 MCP Server 可连接后刷新。
+              </small>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
             label="更新时间"
             min-width="180"
         >
@@ -270,5 +290,11 @@ onMounted(() => {
   </section>
 </template>
 
-
-
+<style scoped>
+.mcp-tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+</style>

@@ -94,6 +94,7 @@ import {
 } from "./extension-domain.js";
 import {
     listUnifiedToolCapabilities,
+    listConfiguredMcpToolViews,
 } from "./tool-runtime.js";
 import {
     buildWorkerContext,
@@ -1176,9 +1177,15 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         }));
     });
 
-    app.post("/api/mcp/list", async () => createSuccessResponse({
-        configs: listMcpConfigs(config.centerDirectory),
-    }));
+    app.post("/api/mcp/list", async () => {
+        const tools = await listConfiguredMcpToolViews(config.centerDirectory);
+        return createSuccessResponse({
+            configs: listMcpConfigs(config.centerDirectory).map((mcpConfig) => ({
+                ...mcpConfig,
+                tools,
+            })),
+        });
+    });
 
     app.post("/api/skill/install", async (request) => {
         const body = request.body as {

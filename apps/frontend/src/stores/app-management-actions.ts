@@ -1055,7 +1055,12 @@ export function createManagementActions() {
         async loadMcpConfigs(): Promise<void> {
             try {
                 const result = await this.api().listMcpConfigs();
-                this.mcpConfigs = result.configs;
+                this.mcpConfigs = result.configs.map((config) => ({
+                    ...config,
+                    tools: Array.isArray(config.tools)
+                        ? config.tools
+                        : [],
+                }));
                 this.clearManagementError("mcp");
             } catch (error) {
                 this.recordManagementError("mcp", error);

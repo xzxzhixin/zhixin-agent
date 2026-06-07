@@ -393,6 +393,9 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
             "tool.command.started",
             "tool.command.output",
             "tool.command.completed",
+            "tool.mcp.started",
+            "tool.mcp.completed",
+            "tool.mcp.failed",
             "tool.call.started",
             "tool.call.output",
             "tool.call.completed",
@@ -481,6 +484,20 @@ function resolveProcessGroupKey(event: EventRecord): string {
             event.taskId ?? "no-task",
             "command",
             commandGroupId,
+        ].join(":");
+    }
+    if (event.eventType.startsWith("tool.mcp.")) {
+        const toolCallId = typeof payload.toolCallId === "string" && payload.toolCallId.length > 0
+            ? payload.toolCallId
+            : [
+                payload.serverId,
+                payload.toolName,
+            ].filter((item) => typeof item === "string" && item.length > 0).join(".");
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "mcp",
+            toolCallId || event.eventId,
         ].join(":");
     }
     const toolKind = typeof payload.toolKind === "string"
@@ -577,12 +594,16 @@ function resolveProcessGroupTitle(event: EventRecord): string {
         ) || "工具";
     }
     if (event.eventType.startsWith("tool.mcp.")) {
-        const mcpName = readEventText(
+        const serverId = readEventText(
             event,
-            "mcpName",
+            "serverId",
         );
-        return mcpName
-            ? `MCP：${mcpName}`
+        const toolName = readEventText(
+            event,
+            "toolName",
+        );
+        return serverId || toolName
+            ? `MCP：${serverId}${toolName ? ` · ${toolName}` : ""}`
             : "MCP";
     }
     if (event.eventType.startsWith("tool.plugin.")) {
@@ -635,6 +656,9 @@ function resolveProcessLogText(event: EventRecord): string {
     return readEventText(
         event,
         "outputSummary",
+    ) || readEventText(
+        event,
+        "inputSummary",
     ) || readEventText(
         event,
         "outputChunk",

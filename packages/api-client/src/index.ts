@@ -516,8 +516,34 @@ export interface McpConfigView {
   relativePath: string;
   /** mcpServers: MCP Server 配置对象。 */
   mcpServers: Record<string, unknown>;
+  /** tools: 中心服务从 MCP Server 实时发现到的工具清单；不可达时对应服务器返回空列表并写入错误。 */
+  tools: McpToolView[];
   /** updatedAt: 更新时间 ISO 字符串，文件缺失时为 null。 */
   updatedAt: string | null;
+}
+
+/**
+ * McpToolView：MCP 管理页工具展示结构。
+ *
+ * 来源：中心服务读取 MCP 配置后调用 tools/list 得到。
+ * 含义：用于展示 HTTP 或 stdio MCP Server 当前暴露的工具。
+ * 格式：serverId、transportType、toolName、description 和错误信息。
+ * 默认值：无工具时为空数组。
+ * 约束：不包含敏感 env、认证头或完整参数值。
+ */
+export interface McpToolView {
+  /** serverId: MCP Server ID，来自 mcpServers 对象 key。 */
+  serverId: string;
+  /** transportType: MCP 传输协议类型。 */
+  transportType: "http" | "stdio";
+  /** toolName: MCP Server 暴露的工具名称。 */
+  toolName: string;
+  /** description: MCP Server 返回的工具说明。 */
+  description: string;
+  /** inputSchema: 工具参数 schema，用于展示和模型工具定义。 */
+  inputSchema: Record<string, unknown>;
+  /** errorMessage: 工具发现失败时的错误摘要；成功时为 null。 */
+  errorMessage: string | null;
 }
 
 /**
