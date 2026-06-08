@@ -8,6 +8,9 @@ import {
 import {
   use,
 } from "echarts/core";
+import {
+  ElMessage,
+} from "element-plus";
 
 import {
   useAppStore,
@@ -23,9 +26,6 @@ const usageChartModulesRegistered = use;
 const currentWorkspacePage = "providers";
 // providerDialogVisible: 供应商新增和编辑弹框显隐。
 const providerDialogVisible = ref(false);
-// managementError：当前页面接口错误摘要，来源于 store 层捕获结果。
-const managementError = computed(() => appStore.managementErrors.providers ?? "");
-
 // selectedProtocolPlugin：当前草稿选中的协议插件，来源于中心服务注册列表。
 const selectedProtocolPlugin = computed(() => {
   return appStore.providerProtocolPlugins.find((plugin) => {
@@ -214,6 +214,8 @@ const manualModelContextError = computed(() => {
  */
 function openCreateProviderDialog(): void {
   appStore.resetProviderDraft();
+  // enabled: 新增供应商默认保存为停用，避免只填 Base URL 和 API Key 的草稿触发启用完整性校验。
+  appStore.providerDraft.enabled = false;
   providerDialogVisible.value = true;
 }
 
@@ -283,8 +285,13 @@ function formatModelContextWindowsForDialog(
  * @returns 保存完成后没有返回值。
  */
 async function saveProviderDialog(): Promise<void> {
-  await appStore.saveProvider();
-  if (!appStore.managementErrors.providers) {
+  await runProviderMessageAction({
+    action: () => appStore.saveProvider(),
+    successMessage: "供应商已保存。",
+    failureMessage: "供应商保存失败。",
+    warningOnly: false,
+  });
+  if (!getProviderError()) {
     providerDialogVisible.value = false;
   }
 }
@@ -295,7 +302,119 @@ async function saveProviderDialog(): Promise<void> {
  * @returns 获取完成后没有返回值。
  */
 async function fetchProviderModelsForDialog(): Promise<void> {
-  await appStore.fetchProviderModels();
+  await runProviderMessageAction({
+    action: () => appStore.fetchProviderModels(),
+    successMessage: "模型列表已获取。",
+    failureMessage: "模型列表获取失败。",
+    warningOnly: true,
+  });
+}
+
+/**
+ * refreshProvidersWithMessage：刷新供应商列表并使用全局消息提示结果。
+ *
+ * @returns 刷新完成后没有返回值。
+ */
+async function refreshProvidersWithMessage(): Promise<void> {
+  await runProviderMessageAction({
+    action: () => appStore.loadProviders(),
+    successMessage: "供应商列表已刷新。",
+    failureMessage: "供应商列表刷新失败。",
+    warningOnly: true,
+  });
+}
+
+/**
+ * toggleProviderWithMessage：启用或停用供应商并显示全局消息。
+ *
+ * @param provider 供应商列表行。
+ * @returns 操作完成后没有返回值。
+ */
+async function toggleProviderWithMessage(provider: Parameters<typeof appStore.toggleProvider>[0]): Promise<void> {
+  await runProviderMessageAction({
+    action: () => appStore.toggleProvider(provider),
+    successMessage: provider.enabled ? "供应商已停用。" : "供应商已启用。",
+    failureMessage: provider.enabled ? "供应商停用失败。" : "供应商启用失败。",
+    warningOnly: false,
+  });
+}
+
+/**
+ * deleteProviderWithMessage：删除供应商入口沿用中心服务停用能力并显示全局消息。
+ *
+ * @param provider 供应商列表行。
+ * @returns 操作完成后没有返回值。
+ */
+async function deleteProviderWithMessage(provider: Parameters<typeof appStore.deleteProvider>[0]): Promise<void> {
+  await runProviderMessageAction({
+    action: () => appStore.deleteProvider(provider),
+    successMessage: "供应商已删除。",
+    failureMessage: "供应商删除失败。",
+    warningOnly: false,
+  });
+}
+
+/**
+ * refreshProviderModelsWithMessage：提交手动模型配置并显示全局消息。
+ *
+ * @param provider 供应商列表行。
+ * @returns 操作完成后没有返回值。
+ */
+async function refreshProviderModelsWithMessage(provider: Parameters<typeof appStore.refreshProviderModels>[0]): Promise<void> {
+  await runProviderMessageAction({
+    action: () => appStore.refreshProviderModels(provider),
+    successMessage: "模型和推理深度已保存。",
+    failureMessage: "模型和推理深度保存失败。",
+    warningOnly: true,
+  });
+}
+
+/**
+ * getProviderError：读取供应商管理错误。
+ *
+ * @returns 当前供应商错误文案。
+ */
+function getProviderError(): string {
+  return appStore.managementErrors.providers ?? "";
+}
+
+/**
+ * runProviderMessageAction：把供应商页操作结果统一转为 Element Plus 全局消息。
+ *
+ * @param options 操作函数、成功文案、失败文案和警告级别。
+ * @returns 操作完成后没有返回值。
+ */
+async function runProviderMessageAction(options: {
+  action: () => Promise<void>;
+  successMessage: string;
+  failureMessage: string;
+  warningOnly: boolean;
+}): Promise<void> {
+  // managementErrors.providers: store 是供应商错误事实源；页面操作前清空旧错误，避免旧错误被误当成本次失败。
+  appStore.managementErrors.providers = "";
+  try {
+    await options.action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : options.failureMessage;
+    ElMessage.error(message);
+    return;
+  }
+
+  const providerError = getProviderError();
+  if (providerError) {
+    if (providerError.includes("配置不完整，无法启用")) {
+      ElMessage.error(providerError);
+      return;
+    }
+    if (options.warningOnly) {
+      ElMessage.warning(providerError);
+    } else {
+      ElMessage.error(providerError);
+    }
+    return;
+  }
+
+  ElMessage.success(options.successMessage);
 }
 
 /**
@@ -327,13 +446,6 @@ onMounted(() => {
       </el-button>
     </header>
     <section class="page-scroll">
-      <el-alert
-          v-if="managementError"
-          class="management-error"
-          type="error"
-          :closable="false"
-          :title="managementError"
-      />
       <el-dialog
           v-model="providerDialogVisible"
           append-to-body
@@ -532,7 +644,7 @@ onMounted(() => {
           >
             保存供应商
           </el-button>
-          <el-button @click="appStore.loadProviders">
+          <el-button @click="refreshProvidersWithMessage">
             刷新列表
           </el-button>
         </div>
@@ -590,16 +702,16 @@ onMounted(() => {
               <el-button @click="openEditProviderDialog(provider)">
                 修改
               </el-button>
-              <el-button @click="appStore.toggleProvider(provider)">
+              <el-button @click="toggleProviderWithMessage(provider)">
                 {{ provider.enabled ? "停用" : "启用" }}
               </el-button>
-              <el-button @click="appStore.refreshProviderModels(provider)">
+              <el-button @click="refreshProviderModelsWithMessage(provider)">
                 刷新模型/推理深度
               </el-button>
               <el-button
                   type="danger"
                   plain
-                  @click="appStore.deleteProvider(provider)"
+                  @click="deleteProviderWithMessage(provider)"
               >
                 删除
               </el-button>

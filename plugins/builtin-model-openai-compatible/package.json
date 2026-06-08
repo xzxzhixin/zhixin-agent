@@ -7,7 +7,6 @@
     "build": "node -e \"console.log('plugins/builtin-model-openai-compatible 由源码直接参与构建')\""
   },
   "dependencies": {
-    "@zhixin/model-protocol": "workspace:*",
     "@zhixin/plugin-sdk": "workspace:*"
   },
   "devDependencies": {

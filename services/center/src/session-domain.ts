@@ -16,13 +16,12 @@ import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import type {SendMessageResponse, TaskStepRecord} from "./types.js";
 import {SessionRepository} from "./data-access/session-repository.js";
-import {createDataAccess} from "./data-access/index.js";
 import {
-    writeAgentMemory,
-    type MemoryWriteInput,
-} from "./agent-domain.js";
-import {runLangGraphTurn} from "./langgraph-runner.js";
-import {syncTurnMemoryToMem0} from "./memory-engine.js";
+    runLangGraphTurn,
+    type LangGraphTurnState,
+    type TurnGraphNodeExecutors,
+    type TurnGraphToolResult,
+} from "./langgraph-runner.js";
 import type {MemoryQueueState} from "./types.js";
 import {
     appendThinkingEvents,
@@ -38,12 +37,11 @@ import {
 } from "./model-gateway-runtime.js";
 import {
     appendToolVisibilityEvents,
-    buildUnifiedToolCallIntentFromModelCall,
-    commandRequestFromUnifiedToolIntent,
-    mcpRequestFromUnifiedToolIntent,
-    runCommandTool,
-    runMcpTool,
 } from "./tool-runtime.js";
+import {
+    commitMainAgentMemoryAfterTurn,
+    executeModelRequestedTools,
+} from "./session-turn-effects.js";
 import {
     createTurnGraphCheckpoint,
     createTurnGraphContext,
@@ -272,6 +270,7 @@ export function findTask(database: CenterDatabase, taskId: string): TaskRecord |
  * @param events 事件追加器。
  * @param task 任务记录。
  * @param title 步骤标题。
+ * @param graphCheckpoint 可选图检查点。
  * @returns 创建后的任务步骤记录。
  */
 export function createTaskStep(
@@ -329,6 +328,7 @@ export function createTaskStep(
  * @param stepId 步骤 ID。
  * @param status 新状态。
  * @param summary 步骤摘要。
+ * @param graphCheckpoint 可选图检查点。
  * @returns 更新后的步骤记录；不存在时返回 null。
  */
 export function updateTaskStep(
@@ -391,6 +391,7 @@ export function updateTaskStep(
  * @param events 事件追加器。
  * @param turnId 轮次 ID。
  * @param status 新轮次状态。
+ * @param preferredTaskId 当前图执行任务 ID；传入后只同步该任务状态。
  * @returns 更新后的轮次记录；不存在时返回 null。
  */
 export function updateTurnStatus(
@@ -398,6 +399,7 @@ export function updateTurnStatus(
     events: CenterEventStore,
     turnId: string,
     status: "waiting_user" | "completed" | "failed" | "cancelled",
+    preferredTaskId?: string,
 ): ConversationTurn | null {
     const turn = new SessionRepository(database).findTurn(turnId);
 
@@ -422,6 +424,7 @@ export function updateTurnStatus(
         turnId,
         taskStatus,
         now,
+        preferredTaskId,
     );
 
     events.append({
@@ -577,6 +580,8 @@ export function createMessageTurnAndTask(
  * @param events 事件追加器。
  * @param sent 发送接口创建的消息、轮次和任务身份。
  * @param userText 用户原始输入。
+ * @param centerDirectory 中心目录。
+ * @param memoryQueues 智能体记忆单写队列。
  * @returns 没有返回值。
  */
 export async function completeCreatedTurn(
@@ -594,415 +599,524 @@ export async function completeCreatedTurn(
         userText,
         centerDirectory,
         memoryQueues,
-        completeCreatedTurn: async (createdTurn, createdUserText) => {
-            await completeCreatedTurnInGraph(
-                database,
-                events,
-                createdTurn,
-                createdUserText,
-                centerDirectory,
-                memoryQueues,
-            );
-        },
+        executors: createTurnGraphNodeExecutors(
+            database,
+            events,
+            centerDirectory,
+            memoryQueues,
+        ),
     });
 }
 
 /**
- * completeCreatedTurnInGraph：LangGraphJS 节点内执行现有轮次闭环。
- *
- * @param database 中心服务数据库。
- * @param events 事件追加器。
- * @param sent 发送接口创建的消息、轮次和任务身份。
- * @param userText 用户原始输入。
- * @returns 没有返回值。
- */
-async function completeCreatedTurnInGraph(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    sent: SendMessageResponse,
-    userText: string,
-    centerDirectory?: string,
-    memoryQueues?: Map<string, MemoryQueueState>,
-): Promise<void> {
-    const assistantMessageId = randomUUID();
-    const now = new Date().toISOString();
-    const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
-    const graphContext = createTurnGraphContext({
-        sessionId: sent.sessionId,
-        turnId: sent.turnId,
-        taskId: sent.taskId,
-    });
-    const thinkingCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "thinking.context",
-            nodeKind: "thinking",
-            superstep: 1,
-            parentNodeId: null,
-            nextNodeIds: [
-                "model.stream",
-            ],
-            stateSummary: "整理会话、项目、记忆和可用能力上下文。",
-        },
-    );
-    const modelCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "model.stream",
-            nodeKind: "model",
-            superstep: 2,
-            parentNodeId: "thinking.context",
-            nextNodeIds: [
-                "tool.command",
-                "tool.plan",
-            ],
-            stateSummary: "调用供应商模型并接收流式回复。",
-        },
-    );
-    const toolPlanCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "tool.plan",
-            nodeKind: "tool",
-            superstep: 4,
-            parentNodeId: "model.stream",
-            nextNodeIds: [
-                "extension.visibility",
-            ],
-            stateSummary: "记录模型工具计划和后续可用能力状态。",
-        },
-    );
-    const extensionCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "extension.visibility",
-            nodeKind: "extension",
-            superstep: 5,
-            parentNodeId: "tool.plan",
-            nextNodeIds: [
-                "message.persist",
-            ],
-            stateSummary: "记录插件、MCP 和 skill 当前可执行性。",
-        },
-    );
-    const messageCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "message.persist",
-            nodeKind: "message",
-            superstep: 6,
-            parentNodeId: "extension.visibility",
-            nextNodeIds: [
-                "memory.commit",
-            ],
-            stateSummary: "固化助手消息并完成当前轮次。",
-        },
-    );
-
-    startWorkerTask(database, events, sent.taskId);
-    const thinkingStep = createTaskStep(
-        database,
-        events,
-        stepTaskFromGraphContext(graphContext),
-        "思考与上下文整理",
-        thinkingCheckpoint,
-    );
-    try {
-        appendThinkingEvents(
-            events,
-            database,
-            sent.sessionId,
-            sent.taskId,
-            sent.turnId,
-            userText,
-            thinkingCheckpoint,
-        );
-        updateTaskStep(
-            database,
-            events,
-            thinkingStep.stepId,
-            "completed",
-            "思考过程和上下文整理完成。",
-            thinkingCheckpoint,
-        );
-        const modelStep = createTaskStep(
-            database,
-            events,
-            stepTaskFromGraphContext(graphContext),
-            "模型流式输出",
-            modelCheckpoint,
-        );
-        const modelResult = await invokeProviderModelGateway(
-            database,
-            events,
-            sent.sessionId,
-            sent.taskId,
-            sent.turnId,
-            userText,
-            modelCheckpoint,
-        );
-        updateTaskStep(
-            database,
-            events,
-            modelStep.stepId,
-            "completed",
-            "模型流式输出完成并准备固化助手消息。",
-            modelCheckpoint,
-        );
-        const toolLoopResult = await runModelRequestedToolLoop(
-            database,
-            events,
-            sent,
-            userText,
-            modelResult,
-            now,
-            graphContext,
-        );
-        const finalModelResult = toolLoopResult.finalModelResult;
-        const toolPlanStep = createTaskStep(
-            database,
-            events,
-            stepTaskFromGraphContext(graphContext),
-            "工具计划生成",
-            toolPlanCheckpoint,
-        );
-        events.append({
-            eventType: "tool.plan.created",
-            scopeType: "tool-plan",
-            scopeId: sent.taskId,
-            sessionId: sent.sessionId,
-            turnId: sent.turnId,
-            taskId: sent.taskId,
-            status: "completed",
-            title: "工具计划",
-            summary: toolLoopResult.executedTool
-                ? "模型已基于结构化工具定义请求工具调用。"
-                : "当前模型回复未请求工具调用，已记录插件、MCP 和 skill 可用性。",
-            payload: withTurnGraphCheckpoint({
-                plannedToolId: toolLoopResult.executedTool?.toolId ?? null,
-                plannedToolKind: toolLoopResult.executedTool?.toolKind ?? null,
-                inputSummary: toolLoopResult.executedTool?.inputSummary ?? null,
-                fallbackToolKinds: [
-                    "plugin",
-                    "mcp",
-                    "skill",
-                ],
-            }, toolPlanCheckpoint),
-        });
-        updateTaskStep(
-            database,
-            events,
-            toolPlanStep.stepId,
-            "completed",
-            toolLoopResult.executedTool
-                ? "工具计划已由模型工具调用请求生成并执行。"
-                : "工具计划已生成，本轮模型未请求可执行工具。",
-            toolPlanCheckpoint,
-        );
-        const extensionStep = createTaskStep(
-            database,
-            events,
-            stepTaskFromGraphContext(graphContext),
-            "插件、MCP 和 skill 状态记录",
-            extensionCheckpoint,
-        );
-        appendToolVisibilityEvents(
-            events,
-            sent.sessionId,
-            sent.taskId,
-            sent.turnId,
-            extensionCheckpoint,
-        );
-        updateTaskStep(
-            database,
-            events,
-            extensionStep.stepId,
-            "completed",
-            "插件、MCP 和 skill 未解析到可执行实例，已按统一工具注册表写入不可用事件。",
-            extensionCheckpoint,
-        );
-        const assistantText = finalModelResult.assistantText;
-        if (isIncompleteToolIntentReply(assistantText)) {
-            markTurnIncompleteToolIntent(
-                database,
-                events,
-                sent,
-                turnSessionId,
-                assistantText,
-            );
-            return;
-        }
-        new SessionRepository(database).insertAssistantMessageForTurn({
-            messageId: assistantMessageId,
-            turnId: sent.turnId,
-            contentMarkdown: assistantText,
-            createdAt: now,
-        });
-        events.append({
-            eventType: "message.created",
-            scopeType: "message",
-            scopeId: assistantMessageId,
-            sessionId: turnSessionId,
-            turnId: sent.turnId,
-            taskId: sent.taskId,
-            status: "completed",
-            title: "消息创建",
-            summary: "助手回复已写入中心服务。",
-            payload: withTurnGraphCheckpoint({
-                messageId: assistantMessageId,
-                role: "assistant",
-            }, messageCheckpoint),
-        });
-        handleWorkerMessage(database, events, "task.complete", sent.taskId, {
-            assistantMessageId,
-            providerId: finalModelResult.providerId,
-            model: finalModelResult.model,
-            usage: finalModelResult.usage,
-        });
-        if (centerDirectory && memoryQueues) {
-            await commitMainAgentMemoryAfterTurn(
-                database,
-                events,
-                centerDirectory,
-                memoryQueues,
-                sent,
-                userText,
-                assistantText,
-            );
-        }
-        recordModelUsageAfterTurn(database, events, sent, finalModelResult);
-        updateSessionTitleAfterTurn(database, events, sent, userText, assistantText);
-        updateTurnStatus(database, events, sent.turnId, "completed");
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "UNKNOWN_MODEL_ERROR";
-        new SessionRepository(database).updateTaskStatus(
-            sent.taskId,
-            "failed",
-            new Date().toISOString(),
-        );
-        new SessionRepository(database).updateTurnStatus({
-            turnId: sent.turnId,
-            status: "failed",
-            endedAt: new Date().toISOString(),
-            durationMs: 0,
-        });
-        events.append({
-            eventType: "model.failed",
-            scopeType: "model",
-            scopeId: sent.taskId,
-            sessionId: turnSessionId,
-            turnId: sent.turnId,
-            taskId: sent.taskId,
-            status: "failed",
-            title: "模型调用失败",
-            summary: message,
-            payload: {
-                taskId: sent.taskId,
-                turnId: sent.turnId,
-                errorMessage: message,
-            },
-        });
-        handleWorkerMessage(database, events, "task.failed", sent.taskId, {
-            errorMessage: message,
-        });
-    }
-}
-
-/**
- * commitMainAgentMemoryAfterTurn：正常会话完成后追加主智能体长期记忆。
+ * createTurnGraphNodeExecutors：创建 LangGraphJS 多节点执行器。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
  * @param centerDirectory 中心目录。
  * @param memoryQueues 智能体记忆单写队列。
- * @param sent 当前轮次身份。
- * @param userText 用户本轮输入。
- * @param assistantText 助手本轮回复。
- * @returns 没有返回值。
+ * @returns 每个 LangGraph 节点对应的执行函数。
  */
-async function commitMainAgentMemoryAfterTurn(
+function createTurnGraphNodeExecutors(
     database: CenterDatabase,
     events: CenterEventStore,
-    centerDirectory: string,
-    memoryQueues: Map<string, MemoryQueueState>,
-    sent: SendMessageResponse,
-    userText: string,
-    assistantText: string,
-): Promise<void> {
-    // memoryInput: 记忆写入边界是一轮完整对话，索引必须绑定当前会话和轮次便于迁移后追溯。
-    const memoryInput: MemoryWriteInput = {
-        agentId: "main",
-        keywords: summarizeMemoryKeywords(userText),
-        summary: summarizeMemoryText(userText, assistantText),
-        userText,
-        assistantText,
-        sourceSessionId: sent.sessionId,
-        sourceTurnId: sent.turnId,
-        attachmentRefsJson: "[]",
+    centerDirectory?: string,
+    memoryQueues?: Map<string, MemoryQueueState>,
+): TurnGraphNodeExecutors {
+    return {
+        thinkingContext: async (state) => {
+            const graphContext = createStateGraphContext(state);
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "thinking.context",
+                "thinking",
+                1,
+                null,
+                [
+                    "model.stream",
+                ],
+                "整理会话、项目、记忆和可用能力上下文。",
+            );
+            startWorkerTask(database, events, state.taskId);
+            const thinkingStep = createTaskStep(
+                database,
+                events,
+                stepTaskFromGraphContext(graphContext),
+                "思考与上下文整理",
+                checkpoint,
+            );
+            appendThinkingEvents(
+                events,
+                database,
+                state.sessionId,
+                state.taskId,
+                state.turnId,
+                state.userText,
+                checkpoint,
+            );
+            updateTaskStep(
+                database,
+                events,
+                thinkingStep.stepId,
+                "completed",
+                "思考过程和上下文整理完成。",
+                checkpoint,
+            );
+            return {};
+        },
+        modelStream: async (state) => {
+            const graphContext = createStateGraphContext(state);
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "model.stream",
+                "model",
+                2,
+                "thinking.context",
+                [
+                    "tool.execute",
+                    "message.persist",
+                ],
+                "调用供应商模型并接收 OpenAI Chat Completions 流式回复。",
+            );
+            const modelStep = createTaskStep(
+                database,
+                events,
+                stepTaskFromGraphContext(graphContext),
+                "模型流式输出",
+                checkpoint,
+            );
+            try {
+                const modelResult = await invokeProviderModelGateway(
+                    database,
+                    events,
+                    state.sessionId,
+                    state.taskId,
+                    state.turnId,
+                    state.userText,
+                    checkpoint,
+                );
+                updateTaskStep(
+                    database,
+                    events,
+                    modelStep.stepId,
+                    "completed",
+                    modelResult.toolCalls.length > 0
+                        ? "模型已通过 OpenAI tool_calls 请求工具。"
+                        : "模型流式输出完成并准备固化助手消息。",
+                    checkpoint,
+                );
+                return {
+                    modelResult,
+                    finalModelResult: modelResult.toolCalls.length === 0
+                        ? modelResult
+                        : state.finalModelResult,
+                };
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : "UNKNOWN_MODEL_ERROR";
+                updateTaskStep(
+                    database,
+                    events,
+                    modelStep.stepId,
+                    "failed",
+                    errorMessage,
+                    checkpoint,
+                );
+                return {
+                    failed: true,
+                    errorMessage,
+                };
+            }
+        },
+        toolExecute: async (state) => {
+            if (!state.modelResult || state.modelResult.toolCalls.length === 0) {
+                return {
+                    toolResults: [],
+                };
+            }
+            if (state.toolRound >= 4) {
+                return {
+                    failed: true,
+                    errorMessage: "MODEL_TOOL_LOOP_LIMIT_EXCEEDED",
+                };
+            }
+            const graphContext = createStateGraphContext(state);
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "tool.execute",
+                "tool",
+                3 + state.toolRound * 2,
+                "model.stream",
+                [
+                    "tool.result",
+                ],
+                "执行模型请求的命令或 MCP 工具并记录副作用结果。",
+            );
+            const toolResults = await executeModelRequestedTools(
+                database,
+                events,
+                state.sent,
+                state.modelResult,
+                graphContext,
+                checkpoint,
+            );
+            return {
+                toolResults: toolResults.map((toolResult): TurnGraphToolResult => {
+                    return {
+                        toolCall: toolResult.toolCall,
+                        resultText: toolResult.resultText,
+                        executedTool: {
+                            toolId: toolResult.unifiedToolIntent.toolId,
+                            toolKind: toolResult.unifiedToolIntent.toolKind,
+                            inputSummary: toolResult.unifiedToolIntent.inputSummary,
+                        },
+                    };
+                }),
+                executedTool: toolResults[0]
+                    ? {
+                        toolId: toolResults[0].unifiedToolIntent.toolId,
+                        toolKind: toolResults[0].unifiedToolIntent.toolKind,
+                        inputSummary: toolResults[0].unifiedToolIntent.inputSummary,
+                    }
+                    : state.executedTool,
+            };
+        },
+        toolResult: async (state) => {
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "tool.result",
+                "model",
+                4 + state.toolRound * 2,
+                "tool.execute",
+                [
+                    "tool.execute",
+                    "message.persist",
+                ],
+                "按 OpenAI tool_call_id 把工具结果回填模型生成后续回复。",
+            );
+            if (state.toolResults.length === 0) {
+                return {
+                    modelResult: state.modelResult,
+                    finalModelResult: state.modelResult,
+                    toolRound: state.toolRound + 1,
+                };
+            }
+            try {
+                const nextModelResult = await continueProviderModelGatewayWithToolResults(
+                    database,
+                    events,
+                    state.sessionId,
+                    state.taskId,
+                    state.turnId,
+                    state.userText,
+                    state.toolResults.map((toolResult) => {
+                        return {
+                            toolCall: toolResult.toolCall,
+                            resultText: toolResult.resultText,
+                        };
+                    }),
+                    checkpoint,
+                );
+                return {
+                    modelResult: nextModelResult,
+                    finalModelResult: nextModelResult.toolCalls.length === 0
+                        ? nextModelResult
+                        : state.finalModelResult,
+                    toolResults: [],
+                    toolRound: state.toolRound + 1,
+                };
+            } catch (error) {
+                return {
+                    failed: true,
+                    errorMessage: error instanceof Error ? error.message : "UNKNOWN_TOOL_RESULT_MODEL_ERROR",
+                };
+            }
+        },
+        toolPlan: async (state) => {
+            const graphContext = createStateGraphContext(state);
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "tool.plan",
+                "tool",
+                5 + state.toolRound * 2,
+                "memory.commit",
+                [
+                    "usage.record",
+                ],
+                "记录模型工具计划和后续可用能力状态。",
+            );
+            const toolPlanStep = createTaskStep(
+                database,
+                events,
+                stepTaskFromGraphContext(graphContext),
+                "工具计划生成",
+                checkpoint,
+            );
+            events.append({
+                eventType: "tool.plan.created",
+                scopeType: "tool-plan",
+                scopeId: state.taskId,
+                sessionId: state.sessionId,
+                turnId: state.turnId,
+                taskId: state.taskId,
+                status: "completed",
+                title: "工具计划",
+                summary: state.executedTool
+                    ? "模型已基于 OpenAI 结构化工具定义请求工具调用。"
+                    : "当前模型回复未请求工具调用，已记录插件、MCP 和 skill 可用性。",
+                payload: withTurnGraphCheckpoint({
+                    plannedToolId: state.executedTool?.toolId ?? null,
+                    plannedToolKind: state.executedTool?.toolKind ?? null,
+                    inputSummary: state.executedTool?.inputSummary ?? null,
+                    fallbackToolKinds: [
+                        "plugin",
+                        "mcp",
+                        "skill",
+                    ],
+                }, checkpoint),
+            });
+            appendToolVisibilityEvents(
+                events,
+                state.sessionId,
+                state.taskId,
+                state.turnId,
+                checkpoint,
+            );
+            updateTaskStep(
+                database,
+                events,
+                toolPlanStep.stepId,
+                "completed",
+                state.executedTool
+                    ? "工具计划已由模型工具调用请求生成并执行。"
+                    : "工具计划已生成，本轮模型未请求可执行工具。",
+                checkpoint,
+            );
+            return {};
+        },
+        messagePersist: async (state) => {
+            const finalModelResult = state.finalModelResult ?? state.modelResult;
+            if (!finalModelResult) {
+                return {
+                    failed: true,
+                    errorMessage: "MODEL_RESULT_NOT_AVAILABLE",
+                };
+            }
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "message.persist",
+                "message",
+                6 + state.toolRound * 2,
+                state.executedTool ? "tool.result" : "model.stream",
+                [
+                    "memory.commit",
+                    "failure.close",
+                ],
+                "固化助手消息并处理半截工具意图失败。",
+            );
+            const assistantText = finalModelResult.assistantText;
+            const turnSessionId = new SessionRepository(database).findSessionIdByTurn(state.turnId);
+            if (isIncompleteToolIntentReply(assistantText)) {
+                markTurnIncompleteToolIntent(
+                    database,
+                    events,
+                    state.sent,
+                    turnSessionId,
+                    assistantText,
+                    checkpoint,
+                );
+                return {
+                    failed: true,
+                    incompleteToolIntent: true,
+                    assistantText,
+                    errorMessage: "INCOMPLETE_TOOL_INTENT_REPLY",
+                };
+            }
+            const assistantMessageId = randomUUID();
+            new SessionRepository(database).insertAssistantMessageForTurn({
+                messageId: assistantMessageId,
+                turnId: state.turnId,
+                contentMarkdown: assistantText,
+                createdAt: new Date().toISOString(),
+            });
+            events.append({
+                eventType: "message.created",
+                scopeType: "message",
+                scopeId: assistantMessageId,
+                sessionId: turnSessionId,
+                turnId: state.turnId,
+                taskId: state.taskId,
+                status: "completed",
+                title: "消息创建",
+                summary: "助手回复已写入中心服务。",
+                payload: withTurnGraphCheckpoint({
+                    messageId: assistantMessageId,
+                    role: "assistant",
+                }, checkpoint),
+            });
+            handleWorkerMessage(database, events, "task.complete", state.taskId, {
+                assistantMessageId,
+                providerId: finalModelResult.providerId,
+                model: finalModelResult.model,
+                usage: finalModelResult.usage,
+            });
+            return {
+                assistantText,
+                assistantMessageId,
+                finalModelResult,
+            };
+        },
+        memoryCommit: async (state) => {
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "memory.commit",
+                "memory",
+                7 + state.toolRound * 2,
+                "message.persist",
+                [
+                    "usage.record",
+                ],
+                "提交主智能体长期记忆和语义记忆索引。",
+            );
+            if (centerDirectory && memoryQueues && state.assistantText) {
+                await commitMainAgentMemoryAfterTurn(
+                    database,
+                    events,
+                    centerDirectory,
+                    memoryQueues,
+                    state.sent,
+                    state.userText,
+                    state.assistantText,
+                    checkpoint,
+                );
+            }
+            return {};
+        },
+        usageRecord: async (state) => {
+            const finalModelResult = state.finalModelResult ?? state.modelResult;
+            if (!finalModelResult || !state.assistantText) {
+                return {
+                    failed: true,
+                    errorMessage: "FINAL_MODEL_RESULT_NOT_AVAILABLE",
+                };
+            }
+            const checkpoint = createStateGraphCheckpoint(
+                state,
+                "usage.record",
+                "usage",
+                8 + state.toolRound * 2,
+                "tool.plan",
+                [
+                    "END",
+                ],
+                "写入模型用量、刷新日聚合并更新会话标题。",
+            );
+            recordModelUsageAfterTurn(
+                database,
+                events,
+                state.sent,
+                finalModelResult,
+                checkpoint,
+            );
+            updateSessionTitleAfterTurn(
+                database,
+                events,
+                state.sent,
+                state.userText,
+                state.assistantText,
+            );
+            updateTurnStatus(
+                database,
+                events,
+                state.turnId,
+                "completed",
+                state.taskId,
+            );
+            return {};
+        },
+        failureClose: async (state) => {
+            const turnSessionId = new SessionRepository(database).findSessionIdByTurn(state.turnId);
+            const message = state.errorMessage ?? "UNKNOWN_MODEL_ERROR";
+            new SessionRepository(database).updateTaskStatus(
+                state.taskId,
+                "failed",
+                new Date().toISOString(),
+            );
+            new SessionRepository(database).updateTurnStatus({
+                turnId: state.turnId,
+                status: "failed",
+                endedAt: new Date().toISOString(),
+                durationMs: 0,
+            });
+            events.append({
+                eventType: "model.failed",
+                scopeType: "model",
+                scopeId: state.taskId,
+                sessionId: turnSessionId,
+                turnId: state.turnId,
+                taskId: state.taskId,
+                status: "failed",
+                title: "模型调用失败",
+                summary: message,
+                payload: {
+                    taskId: state.taskId,
+                    turnId: state.turnId,
+                    errorMessage: message,
+                },
+            });
+            handleWorkerMessage(database, events, "task.failed", state.taskId, {
+                errorMessage: message,
+            });
+            return {};
+        },
     };
-    const memoryResult = writeAgentMemory(
-        database,
-        events,
-        centerDirectory,
-        memoryQueues,
-        memoryInput,
-    );
-    await syncTurnMemoryToMem0(
-        events,
-        centerDirectory,
+}
+
+/**
+ * createStateGraphContext：从 LangGraph 状态生成中心服务图上下文。
+ *
+ * @param state 当前 LangGraph 状态。
+ * @returns 中心服务图上下文。
+ */
+function createStateGraphContext(state: LangGraphTurnState): TurnGraphContext {
+    return createTurnGraphContext({
+        sessionId: state.sessionId,
+        turnId: state.turnId,
+        taskId: state.taskId,
+    });
+}
+
+/**
+ * createStateGraphCheckpoint：为 LangGraph 节点生成中心服务 checkpoint。
+ *
+ * @param state 当前 LangGraph 状态。
+ * @param nodeId 节点 ID。
+ * @param nodeKind 节点类型。
+ * @param superstep 节点层级。
+ * @param parentNodeId 父节点 ID。
+ * @param nextNodeIds 后续节点 ID。
+ * @param stateSummary 状态摘要。
+ * @returns 可写入事件载荷的图检查点。
+ */
+function createStateGraphCheckpoint(
+    state: LangGraphTurnState,
+    nodeId: string,
+    nodeKind: TurnGraphCheckpoint["nodeKind"],
+    superstep: number,
+    parentNodeId: string | null,
+    nextNodeIds: string[],
+    stateSummary: string,
+): TurnGraphCheckpoint {
+    return createTurnGraphCheckpoint(
+        createStateGraphContext(state),
         {
-            agentId: memoryInput.agentId,
-            projectId: null,
-            sourceSessionId: sent.sessionId,
-            sourceTurnId: sent.turnId,
-            sourceMemoryPath: memoryResult.relativePath,
-            sourceMemoryText: memoryInput.summary,
+            nodeId,
+            nodeKind,
+            superstep,
+            parentNodeId,
+            nextNodeIds,
+            stateSummary,
         },
     );
-}
-
-/**
- * summarizeMemoryKeywords：从本轮用户输入生成简短关键词。
- *
- * @param userText 用户本轮输入。
- * @returns 关键词文本。
- */
-function summarizeMemoryKeywords(userText: string): string {
-    const normalized = userText.replace(/\s+/gu, " ").trim();
-    return normalized.length > 0
-        ? normalized.slice(0, 24)
-        : "对话";
-}
-
-/**
- * summarizeMemoryText：生成长期记忆摘要。
- *
- * @param userText 用户本轮输入。
- * @param assistantText 助手本轮回复。
- * @returns 记忆摘要。
- */
-function summarizeMemoryText(
-    userText: string,
-    assistantText: string,
-): string {
-    const normalized = `${userText}\n${assistantText}`.replace(/\s+/gu, " ").trim();
-    return normalized.length > 0
-        ? normalized.slice(0, 120)
-        : "本轮对话已完成。";
-}
-
-/**
- * extractCenterDirectoryForToolLoop：读取工具执行所需中心目录。
- *
- * @param database 中心服务数据库。
- * @returns 中心目录绝对路径。
- */
-function extractCenterDirectoryForToolLoop(database: CenterDatabase): string {
-    const centerDirectory = createDataAccess(database).system.readMetaValue("centerDirectory") ?? "";
-    if (!centerDirectory) {
-        throw new Error("CENTER_DIRECTORY_NOT_AVAILABLE");
-    }
-    return centerDirectory;
 }
 
 /**
@@ -1044,6 +1158,7 @@ function isIncompleteToolIntentReply(assistantText: string): boolean {
  * @param sent 当前轮次身份。
  * @param sessionId 当前轮次所属会话 ID。
  * @param assistantText 被拦截的模型正文。
+ * @param graphCheckpoint 失败收尾节点图检查点。
  * @returns 没有返回值。
  */
 function markTurnIncompleteToolIntent(
@@ -1052,6 +1167,7 @@ function markTurnIncompleteToolIntent(
     sent: SendMessageResponse,
     sessionId: string | null,
     assistantText: string,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     const reason = "模型输出了继续执行工具的半截话术，但没有携带结构化工具调用。";
     events.append({
@@ -1064,12 +1180,12 @@ function markTurnIncompleteToolIntent(
         status: "failed",
         title: "模型回复不完整",
         summary: reason,
-        payload: {
+        payload: withOptionalGraphCheckpoint({
             taskId: sent.taskId,
             turnId: sent.turnId,
             interceptedAssistantText: assistantText,
             reason: "INCOMPLETE_TOOL_INTENT_REPLY",
-        },
+        }, graphCheckpoint),
         errorCode: "INCOMPLETE_TOOL_INTENT_REPLY",
     });
     updateTurnStatus(
@@ -1084,251 +1200,13 @@ function markTurnIncompleteToolIntent(
 }
 
 /**
- * runModelRequestedToolLoop：执行模型请求的工具调用并把结果回填模型。
- *
- * @param database 中心服务数据库。
- * @param events 事件追加器。
- * @param sent 当前轮次身份。
- * @param userText 用户原始输入。
- * @param modelResult 首次模型调用结果。
- * @param now 当前轮次统一时间。
- * @returns 最终模型回复和已执行工具摘要。
- */
-async function runModelRequestedToolLoop(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    sent: SendMessageResponse,
-    userText: string,
-    modelResult: ProviderModelGatewayResult,
-    now: string,
-    graphContext: TurnGraphContext,
-): Promise<{
-    finalModelResult: ProviderModelGatewayResult;
-    executedTool: {
-        toolId: string;
-        toolKind: string;
-        inputSummary: string;
-    } | null;
-}> {
-    if (modelResult.toolCalls.length === 0) {
-        return {
-            finalModelResult: modelResult,
-            executedTool: null,
-        };
-    }
-
-    const allToolResults: Array<{
-        toolCall: NonNullable<ProviderModelGatewayResult["toolCall"]>;
-        resultText: string;
-        unifiedToolIntent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>;
-    }> = [];
-    const toolExecuteCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "tool.execute",
-            nodeKind: "tool",
-            superstep: 3,
-            parentNodeId: "model.stream",
-            nextNodeIds: [
-                "tool.plan",
-            ],
-            stateSummary: "执行模型请求的命令或 MCP 工具并记录副作用结果。",
-        },
-    );
-    const toolResultCheckpoint = createTurnGraphCheckpoint(
-        graphContext,
-        {
-            nodeId: "tool.result",
-            nodeKind: "model",
-            superstep: 4,
-            parentNodeId: "tool.execute",
-            nextNodeIds: [
-                "tool.plan",
-            ],
-            stateSummary: "把工具结果回填给模型生成最终回复。",
-        },
-    );
-
-    let currentModelResult = modelResult;
-    for (let round = 0; round < 4 && currentModelResult.toolCalls.length > 0; round += 1) {
-        const toolResults = await executeModelRequestedTools(
-            database,
-            events,
-            sent,
-            currentModelResult,
-            graphContext,
-            toolExecuteCheckpoint,
-        );
-        if (toolResults.length === 0) {
-            break;
-        }
-        allToolResults.push(...toolResults);
-        currentModelResult = await continueProviderModelGatewayWithToolResults(
-            database,
-            events,
-            sent.sessionId,
-            sent.taskId,
-            sent.turnId,
-            userText,
-            toolResults.map((toolResult) => {
-                return {
-                    toolCall: toolResult.toolCall,
-                    resultText: toolResult.resultText,
-                };
-            }),
-            toolResultCheckpoint,
-        );
-    }
-
-    if (allToolResults.length === 0) {
-        return {
-            finalModelResult: currentModelResult,
-            executedTool: null,
-        };
-    }
-
-    const firstToolResult = allToolResults[0];
-
-    return {
-        finalModelResult: currentModelResult,
-        executedTool: {
-            toolId: firstToolResult.unifiedToolIntent.toolId,
-            toolKind: firstToolResult.unifiedToolIntent.toolKind,
-            inputSummary: firstToolResult.unifiedToolIntent.inputSummary,
-        },
-    };
-}
-
-/**
- * executeModelRequestedTools：执行当前模型回复中携带的一组工具调用。
- *
- * @param database 中心服务数据库。
- * @param events 事件追加器。
- * @param sent 当前轮次身份。
- * @param modelResult 当前模型返回。
- * @param graphContext 当前对话图上下文。
- * @param toolExecuteCheckpoint 工具执行节点检查点。
- * @returns 可回填模型的工具结果。
- */
-async function executeModelRequestedTools(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    sent: SendMessageResponse,
-    modelResult: ProviderModelGatewayResult,
-    graphContext: TurnGraphContext,
-    toolExecuteCheckpoint: TurnGraphCheckpoint,
-): Promise<Array<{
-    toolCall: NonNullable<ProviderModelGatewayResult["toolCall"]>;
-    resultText: string;
-    unifiedToolIntent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>;
-}>> {
-    const toolResults: Array<{
-        toolCall: NonNullable<ProviderModelGatewayResult["toolCall"]>;
-        resultText: string;
-        unifiedToolIntent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>;
-    }> = [];
-
-    for (const toolCall of modelResult.toolCalls) {
-        events.append({
-            eventType: "model.tool.requested",
-            scopeType: "tool",
-            scopeId: sent.taskId,
-            sessionId: sent.sessionId,
-            turnId: sent.turnId,
-            taskId: sent.taskId,
-            status: "running",
-            title: "模型请求工具",
-            summary: `模型请求调用 ${toolCall.name}`,
-            payload: withTurnGraphCheckpoint({
-                toolCallId: toolCall.toolCallId,
-                toolName: toolCall.name,
-                argumentsJson: toolCall.argumentsJson,
-            }, toolExecuteCheckpoint),
-        });
-
-        const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(toolCall);
-        if (!unifiedToolIntent || ![
-            "command",
-            "mcp",
-        ].includes(unifiedToolIntent.toolKind)) {
-            events.append({
-                eventType: "model.tool.rejected",
-                scopeType: "tool",
-                scopeId: sent.taskId,
-                sessionId: sent.sessionId,
-                turnId: sent.turnId,
-                taskId: sent.taskId,
-                status: "failed",
-                title: "模型工具请求未执行",
-                summary: "模型请求的工具不存在、不可用或当前最小闭环暂不支持。",
-                payload: withTurnGraphCheckpoint({
-                    toolCallId: toolCall.toolCallId,
-                    toolName: toolCall.name,
-                }, toolExecuteCheckpoint),
-            });
-            continue;
-        }
-
-        const toolStep = createTaskStep(
-            database,
-            events,
-            stepTaskFromGraphContext(graphContext),
-            unifiedToolIntent.toolKind === "command" ? "命令工具执行" : "MCP 工具执行",
-            toolExecuteCheckpoint,
-        );
-        const toolResult = unifiedToolIntent.toolKind === "command"
-            ? await runCommandTool(
-                events,
-                sent.sessionId,
-                sent.taskId,
-                sent.turnId,
-                {
-                    ...commandRequestFromUnifiedToolIntent(unifiedToolIntent),
-                    toolCallId: toolCall.toolCallId,
-                },
-                toolExecuteCheckpoint,
-            )
-            : await runMcpTool(
-                events,
-                extractCenterDirectoryForToolLoop(database),
-                sent.sessionId,
-                sent.taskId,
-                sent.turnId,
-                {
-                    ...mcpRequestFromUnifiedToolIntent(unifiedToolIntent),
-                    toolCallId: toolCall.toolCallId,
-                },
-                toolExecuteCheckpoint,
-            );
-        updateTaskStep(
-            database,
-            events,
-            toolStep.stepId,
-            toolResult.status,
-            toolResult.status === "completed"
-                ? `${unifiedToolIntent.toolKind === "command" ? "命令" : "MCP"}工具执行完成：${toolResult.outputSummary || "工具没有输出。"}`
-                : `${unifiedToolIntent.toolKind === "command" ? "命令" : "MCP"}工具执行失败：${toolResult.failureReason ?? "未返回失败原因。"}`,
-            toolExecuteCheckpoint,
-        );
-        toolResults.push({
-            toolCall,
-            resultText: toolResult.status === "completed"
-                ? toolResult.outputSummary || "工具没有输出。"
-                : toolResult.failureReason ?? "工具执行失败。",
-            unifiedToolIntent,
-        });
-    }
-
-    return toolResults;
-}
-
-/**
  * recordModelUsageAfterTurn：真实模型调用完成后写入用量原始记录并刷新日聚合。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
  * @param sent 当前发送接口返回的会话、轮次和任务身份。
  * @param modelResult 模型网关返回的真实供应商、模型和用量。
+ * @param graphCheckpoint 用量节点图检查点。
  * @returns 写入成功时返回用量记录 ID；模型未返回用量时返回 null。
  */
 export function recordModelUsageAfterTurn(
@@ -1336,6 +1214,7 @@ export function recordModelUsageAfterTurn(
     events: CenterEventStore,
     sent: SendMessageResponse,
     modelResult: ProviderModelGatewayResult,
+    graphCheckpoint?: TurnGraphCheckpoint,
 ): string | null {
     if (!modelResult.usage) {
         events.append({
@@ -1348,11 +1227,11 @@ export function recordModelUsageAfterTurn(
             status: "completed",
             title: "用量记录跳过",
             summary: "模型供应商未返回用量字段，原始用量不写入。",
-            payload: {
+            payload: withOptionalGraphCheckpoint({
                 providerId: modelResult.providerId,
                 model: modelResult.model,
                 reason: "MODEL_USAGE_NOT_PROVIDED",
-            },
+            }, graphCheckpoint),
         });
         return null;
     }
@@ -1369,12 +1248,12 @@ export function recordModelUsageAfterTurn(
             status: "failed",
             title: "用量记录失败",
             summary: "用量写入时未找到当前会话，已保留模型回复。",
-            payload: {
+            payload: withOptionalGraphCheckpoint({
                 sessionId: sent.sessionId,
                 providerId: modelResult.providerId,
                 model: modelResult.model,
                 reason: "SESSION_NOT_FOUND",
-            },
+            }, graphCheckpoint),
             errorCode: "USAGE_SESSION_NOT_FOUND",
         });
         return null;
@@ -1385,11 +1264,34 @@ export function recordModelUsageAfterTurn(
         model: modelResult.model,
         projectId: session.projectId,
         sessionId: sent.sessionId,
+        turnId: sent.turnId,
+        taskId: sent.taskId,
         inputTokens: modelResult.usage.inputTokens,
         outputTokens: modelResult.usage.outputTokens,
         cacheHitTokens: modelResult.usage.cacheHitTokens,
         cacheMissTokens: modelResult.usage.cacheMissTokens,
         status: "completed",
+        graphPayload: graphCheckpoint
+            ? {
+                graph: graphCheckpoint,
+            }
+            : undefined,
+    });
+    events.append({
+        eventType: "usage.recorded.graph_checkpoint",
+        scopeType: "usage",
+        scopeId: usage.usageId,
+        sessionId: sent.sessionId,
+        turnId: sent.turnId,
+        taskId: sent.taskId,
+        status: "completed",
+        title: "用量图检查点",
+        summary: "模型用量记录已绑定当前 LangGraph 节点。",
+        payload: withOptionalGraphCheckpoint({
+            usageId: usage.usageId,
+            providerId: modelResult.providerId,
+            model: modelResult.model,
+        }, graphCheckpoint),
     });
     refreshUsageDailyStats(database);
     return usage.usageId;

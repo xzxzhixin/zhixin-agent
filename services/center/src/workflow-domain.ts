@@ -399,11 +399,14 @@ export function recordUsage(database: CenterDatabase, events: CenterEventStore, 
     model?: string;
     projectId?: string | null;
     sessionId?: string | null;
+    turnId?: string | null;
+    taskId?: string | null;
     inputTokens?: number | null;
     outputTokens?: number | null;
     cacheHitTokens?: number | null;
     cacheMissTokens?: number | null;
-    status?: string
+    status?: string;
+    graphPayload?: Record<string, unknown>;
 }): { usageId: string } {
     const usageId = randomUUID();
     createDataAccess(database).usage.insertUsageRecord({
@@ -424,12 +427,15 @@ export function recordUsage(database: CenterDatabase, events: CenterEventStore, 
         scopeType: "usage",
         scopeId: usageId,
         sessionId: input.sessionId ?? null,
-        turnId: null,
-        taskId: null,
+        turnId: input.turnId ?? null,
+        taskId: input.taskId ?? null,
         status: "completed",
         title: "用量记录",
         summary: input.model ?? "",
-        payload: {usageId}
+        payload: {
+            usageId,
+            ...(input.graphPayload ?? {}),
+        },
     });
     return {usageId};
 }

@@ -20,7 +20,6 @@ const workspacePackages = [
   "packages/shared",
   "packages/api-client",
   "packages/ui",
-  "packages/model-protocol",
   "packages/plugin-sdk",
   "plugins/builtin-model-openai-compatible",
   "plugins/builtin-model-anthropic-messages",

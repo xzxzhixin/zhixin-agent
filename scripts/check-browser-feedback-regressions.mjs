@@ -79,18 +79,20 @@ const taskDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/TaskDet
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const sessionMessageRoute = readProjectFile("services/center/src/session-message-route.ts");
+const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
 const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 
 for (const signal of [
   "appendThinkingEvents",
-  "appendModelStreamEvent",
+  "appendProviderStreamDelta",
   "setTimeout",
   "broadcastEvents",
 ]) {
   assertIncludes(
-    apiRoutes + sessionDomain,
+    apiRoutes + sessionDomain + sessionMessageRoute + modelGatewayRuntime,
     signal,
     `对话发送链路缺少异步过程可见信号：${signal}`,
   );
@@ -149,13 +151,13 @@ for (const signal of [
 }
 
 for (const signal of [
-  "submitGuidanceForQueuedMessage",
-  "isQueuedMessage",
-  "queued-message-actions",
+  "submitQueuedMessageAsGuidance",
+  "queuedComposerMessages",
+  "pending-guidance-queue",
   "当前对话当前轮次排队中",
 ]) {
   assertIncludes(
-    chatPage + chatConversation,
+    chatPage + chatConversation + readProjectFile("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue"),
     signal,
     `主对话引导或排队缺少可见入口：${signal}`,
   );

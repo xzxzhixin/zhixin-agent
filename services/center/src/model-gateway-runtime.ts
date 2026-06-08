@@ -3,10 +3,16 @@ import {existsSync, readdirSync} from "node:fs";
 import {join} from "node:path";
 
 import type {ConversationMessage} from "@zhixin/shared";
-import type {ModelMessage, ModelRequest, ModelToolCall, ModelToolSpec, ModelUsage} from "@zhixin/model-protocol";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
+import type {
+    OpenAiChatMessage,
+    OpenAiChatRequest,
+    OpenAiToolCall,
+    OpenAiToolSpec,
+    OpenAiUsage,
+} from "./openai-chat-protocol.js";
 import {createDataAccess} from "./data-access/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
@@ -42,9 +48,9 @@ export interface ProviderModelGatewayResult {
         rawUsage: unknown;
     } | null;
     /** toolCall: 模型请求的首个工具调用；没有工具请求时为 null。 */
-    toolCall: ModelToolCall | null;
+    toolCall: OpenAiToolCall | null;
     /** toolCalls: 模型请求的全部工具调用；没有工具请求时为空数组。 */
-    toolCalls: ModelToolCall[];
+    toolCalls: OpenAiToolCall[];
 }
 
 interface ResolvedProviderModelRuntime {
@@ -65,9 +71,9 @@ interface ProviderModelGatewayHttpResult {
     /** usage: 供应商返回的真实用量；未提供时为 null。 */
     usage: ProviderModelGatewayResult["usage"];
     /** toolCall: 供应商标准首个工具调用；未请求工具时为 null。 */
-    toolCall: ModelToolCall | null;
+    toolCall: OpenAiToolCall | null;
     /** toolCalls: 供应商标准工具调用数组；未请求工具时为空数组。 */
-    toolCalls: ModelToolCall[];
+    toolCalls: OpenAiToolCall[];
 }
 
 interface ProviderStreamEventContext {
@@ -130,7 +136,7 @@ export async function invokeProviderModelGateway(
     );
     const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
     const tools = await listAvailableModelToolSpecsForCenter(runtime.centerDirectory);
-    const requestPayload = buildModelRequestPayload(
+    const requestPayload = buildOpenAiChatPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
@@ -140,7 +146,7 @@ export async function invokeProviderModelGateway(
         sessionContextPrompt,
         sessionHistoryMessages,
     );
-    const result = await sendProviderModelRequest(runtime, requestPayload, {
+    const result = await sendProviderOpenAiChat(runtime, requestPayload, {
         events,
         sessionId,
         taskId,
@@ -190,7 +196,7 @@ export async function continueProviderModelGatewayWithToolResults(
     turnId: string,
     userText: string,
     toolResults: Array<{
-        toolCall: ModelToolCall;
+        toolCall: OpenAiToolCall;
         resultText: string;
     }>,
     graphCheckpoint?: TurnGraphCheckpoint,
@@ -204,7 +210,7 @@ export async function continueProviderModelGatewayWithToolResults(
     );
     const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
     const tools = await listAvailableModelToolSpecsForCenter(runtime.centerDirectory);
-    const requestPayload = buildModelRequestPayload(
+    const requestPayload = buildOpenAiChatPayload(
         userText,
         runtime.provider.providerId,
         runtime.modelSelection.model,
@@ -216,26 +222,16 @@ export async function continueProviderModelGatewayWithToolResults(
     );
     requestPayload.messages.push({
         role: "assistant",
-        toolCalls: toolResults.map((toolResult) => {
-            return toolResult.toolCall;
+        content: null,
+        tool_calls: toolResults.map((toolResult) => {
+            return toChatCompletionToolCall(toolResult.toolCall);
         }),
-        content: [
-            {
-                type: "text",
-                text: `已请求 ${toolResults.length} 个工具。`,
-            },
-        ],
     });
     for (const toolResult of toolResults) {
         requestPayload.messages.push({
             role: "tool",
-            content: [
-                {
-                    type: "tool_result",
-                    toolCallId: toolResult.toolCall.toolCallId,
-                    resultText: toolResult.resultText,
-                },
-            ],
+            content: toolResult.resultText,
+            tool_call_id: toolResult.toolCall.toolCallId,
         });
     }
 
@@ -260,7 +256,7 @@ export async function continueProviderModelGatewayWithToolResults(
         }, graphCheckpoint),
     });
 
-    return sendProviderModelRequest(runtime, requestPayload, {
+    return sendProviderOpenAiChat(runtime, requestPayload, {
         events,
         sessionId,
         taskId,
@@ -297,46 +293,39 @@ function resolveProviderModelRuntime(database: CenterDatabase, taskId: string): 
 }
 
 /**
- * sendProviderModelRequest：按统一内部模型请求调用供应商协议。
+ * sendProviderOpenAiChat：按 OpenAI Chat Completions 规范调用供应商协议。
  *
  * @param runtime 模型调用运行时上下文。
- * @param requestPayload 内部模型请求。
+ * @param requestPayload OpenAI Chat Completions 请求。
  * @param streamContext 当前会话事件上下文。
  * @returns 模型网关执行结果。
  */
-function sendProviderModelRequest(
+function sendProviderOpenAiChat(
     runtime: ResolvedProviderModelRuntime,
-    requestPayload: ModelRequest,
+    requestPayload: OpenAiChatRequest,
     streamContext: ProviderStreamEventContext,
 ): Promise<ProviderModelGatewayResult> {
     const provider = runtime.provider;
     const modelSelection = runtime.modelSelection;
-    const gatewayRequest = provider.protocolPluginId === "builtin-model-anthropic-messages"
-        ? buildAnthropicGatewayRequest(requestPayload)
-        : buildOpenAiGatewayRequest(requestPayload, provider.protocolMode);
+    const gatewayRequest = buildOpenAiGatewayRequest(requestPayload);
     const apiKey = readSecretValue(
         runtime.centerDirectory,
         provider.apiKeySecretRef,
     );
-    return sendModelRequest(
+    return sendOpenAiChatHttpRequest(
         provider.baseUrl,
         gatewayRequest.endpoint,
         gatewayRequest.body,
         apiKey,
-        provider.protocolMode,
         streamContext,
     ).then((httpResult) => {
-        const textToolCalls = parseModelToolCallsFromText(httpResult.assistantText);
-        const toolCalls = [
-            ...httpResult.toolCalls,
-            ...textToolCalls,
-        ];
+        const toolCalls = httpResult.toolCalls;
         return {
             providerId: provider.providerId,
             model: modelSelection.model,
             reasoningEffort: modelSelection.reasoningEffort,
             assistantText: httpResult.assistantText,
-            usage: httpResult.usage ?? buildUsageSummary(readUserTextFromRequest(requestPayload), httpResult.assistantText, provider.protocolPluginId),
+            usage: httpResult.usage ?? buildUsageSummary(readUserTextFromRequest(requestPayload), httpResult.assistantText, provider.providerId),
             toolCall: toolCalls[0] ?? null,
             toolCalls,
         };
@@ -375,41 +364,31 @@ function readProviderConfigByPriority(database: CenterDatabase, taskId: string) 
     return null;
 }
 
-function buildModelRequestPayload(
+function buildOpenAiChatPayload(
     userText: string,
     providerId: string,
     model: string,
     reasoningEffort: string | null,
-    tools: ModelToolSpec[],
+    tools: OpenAiToolSpec[],
     mainAgentMemories: AgentMemoryPromptEntry[],
     sessionContextPrompt: string,
-    sessionHistoryMessages: ModelMessage[],
-): ModelRequest {
+    sessionHistoryMessages: OpenAiChatMessage[],
+): OpenAiChatRequest {
     const memoryPrompt = buildMainAgentMemoryPrompt(mainAgentMemories);
     // memoryMessages: 主智能体记忆作为 system 消息注入，不改写用户本轮原文。
-    const memoryMessages: ModelRequest["messages"] = memoryPrompt
+    const memoryMessages: OpenAiChatMessage[] = memoryPrompt
         ? [
             {
                 role: "system",
-                content: [
-                    {
-                        type: "text",
-                        text: memoryPrompt,
-                    },
-                ],
+                content: memoryPrompt,
             },
         ]
         : [];
     // sessionContextMessages: 当前会话统计来自 messages 表历史，不混入长期记忆和其他会话。
-    const sessionContextMessages: ModelRequest["messages"] = [
+    const sessionContextMessages: OpenAiChatMessage[] = [
         {
             role: "system",
-            content: [
-                {
-                    type: "text",
-                    text: sessionContextPrompt,
-                },
-            ],
+            content: sessionContextPrompt,
         },
     ];
     return {
@@ -423,12 +402,7 @@ function buildModelRequestPayload(
             ...sessionHistoryMessages,
             {
                 role: "user",
-                content: [
-                    {
-                        type: "text",
-                        text: userText,
-                    },
-                ],
+                content: userText,
             },
         ],
         tools,
@@ -448,37 +422,32 @@ function listSessionHistoryPromptMessages(
     database: CenterDatabase,
     sessionId: string,
     turnId: string,
-): ModelMessage[] {
+): OpenAiChatMessage[] {
     // messages: 来源是中心服务 messages 表，排除本轮当前用户消息，避免和请求尾部 userText 重复。
     const messages = new SessionRepository(database).listMessages(sessionId).filter((message) => {
         return message.turnId !== turnId;
     });
     // recentMessages: 保留最近历史，确保当前窗口内对话记忆进入模型，但不让历史无限增长。
     const recentMessages = messages.slice(-SESSION_HISTORY_PROMPT_LIMIT);
-    return recentMessages.map(toSessionHistoryModelMessage);
+    return recentMessages.map(toSessionHistoryOpenAiMessage);
 }
 
 /**
- * toSessionHistoryModelMessage：把中心服务会话消息转换成内部模型消息。
+ * toSessionHistoryOpenAiMessage：把中心服务会话消息转换成 OpenAI 消息。
  *
  * @param message 中心服务会话消息。
- * @returns 内部模型协议消息。
+ * @returns OpenAI Chat Completions 消息。
  */
-function toSessionHistoryModelMessage(message: ConversationMessage): ModelMessage {
-    // role: messages.role 是中心服务统一会话角色；模型协议只支持 user/assistant/system/tool，这里只转换普通会话历史。
-    const role: ModelMessage["role"] = message.role === "assistant"
+function toSessionHistoryOpenAiMessage(message: ConversationMessage): OpenAiChatMessage {
+    // role: messages.role 是中心服务统一会话角色；OpenAI 历史上下文这里只转换普通会话历史。
+    const role: OpenAiChatMessage["role"] = message.role === "assistant"
         ? "assistant"
         : message.role === "system"
             ? "system"
             : "user";
     return {
         role,
-        content: [
-            {
-                type: "text",
-                text: message.contentMarkdown,
-            },
-        ],
+        content: message.contentMarkdown,
     };
 }
 
@@ -488,7 +457,7 @@ function toSessionHistoryModelMessage(message: ConversationMessage): ModelMessag
  * @param sessionHistoryMessages 已排除本轮用户消息的当前会话历史。
  * @returns 当前会话统计提示。
  */
-function buildSessionContextPrompt(sessionHistoryMessages: ModelMessage[]): string {
+function buildSessionContextPrompt(sessionHistoryMessages: OpenAiChatMessage[]): string {
     // previousUserMessageCount: 当前轮次之前同一会话内的用户消息数，用于回答“本窗口且不包括本次”的计数问题。
     const previousUserMessageCount = sessionHistoryMessages.filter((message) => {
         return message.role === "user";
@@ -553,58 +522,31 @@ function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string 
         : prompt;
 }
 
-function buildOpenAiGatewayRequest(request: ModelRequest, protocolMode: string) {
-    return protocolMode === "responses"
-        ? {
-            endpoint: "/v1/responses" as const,
-            body: {
-                model: request.model,
-                input: request.messages.map(toProviderMessage),
-                tools: request.tools.map(toResponsesToolSpec),
-                stream: true,
-            },
-        }
-        : {
-            endpoint: "/v1/chat/completions" as const,
-            body: {
-                model: request.model,
-                messages: request.messages.map(toChatCompletionMessage),
-                tools: request.tools.map(toChatCompletionToolSpec),
-                stream: true,
-                stream_options: {
-                    include_usage: true,
-                },
-            },
-        };
-}
-
-function buildAnthropicGatewayRequest(request: ModelRequest) {
+function buildOpenAiGatewayRequest(request: OpenAiChatRequest) {
     return {
-        endpoint: "/v1/messages" as const,
+        endpoint: "/v1/chat/completions" as const,
         body: {
             model: request.model,
-            messages: request.messages.map(toProviderMessage),
-            tools: request.tools.map(toAnthropicToolSpec),
+            messages: request.messages.map(toChatCompletionMessage),
+            tools: request.tools.map(toChatCompletionToolSpec),
             stream: true,
-            max_tokens: 4096,
+            stream_options: {
+                include_usage: true,
+            },
         },
     };
 }
 
-async function sendModelRequest(
+async function sendOpenAiChatHttpRequest(
     baseUrl: string,
     endpoint: string,
     body: Record<string, unknown>,
     apiKey: string | null,
-    protocolMode: string,
     streamContext: ProviderStreamEventContext,
 ): Promise<ProviderModelGatewayHttpResult> {
     const response = await fetch(joinProviderEndpoint(baseUrl, endpoint), {
         method: "POST",
-        headers: buildProviderRequestHeaders(
-            apiKey,
-            protocolMode,
-        ),
+        headers: buildProviderRequestHeaders(apiKey),
         body: JSON.stringify(body),
     });
     if (!response.ok) {
@@ -615,37 +557,24 @@ async function sendModelRequest(
     if (contentType.includes("text/event-stream")) {
         return readProviderSseStream(
             response,
-            protocolMode,
             streamContext,
         );
     }
 
-    return parseProviderModelResponse(
-        await response.text(),
-        protocolMode,
-    );
+    return parseProviderModelResponse(await response.text());
 }
 
 /**
  * buildProviderRequestHeaders：按供应商协议构造认证请求头。
  *
  * @param apiKey 中心服务读取到的供应商密钥。
- * @param protocolMode 供应商协议模式。
  * @returns fetch 请求头。
  */
-function buildProviderRequestHeaders(
-    apiKey: string | null,
-    protocolMode: string,
-): Record<string, string> {
+function buildProviderRequestHeaders(apiKey: string | null): Record<string, string> {
     const headers: Record<string, string> = {
         "content-type": "application/json",
     };
     if (!apiKey) {
-        return headers;
-    }
-    if (protocolMode === "messages") {
-        headers["x-api-key"] = apiKey;
-        headers["anthropic-version"] = "2023-06-01";
         return headers;
     }
     headers.authorization = `Bearer ${apiKey}`;
@@ -687,14 +616,10 @@ function joinProviderEndpoint(baseUrl: string, endpoint: string): string {
     return `${normalizedBaseUrl}${endpoint}`;
 }
 
-function parseProviderModelResponse(body: string, protocolMode: string): ProviderModelGatewayHttpResult {
+function parseProviderModelResponse(body: string): ProviderModelGatewayHttpResult {
     const parsed = JSON.parse(body) as Record<string, unknown>;
-    const assistantText = protocolMode === "responses"
-        ? readResponsesText(parsed)
-        : readChatCompletionText(parsed);
-    const toolCalls = protocolMode === "responses"
-        ? []
-        : readChatCompletionToolCalls(parsed);
+    const assistantText = readChatCompletionText(parsed);
+    const toolCalls = readChatCompletionToolCalls(parsed);
     if (!assistantText && toolCalls.length === 0) {
         throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
     }
@@ -752,100 +677,6 @@ function applyChatCompletionsSseEvent(
             state.toolCallParts,
             (delta as { tool_calls?: unknown }).tool_calls,
         );
-    }
-}
-
-/**
- * applyResponsesSseEvent：解析 OpenAI Responses 流式事件。
- *
- * @param parsed 单个 SSE JSON 对象。
- * @param streamContext 当前事件上下文。
- * @param state 流式累积状态。
- * @returns 没有返回值。
- */
-function applyResponsesSseEvent(
-    parsed: Record<string, unknown>,
-    streamContext: ProviderStreamEventContext,
-    state: {
-        assistantText: string;
-        usage: ProviderModelGatewayResult["usage"];
-        responsesToolCalls: ModelToolCall[];
-    },
-): void {
-    const eventType = typeof parsed.type === "string" ? parsed.type : "";
-    if (eventType === "response.output_text.delta") {
-        const deltaText = typeof parsed.delta === "string" ? parsed.delta : "";
-        state.assistantText += deltaText;
-        appendProviderStreamDelta(
-            streamContext,
-            deltaText,
-        );
-    }
-    if (eventType === "response.completed") {
-        const response = typeof parsed.response === "object" && parsed.response !== null
-            ? parsed.response as Record<string, unknown>
-            : null;
-        if (response && typeof response.usage === "object" && response.usage !== null) {
-            state.usage = normalizeProviderUsage(response.usage);
-        }
-        if (response) {
-            state.responsesToolCalls.push(...readResponsesToolCalls(response));
-        }
-    }
-}
-
-/**
- * isAnthropicSseEvent：判断是否为 Anthropic Messages 流式事件。
- *
- * @param parsed 单个 SSE JSON 对象。
- * @returns 是 Anthropic 事件时返回 true。
- */
-function isAnthropicSseEvent(parsed: Record<string, unknown>): boolean {
-    const eventType = typeof parsed.type === "string" ? parsed.type : "";
-    return eventType === "message_start"
-        || eventType === "content_block_start"
-        || eventType === "content_block_delta"
-        || eventType === "message_delta"
-        || eventType === "message_stop";
-}
-
-/**
- * applyAnthropicMessagesSseEvent：解析 Anthropic Messages 流式事件。
- *
- * @param parsed 单个 SSE JSON 对象。
- * @param streamContext 当前事件上下文。
- * @param state 流式累积状态。
- * @returns 没有返回值。
- */
-function applyAnthropicMessagesSseEvent(
-    parsed: Record<string, unknown>,
-    streamContext: ProviderStreamEventContext,
-    state: {
-        assistantText: string;
-        usage: ProviderModelGatewayResult["usage"];
-    },
-): void {
-    const eventType = typeof parsed.type === "string" ? parsed.type : "";
-    if (eventType === "content_block_delta") {
-        const delta = typeof parsed.delta === "object" && parsed.delta !== null
-            ? parsed.delta as Record<string, unknown>
-            : null;
-        const textDelta = typeof delta?.text === "string" ? delta.text : "";
-        state.assistantText += textDelta;
-        appendProviderStreamDelta(
-            streamContext,
-            textDelta,
-        );
-    }
-    if (eventType === "message_delta") {
-        const usage = typeof parsed.usage === "object" && parsed.usage !== null
-            ? parsed.usage
-            : typeof (parsed.delta as { usage?: unknown } | undefined)?.usage === "object"
-                ? (parsed.delta as { usage: unknown }).usage
-                : null;
-        if (usage) {
-            state.usage = normalizeProviderUsage(usage);
-        }
     }
 }
 
@@ -911,7 +742,7 @@ function readStreamingChatCompletionToolCalls(toolCallParts: Map<number, {
     toolCallId: string;
     name: string;
     argumentsText: string;
-}>): ModelToolCall[] {
+}>): OpenAiToolCall[] {
     return Array.from(toolCallParts.values()).map((part) => {
         const argumentsJson = readToolArgumentsJson(part.argumentsText);
         if (!part.name || !argumentsJson) {
@@ -922,47 +753,7 @@ function readStreamingChatCompletionToolCalls(toolCallParts: Map<number, {
             name: part.name,
             argumentsJson,
         };
-    }).filter((toolCall): toolCall is ModelToolCall => {
-        return toolCall !== null;
-    });
-}
-
-/**
- * readResponsesToolCalls：解析 Responses 完成事件中的函数调用。
- *
- * @param response Responses 完整 response 对象。
- * @returns 工具调用数组。
- */
-function readResponsesToolCalls(response: Record<string, unknown>): ModelToolCall[] {
-    const output = Array.isArray(response.output) ? response.output : [];
-    return output.map((item) => {
-        if (typeof item !== "object" || item === null) {
-            return null;
-        }
-        const type = typeof (item as { type?: unknown }).type === "string"
-            ? (item as { type: string }).type
-            : "";
-        if (type !== "function_call") {
-            return null;
-        }
-        const name = typeof (item as { name?: unknown }).name === "string"
-            ? (item as { name: string }).name
-            : "";
-        const callId = typeof (item as { call_id?: unknown }).call_id === "string"
-            ? (item as { call_id: string }).call_id
-            : typeof (item as { id?: unknown }).id === "string"
-                ? (item as { id: string }).id
-                : randomUUID();
-        const argumentsJson = readToolArgumentsJson((item as { arguments?: unknown }).arguments);
-        if (!name || !argumentsJson) {
-            return null;
-        }
-        return {
-            toolCallId: callId,
-            name,
-            argumentsJson,
-        };
-    }).filter((toolCall): toolCall is ModelToolCall => {
+    }).filter((toolCall): toolCall is OpenAiToolCall => {
         return toolCall !== null;
     });
 }
@@ -971,13 +762,11 @@ function readResponsesToolCalls(response: Record<string, unknown>): ModelToolCal
  * readProviderSseStream：读取供应商 SSE 流并汇总最终模型结果。
  *
  * @param response 供应商 fetch 响应。
- * @param protocolMode 供应商协议模式。
  * @param streamContext 当前会话事件上下文。
  * @returns 完整助手文本、工具调用和用量。
  */
 async function readProviderSseStream(
     response: Response,
-    protocolMode: string,
     streamContext: ProviderStreamEventContext,
 ): Promise<ProviderModelGatewayHttpResult> {
     const reader = response.body?.getReader();
@@ -994,12 +783,10 @@ async function readProviderSseStream(
             name: string;
             argumentsText: string;
         }>;
-        responsesToolCalls: ModelToolCall[];
     } = {
         assistantText: "",
         usage: null,
         toolCallParts: new Map(),
-        responsesToolCalls: [],
     };
     let buffer = "";
 
@@ -1019,7 +806,6 @@ async function readProviderSseStream(
         for (const frame of splitResult.frames) {
             applyProviderSseFrame(
                 frame,
-                protocolMode,
                 streamContext,
                 state,
             );
@@ -1031,16 +817,12 @@ async function readProviderSseStream(
     for (const frame of finalSplitResult.frames) {
         applyProviderSseFrame(
             frame,
-            protocolMode,
             streamContext,
             state,
         );
     }
 
-    const toolCalls = [
-        ...readStreamingChatCompletionToolCalls(state.toolCallParts),
-        ...state.responsesToolCalls,
-    ];
+    const toolCalls = readStreamingChatCompletionToolCalls(state.toolCallParts);
     if (!state.assistantText && toolCalls.length === 0) {
         throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
     }
@@ -1083,14 +865,12 @@ function splitSseFrames(buffer: string): {
  * applyProviderSseFrame：解析并应用单个供应商 SSE 帧。
  *
  * @param frame SSE 原始帧。
- * @param protocolMode 协议模式。
  * @param streamContext 当前事件上下文。
  * @param state 流式累积状态。
  * @returns 没有返回值。
  */
 function applyProviderSseFrame(
     frame: string,
-    protocolMode: string,
     streamContext: ProviderStreamEventContext,
     state: {
         assistantText: string;
@@ -1100,7 +880,6 @@ function applyProviderSseFrame(
             name: string;
             argumentsText: string;
         }>;
-        responsesToolCalls: ModelToolCall[];
     },
 ): void {
     const dataLines = frame.split("\n")
@@ -1116,22 +895,6 @@ function applyProviderSseFrame(
         }
         const parsed = tryParseJsonObject(dataLine);
         if (!parsed) {
-            continue;
-        }
-        if (protocolMode === "responses") {
-            applyResponsesSseEvent(
-                parsed,
-                streamContext,
-                state,
-            );
-            continue;
-        }
-        if (isAnthropicSseEvent(parsed)) {
-            applyAnthropicMessagesSseEvent(
-                parsed,
-                streamContext,
-                state,
-            );
             continue;
         }
         applyChatCompletionsSseEvent(
@@ -1201,32 +964,6 @@ function appendProviderStreamCompleted(
     });
 }
 
-function readResponsesText(parsed: Record<string, unknown>): string {
-    if (typeof parsed.output_text === "string") {
-        return parsed.output_text;
-    }
-    const output = Array.isArray(parsed.output) ? parsed.output : [];
-    const textParts: string[] = [];
-    for (const item of output) {
-        if (typeof item !== "object" || item === null) {
-            continue;
-        }
-        const content = Array.isArray((item as { content?: unknown }).content)
-            ? (item as { content: unknown[] }).content
-            : [];
-        for (const contentItem of content) {
-            if (typeof contentItem !== "object" || contentItem === null) {
-                continue;
-            }
-            const text = (contentItem as { text?: unknown }).text;
-            if (typeof text === "string") {
-                textParts.push(text);
-            }
-        }
-    }
-    return textParts.join("");
-}
-
 function readChatCompletionText(parsed: Record<string, unknown>): string {
     const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
     const firstChoice = choices[0];
@@ -1255,7 +992,7 @@ function readChatCompletionText(parsed: Record<string, unknown>): string {
  * @param parsed 供应商原始响应 JSON。
  * @returns 内部模型工具调用；没有标准工具调用或参数非法时返回 null。
  */
-function readChatCompletionToolCalls(parsed: Record<string, unknown>): ModelToolCall[] {
+function readChatCompletionToolCalls(parsed: Record<string, unknown>): OpenAiToolCall[] {
     const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
     const firstChoice = choices[0];
     if (typeof firstChoice !== "object" || firstChoice === null) {
@@ -1291,7 +1028,7 @@ function readChatCompletionToolCalls(parsed: Record<string, unknown>): ModelTool
             name,
             argumentsJson,
         };
-    }).filter((toolCall): toolCall is ModelToolCall => {
+    }).filter((toolCall): toolCall is OpenAiToolCall => {
         return toolCall !== null;
     });
 }
@@ -1314,59 +1051,14 @@ function readToolArgumentsJson(rawArguments: unknown): Record<string, unknown> |
     return parsedArguments;
 }
 
-function parseModelToolCallFromText(text: string): ModelToolCall | null {
-    const parsed = tryParseJsonObject(text);
-    const toolCall = typeof parsed?.toolCall === "object" && parsed.toolCall !== null
-        ? parsed.toolCall as Record<string, unknown>
-        : null;
-    if (!toolCall) {
-        return null;
-    }
-    const toolCallId = typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : randomUUID();
-    const name = typeof toolCall.name === "string" ? toolCall.name : "";
-    const argumentsJson = typeof toolCall.argumentsJson === "object"
-        && toolCall.argumentsJson !== null
-        && !Array.isArray(toolCall.argumentsJson)
-        ? toolCall.argumentsJson as Record<string, unknown>
-        : null;
-    if (!name || !argumentsJson) {
-        return null;
-    }
-
-    return {
-        toolCallId,
-        name,
-        argumentsJson,
-    };
-}
-
-/**
- * parseModelToolCallsFromText：兼容历史文本 JSON 工具调用格式。
- *
- * @param text 模型返回文本。
- * @returns 工具调用数组；没有历史格式时为空数组。
- */
-function parseModelToolCallsFromText(text: string): ModelToolCall[] {
-    const toolCall = parseModelToolCallFromText(text);
-    return toolCall ? [toolCall] : [];
-}
-
-function readUserTextFromRequest(request: ModelRequest): string {
+function readUserTextFromRequest(request: OpenAiChatRequest): string {
     // userMessages: 模型请求现在包含当前会话历史，最后一条 user 消息才是本轮真实输入。
     const userMessages = request.messages.filter((message) => {
         return message.role === "user";
     });
-    // userMessage: 本轮用户消息始终由 buildModelRequestPayload 追加在历史上下文之后。
+    // userMessage: 本轮用户消息始终由 buildOpenAiChatPayload 追加在历史上下文之后。
     const userMessage = userMessages[userMessages.length - 1];
-    return userMessage?.content.map((part) => {
-        if (part.type === "text") {
-            return part.text;
-        }
-        if (part.type === "tool_result") {
-            return part.resultText;
-        }
-        return part.attachmentId;
-    }).join("\n") ?? "";
+    return userMessage?.content ?? "";
 }
 
 function normalizeProviderUsage(rawUsage: unknown): ProviderModelGatewayResult["usage"] {
@@ -1409,70 +1101,16 @@ function readNestedNumberField(source: Record<string, unknown>, objectKey: strin
     return typeof value === "number" ? value : null;
 }
 
-function toProviderMessage(message: ModelRequest["messages"][number]): Record<string, unknown> {
-    const toolResult = message.content.find((part) => {
-        return part.type === "tool_result";
-    });
-    if (message.role === "tool" && toolResult?.type === "tool_result") {
-        return {
-            type: "function_call_output",
-            call_id: toolResult.toolCallId,
-            output: toolResult.resultText,
-        };
-    }
-
-    return {
-        role: message.role,
-        content: message.content.map((part) => {
-            if (part.type === "text") {
-                return {
-                    type: "text",
-                    text: part.text,
-                };
-            }
-            if (part.type === "image") {
-                return {
-                    type: "image_url",
-                    image_url: {
-                        url: part.attachmentId,
-                    },
-                };
-            }
-            return {
-                type: "text",
-                text: part.resultText,
-            };
-        }),
-    };
-}
-
-function toChatCompletionMessage(message: ModelRequest["messages"][number]): Record<string, unknown> {
-    const toolResult = message.content.find((part) => {
-        return part.type === "tool_result";
-    });
-    if (message.role === "tool" && toolResult?.type === "tool_result") {
-        return {
-            role: "tool",
-            tool_call_id: toolResult.toolCallId,
-            content: toolResult.resultText,
-        };
-    }
-
-    const textContent = message.content.map((part) => {
-        if (part.type === "text") {
-            return part.text;
-        }
-        if (part.type === "image") {
-            return `[图片附件:${part.attachmentId}]`;
-        }
-        return part.resultText;
-    }).join("\n");
+function toChatCompletionMessage(message: OpenAiChatMessage): Record<string, unknown> {
     const providerMessage: Record<string, unknown> = {
         role: message.role,
-        content: textContent,
+        content: message.content,
     };
-    if (message.role === "assistant" && Array.isArray(message.toolCalls) && message.toolCalls.length > 0) {
-        providerMessage.tool_calls = message.toolCalls.map(toChatCompletionToolCall);
+    if (message.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+        providerMessage.tool_calls = message.tool_calls;
+    }
+    if (message.role === "tool" && typeof message.tool_call_id === "string") {
+        providerMessage.tool_call_id = message.tool_call_id;
     }
     return providerMessage;
 }
@@ -1481,10 +1119,10 @@ function toChatCompletionMessage(message: ModelRequest["messages"][number]): Rec
 /**
  * toChatCompletionToolCall：把内部工具调用记录转换为 OpenAI 兼容 assistant tool_calls。
  *
- * @param toolCall 内部模型工具调用。
+ * @param toolCall OpenAI 工具调用。
  * @returns OpenAI 兼容工具调用记录。
  */
-function toChatCompletionToolCall(toolCall: ModelToolCall): Record<string, unknown> {
+function toChatCompletionToolCall(toolCall: OpenAiToolCall): OpenAiChatMessage["tool_calls"][number] {
     return {
         id: toolCall.toolCallId,
         type: "function",
@@ -1495,7 +1133,7 @@ function toChatCompletionToolCall(toolCall: ModelToolCall): Record<string, unkno
     };
 }
 
-function toChatCompletionToolSpec(tool: ModelToolSpec): Record<string, unknown> {
+function toChatCompletionToolSpec(tool: OpenAiToolSpec): Record<string, unknown> {
     return {
         type: "function",
         function: {
@@ -1506,24 +1144,7 @@ function toChatCompletionToolSpec(tool: ModelToolSpec): Record<string, unknown> 
     };
 }
 
-function toResponsesToolSpec(tool: ModelToolSpec): Record<string, unknown> {
-    return {
-        type: "function",
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parametersJsonSchema,
-    };
-}
-
-function toAnthropicToolSpec(tool: ModelToolSpec): Record<string, unknown> {
-    return {
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parametersJsonSchema,
-    };
-}
-
-function buildUsageSummary(userText: string, assistantText: string, providerId: string): ModelUsage {
+function buildUsageSummary(userText: string, assistantText: string, providerId: string): OpenAiUsage {
     return {
         inputTokens: userText.length,
         outputTokens: assistantText.length,

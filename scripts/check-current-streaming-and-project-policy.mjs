@@ -95,13 +95,13 @@ assertIncludes(
 );
 assertIncludes(
   modelGatewayRuntime,
-  "response.output_text.delta",
-  "模型网关必须解析 OpenAI Responses 的文本 delta 事件。",
+  "textDelta",
+  "模型网关必须解析 OpenAI Chat Completions 的文本 delta 事件。",
 );
 assertIncludes(
   modelGatewayRuntime,
-  "content_block_delta",
-  "模型网关必须解析 Anthropic Messages 的 content_block_delta 事件。",
+  "tool_calls",
+  "模型网关必须解析 OpenAI Chat Completions 的结构化工具调用 delta。",
 );
 assertIncludes(
   sessionDomain,
@@ -109,7 +109,7 @@ assertIncludes(
   "会话执行链路必须等待异步流式模型网关，不能同步阻塞后再伪造流式事件。",
 );
 assertNotIncludes(
-  sessionDomain,
+  sessionDomain + modelGatewayRuntime,
   "appendModelStreamEvent(events, sent.sessionId, sent.taskId, sent.turnId, modelResult)",
   "会话执行链路不能在完整响应后一次性追加流式片段。",
 );
@@ -150,12 +150,12 @@ assertIncludes(
 );
 assertIncludes(
   agents,
-  "用户后续提到的需求如果在 `需求.md` 中没有明确覆盖，必须先新增到 `需求.md`",
+  "用户后续提到的需求在 `需求.md` 中没有明确覆盖，必须先新增到 `需求.md`",
   "AGENTS.md 必须写入后续需求默认写入需求源的规则。",
 );
 assertIncludes(
   agents,
-  "如果新需求与已有 `需求.md` 内容冲突，以用户最新需求为准",
+  "如果新需求与已有 `需求.md` 内容冲突，必须按 `需求.md` 的最新需求优先口径先修订 `需求.md`",
   "AGENTS.md 必须写入新需求优先于旧需求的规则。",
 );
 assertIncludes(

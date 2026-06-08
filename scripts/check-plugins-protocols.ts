@@ -11,7 +11,7 @@ import {
   normalizeOpenAiUsage,
 } from "../plugins/builtin-model-openai-compatible/src/index";
 import {
-  toAnthropicMessagesRequest,
+  toAnthropicAdapterRequest,
   normalizeAnthropicUsage,
 } from "../plugins/builtin-model-anthropic-messages/src/index";
 import {
@@ -22,7 +22,6 @@ import { builtinAutomationManifest } from "../plugins/builtin-automation/src/ind
 import { builtinBrowserCollectorManifest } from "../plugins/builtin-browser-collector/src/index";
 import { builtinFileOrganizerManifest } from "../plugins/builtin-file-organizer/src/index";
 import { builtinOfficeIntegrationManifest } from "../plugins/builtin-office-integration/src/index";
-import type { ModelRequest } from "../packages/model-protocol/src/index";
 
 /**
  * assert：用统一错误格式表达检查失败原因。
@@ -37,30 +36,18 @@ function assert(condition: boolean, message: string): void {
   }
 }
 
-// request: 内部模型请求样例，覆盖文本、工具和推理深度。
-const request: ModelRequest = {
-  requestId: "request-check",
-  providerId: "provider-check",
+// request: OpenAI Chat Completions 请求样例，覆盖文本、工具和推理深度。
+const request = {
   model: "model-check",
   reasoningEffort: "medium",
   messages: [
     {
       role: "system",
-      content: [
-        {
-          type: "text",
-          text: "系统提示",
-        },
-      ],
+      content: "系统提示",
     },
     {
       role: "user",
-      content: [
-        {
-          type: "text",
-          text: "用户消息",
-        },
-      ],
+      content: "用户消息",
     },
   ],
   tools: [
@@ -73,16 +60,13 @@ const request: ModelRequest = {
     },
   ],
   stream: true,
-};
+} as const;
 
-const responsesRequest = toOpenAiCompatibleRequest(request, "responses");
-assert(responsesRequest.endpoint === "/v1/responses", "OpenAI Responses endpoint 错误");
-
-const chatRequest = toOpenAiCompatibleRequest(request, "chat-completions");
+const chatRequest = toOpenAiCompatibleRequest(request);
 assert(chatRequest.endpoint === "/v1/chat/completions", "OpenAI Chat Completions endpoint 错误");
 
-const anthropicRequest = toAnthropicMessagesRequest(request);
-assert(anthropicRequest.endpoint === "/v1/messages", "Anthropic Messages endpoint 错误");
+const anthropicRequest = toAnthropicAdapterRequest(request);
+assert(anthropicRequest.endpoint === "/v1/messages", "Anthropic 适配器 endpoint 错误");
 
 const openAiUsage = normalizeOpenAiUsage({
   input_tokens: 1,

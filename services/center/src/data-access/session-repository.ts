@@ -616,13 +616,27 @@ export class SessionRepository {
      * @param turnId 轮次 ID。
      * @param status 新任务状态。
      * @param updatedAt 更新时间。
+     * @param preferredTaskId 当前图执行任务 ID；传入后只更新该任务，避免同轮次后续补充任务被误改。
      * @returns 没有返回值。
      */
     updateTaskStatusByTurn(
         turnId: string,
         status: string,
         updatedAt: string,
+        preferredTaskId?: string,
     ): void {
+        if (preferredTaskId) {
+            this.database.connection()
+                .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE turn_id = ? AND id = ?")
+                .run(
+                    status,
+                    updatedAt,
+                    turnId,
+                    preferredTaskId,
+                );
+            return;
+        }
+
         this.database.connection()
             .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE turn_id = ?")
             .run(

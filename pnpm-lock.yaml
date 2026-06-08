@@ -89,12 +89,6 @@ importers:
         specifier: 5.6.3
         version: 5.6.3
 
-  packages/model-protocol:
-    devDependencies:
-      typescript:
-        specifier: 5.6.3
-        version: 5.6.3
-
   packages/plugin-sdk:
     dependencies:
       '@zhixin/shared':
@@ -156,9 +150,6 @@ importers:
 
   plugins/builtin-model-anthropic-messages:
     dependencies:
-      '@zhixin/model-protocol':
-        specifier: workspace:*
-        version: link:../../packages/model-protocol
       '@zhixin/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
@@ -169,9 +160,6 @@ importers:
 
   plugins/builtin-model-openai-compatible:
     dependencies:
-      '@zhixin/model-protocol':
-        specifier: workspace:*
-        version: link:../../packages/model-protocol
       '@zhixin/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk

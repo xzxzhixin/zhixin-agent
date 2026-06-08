@@ -1,7 +1,7 @@
 /**
  * 阶段 1 协议导出检查脚本。
  *
- * 用途：验证共享协议、模型协议和插件 SDK 是否导出计划要求的关键类型和值。
+ * 用途：验证共享协议、OpenAI 模型协议和插件 SDK 是否导出计划要求的关键类型和值。
  * 关键逻辑：直接读取源码入口并做导出声明静态匹配，避免把 tsc 作为语法检查或质量门槛。
  * 参数：无。
  * 返回值：检查通过时退出码为 0；缺少导出声明时退出码非 0。
@@ -47,16 +47,13 @@ const checks = [
     ],
   },
   {
-    filePath: "packages/model-protocol/src/index.ts",
+    filePath: "services/center/src/openai-chat-protocol.ts",
     exports: [
-      "ModelRequest",
-      "ModelMessage",
-      "ModelContentPart",
-      "ModelToolSpec",
-      "ModelToolCall",
-      "ModelStreamEvent",
-      "ModelUsage",
-      "ModelError",
+      "OpenAiChatRequest",
+      "OpenAiChatMessage",
+      "OpenAiToolSpec",
+      "OpenAiToolCall",
+      "OpenAiUsage",
     ],
   },
   {

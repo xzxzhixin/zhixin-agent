@@ -49,6 +49,8 @@ function assertNotIncludes(text, snippet, message) {
 const toolRuntime = readText("services/center/src/tool-runtime.ts");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const sessionDomain = readText("services/center/src/session-domain.ts");
+const sessionTurnEffects = readText("services/center/src/session-turn-effects.ts");
+const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
 const sharedTypes = readText("packages/shared/src/index.ts");
 
 assertIncludes(sharedTypes, "UnifiedToolRiskLevel", "共享协议缺少工具风险等级");
@@ -57,12 +59,13 @@ assertIncludes(toolRuntime, "inputSchema", "工具运行时缺少结构化输入
 assertIncludes(toolRuntime, "listAvailableModelToolSpecs", "工具运行时缺少模型工具定义转换函数");
 assertIncludes(toolRuntime, "buildUnifiedToolCallIntentFromModelCall", "工具运行时缺少模型工具调用转换函数");
 assertIncludes(modelGateway, "tools: request.tools.map(toChatCompletionToolSpec)", "OpenAI Chat Completions 请求未携带工具定义");
-assertIncludes(modelGateway, "tools: request.tools.map(toResponsesToolSpec)", "OpenAI Responses 请求未携带工具定义");
-assertIncludes(modelGateway, "tools: request.tools.map(toAnthropicToolSpec)", "Anthropic 请求未携带工具定义");
-assertIncludes(modelGateway, "parseModelToolCallFromText", "模型网关缺少工具调用解析");
-assertIncludes(sessionDomain, "runModelRequestedToolLoop", "会话编排缺少模型工具调用闭环");
-assertIncludes(sessionDomain, "model.tool.requested", "会话编排缺少模型工具请求事件");
-assertIncludes(sessionDomain, "continueProviderModelGatewayWithToolResults", "会话编排缺少多工具结果回填模型");
+assertIncludes(modelGateway, "tool_calls", "模型网关缺少 OpenAI tool_calls 解析");
+assertIncludes(modelGateway, "tool_call_id", "模型网关缺少 OpenAI tool_call_id 回填");
+assertIncludes(langGraphRunner, "tool.execute", "LangGraph 缺少工具执行节点");
+assertIncludes(langGraphRunner, "tool.result", "LangGraph 缺少工具结果回填节点");
+assertIncludes(langGraphRunner, ".addConditionalEdges(", "LangGraph 缺少 OpenAI tool_calls 条件边");
+assertIncludes(sessionTurnEffects, "model.tool.requested", "会话工具执行缺少模型工具请求事件");
+assertIncludes(modelGateway, "continueProviderModelGatewayWithToolResults", "模型网关缺少多工具结果回填模型");
 assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时仍通过 node 文本硬编码触发工具");
 assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行时仍通过 python 文本硬编码触发工具");
 assertNotIncludes(sessionDomain, "const unifiedToolIntent = planUnifiedToolCallForUserText(userText);", "会话编排仍先按用户文本硬编码生成工具意图");

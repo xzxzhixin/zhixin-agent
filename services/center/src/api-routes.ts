@@ -854,15 +854,27 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             proxyPolicy?: ProviderProxyPolicy;
         };
 
-        if (!body.providerName || !body.protocolPluginId || !body.protocolMode || !body.baseUrl || !body.model) {
+        if (!body.baseUrl) {
             return createErrorResponse(
                 "PROVIDER_CREATE_INVALID",
-                "供应商创建缺少必要字段",
-                "供应商信息不完整。",
+                "供应商创建缺少 Base URL",
+                "请至少填写 Base URL 后保存供应商。",
             );
         }
 
-        return createSuccessResponse(createProvider(database, events, config.centerDirectory, body));
+        try {
+            return createSuccessResponse(createProvider(database, events, config.centerDirectory, body));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "供应商创建失败";
+            if (message.includes("配置不完整，无法启用")) {
+                return createErrorResponse(
+                    "PROVIDER_ENABLE_CONFIG_INCOMPLETE",
+                    message,
+                    message,
+                );
+            }
+            throw error;
+        }
     });
 
     app.post("/api/provider/list", async () => createSuccessResponse({
@@ -892,7 +904,19 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             return createErrorResponse("PROVIDER_ID_REQUIRED", "供应商更新缺少 providerId", "供应商 ID 不能为空。");
         }
 
-        return createSuccessResponse(updateProviderConfig(config.centerDirectory, body));
+        try {
+            return createSuccessResponse(updateProviderConfig(config.centerDirectory, body));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "供应商更新失败";
+            if (message.includes("配置不完整，无法启用")) {
+                return createErrorResponse(
+                    "PROVIDER_ENABLE_CONFIG_INCOMPLETE",
+                    message,
+                    message,
+                );
+            }
+            throw error;
+        }
     });
 
     app.post("/api/provider/delete", async (request) => {
@@ -904,10 +928,22 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
             return createErrorResponse("PROVIDER_ID_REQUIRED", "供应商删除缺少 providerId", "供应商 ID 不能为空。");
         }
 
-        return createSuccessResponse(updateProviderConfig(config.centerDirectory, {
-            providerId: body.providerId,
-            enabled: false,
-        }));
+        try {
+            return createSuccessResponse(updateProviderConfig(config.centerDirectory, {
+                providerId: body.providerId,
+                enabled: false,
+            }));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "供应商删除失败";
+            if (message.includes("配置不完整，无法启用")) {
+                return createErrorResponse(
+                    "PROVIDER_ENABLE_CONFIG_INCOMPLETE",
+                    message,
+                    message,
+                );
+            }
+            throw error;
+        }
     });
 
     app.post("/api/provider/model-refresh", async (request) => {
@@ -1045,11 +1081,15 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     app.post("/api/model-gateway/prepare", async (request) => {
         const body = request.body as {
             request?: unknown;
-            protocolMode?: "responses" | "chat-completions" | "messages";
+            protocolMode?: "chat-completions";
         };
 
-        if (!body.request || !body.protocolMode) {
-            return createErrorResponse("MODEL_GATEWAY_INVALID", "模型网关缺少 request 或 protocolMode", "模型请求不完整。");
+        if (!body.request || body.protocolMode !== "chat-completions") {
+            return createErrorResponse(
+                "MODEL_GATEWAY_INVALID",
+                "模型网关只接受 OpenAI Chat Completions 请求",
+                "模型请求必须使用 chat-completions 协议。",
+            );
         }
 
         return createSuccessResponse(prepareModelGatewayRequest(body.request, body.protocolMode));

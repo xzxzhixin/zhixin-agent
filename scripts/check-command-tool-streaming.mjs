@@ -69,6 +69,7 @@ function assertNotIncludes(
 
 const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
 const messageRoute = readProjectFile("services/center/src/session-message-route.ts");
 
 assertNotIncludes(
@@ -98,11 +99,20 @@ for (const signal of [
 
 for (const signal of [
   "export async function completeCreatedTurn",
-  "async function runModelRequestedToolLoop",
-  "await runCommandTool",
 ]) {
   assertIncludes(
     sessionDomain,
+    signal,
+    `对话执行链路缺少异步命令工具信号：${signal}`,
+  );
+}
+
+for (const signal of [
+  "executeModelRequestedTools",
+  "await runCommandTool",
+]) {
+  assertIncludes(
+    sessionTurnEffects,
     signal,
     `对话执行链路缺少异步命令工具信号：${signal}`,
   );

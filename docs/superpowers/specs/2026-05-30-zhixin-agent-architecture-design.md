@@ -64,7 +64,7 @@ zhixin-agent
 
 `packages/ui` 保存跨入口复用的消息渲染、输入框、状态卡片、Markdown 渲染和文件引用组件。
 
-`packages/model-protocol` 保存内部模型请求、流式事件、工具调用和用量协议。
+`services/center/src/openai-chat-protocol.ts` 保存当前中心服务内部 OpenAI Chat Completions 请求、消息、工具调用和用量协议；旧内部模型协议包已废弃并删除。
 
 `packages/plugin-sdk` 保存插件清单类型、权限声明、中心服务插件 API 和插件 UI 桥接类型。
 
@@ -349,22 +349,9 @@ Worker 崩溃、超时或心跳丢失时，中心服务将相关任务标记为�
 
 ## 模型网关与供应商协议插件
 
-中心服务提供 `model-gateway`。Agent Worker 不能直接访问供应商 API。Worker 只能提交内部统一模型请求，由中心服务调用对应模型协议插件并流式返回内部事件。
+中心服务提供 `model-gateway`。Agent Worker 不能直接访问供应商 API。Worker 只能提交中心服务内部 OpenAI Chat Completions 规范请求，由中心服务调用对应模型协议适配器并流式返回中心服务事件。
 
-内部模型协议放在 `packages/model-protocol`：
-
-```text
-ModelRequest
-ModelMessage
-ModelContentPart
-ModelToolSpec
-ModelToolCall
-ModelStreamEvent
-ModelUsage
-ModelError
-```
-
-Agent 引擎只认识这些内部类型。供应商原始请求、响应、SSE 事件和错误结构都在协议插件内部转换。
+本历史规格中的旧内部模型协议包已经废弃。当前内部模型协议定义在 `services/center/src/openai-chat-protocol.ts`，核心结构为 OpenAI Chat Completions 请求、消息、工具定义、`tool_calls`、`tool_call_id`、工具结果消息和用量字段。Agent 引擎只认识 OpenAI Chat Completions 结构；供应商原始请求、响应、SSE 事件和错误结构都必须先转换成该规范。
 
 模型协议插件是插件系统的一部分。系统内置两个不可卸载插件：
 
@@ -373,9 +360,9 @@ plugins/builtin-model-openai-compatible
 plugins/builtin-model-anthropic-messages
 ```
 
-`builtin-model-openai-compatible` 支持 OpenAI 兼容协议族，配置中区分 `responses` 和 `chat-completions` 模式。
+`builtin-model-openai-compatible` 支持 OpenAI Chat Completions 兼容协议。
 
-`builtin-model-anthropic-messages` 支持 Anthropic Messages 协议族。
+`builtin-model-anthropic-messages` 作为 Anthropic Messages 到 OpenAI Chat Completions 的适配器存在。
 
 两者随中心服务交付，不能卸载；可以配置、启用或停用。
 
@@ -394,7 +381,7 @@ proxyPolicy
 enabled
 ```
 
-`protocolPluginId` 例如 `builtin-model-openai-compatible`。`protocolMode` 例如 `responses`、`chat-completions` 或 `messages`。
+`protocolPluginId` 例如 `builtin-model-openai-compatible`。`protocolMode` 当前统一保存为 OpenAI Chat Completions 内部模式，其他供应商协议必须先适配到 OpenAI 结构。
 
 API Key 使用中心服务敏感信息存储，客户端只显示是否已配置，不返回明文。
 
@@ -403,9 +390,9 @@ API Key 使用中心服务敏感信息存储，客户端只显示是否已配置
 - 根据供应商配置选择协议插件。
 - 应用网络代理策略。
 - 拉取模型列表和推理深度列表。
-- 把内部 `ModelRequest` 转成供应商请求。
-- 把供应商流式响应转成内部 `ModelStreamEvent`。
-- 归集 `ModelUsage`，写入 `usage_records`。
+- 把内部 OpenAI Chat Completions 请求转成供应商请求。
+- 把供应商流式响应转成 OpenAI Chat Completions 流式片段和中心服务事件。
+- 归集 OpenAI 用量字段，写入 `usage_records`。
 - 区分代理失败、认证失败、供应商连接失败、供应商接口失败和协议解析失败。
 - 为每次调用生成 `traceId`，写入事件日志。
 

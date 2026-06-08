@@ -89,6 +89,7 @@ const apiClient = readProjectFile("packages/api-client/src/index.ts");
 const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
 const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
 const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const langgraphRunner = readProjectFile("services/center/src/langgraph-runner.ts");
@@ -168,11 +169,11 @@ for (const signal of [
   "tool.command.completed",
   "tool.${capability.toolKind}.unavailable",
   "PLUGIN_NOT_SELECTED",
-  "MCP_SERVER_NOT_RESOLVED",
+  "MCP_SERVER_NOT_CONFIGURED",
   "SKILL_NOT_SELECTED",
 ]) {
   assertIncludes(
-    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + toolRuntime,
+    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime,
     signal,
     `自动工具可见闭环缺少：${signal}`,
   );
@@ -188,30 +189,22 @@ for (const signal of [
   "StateGraph",
 ]) {
   assertIncludes(
-    apiRoutes + sessionDomain + toolRuntime + modelGatewayRuntime + langgraphRunner,
+    apiRoutes + sessionDomain + sessionTurnEffects + toolRuntime + modelGatewayRuntime + langgraphRunner,
     signal,
     `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
   );
 }
 
 const modelGatewayIndex = sessionDomain.indexOf("const modelResult = await invokeProviderModelGateway");
-const toolLoopIndex = sessionDomain.indexOf("const toolLoopResult = await runModelRequestedToolLoop");
-if (modelGatewayIndex < 0 || toolLoopIndex < 0 || modelGatewayIndex > toolLoopIndex) {
+const toolExecuteIndex = sessionTurnEffects.indexOf("export async function executeModelRequestedTools");
+if (modelGatewayIndex < 0 || toolExecuteIndex < 0) {
   console.error("结构化工具调用闭环必须先接收模型工具请求，再执行中心服务工具并回填模型。");
   process.exitCode = 1;
 }
 
-const toolLoopSourceStart = sessionDomain.indexOf("async function runModelRequestedToolLoop");
-const toolLoopSourceEnd = sessionDomain.indexOf("export function recordModelUsageAfterTurn", toolLoopSourceStart);
-const toolLoopSource = toolLoopSourceStart >= 0 && toolLoopSourceEnd >= 0
-  ? sessionDomain.slice(
-    toolLoopSourceStart,
-    toolLoopSourceEnd,
-  )
-  : "";
-if (!toolLoopSource.includes("model.tool.requested")
-    || !toolLoopSource.includes("runCommandTool(")
-    || !toolLoopSource.includes("continueProviderModelGatewayWithToolResults(")
+if (!sessionTurnEffects.includes("model.tool.requested")
+    || !sessionTurnEffects.includes("runCommandTool(")
+    || !sessionDomain.includes("continueProviderModelGatewayWithToolResults(")
     || !modelGatewayRuntime.includes("model.tool.result.appended")) {
   console.error("模型请求命令工具后必须执行命令、回填工具结果，并生成最终回复。");
   process.exitCode = 1;

@@ -931,12 +931,12 @@ export class CenterApiClient {
    * @returns 新建供应商 ID 和密钥状态。
    */
   createProvider(payload: {
-    providerName: string;
-    protocolPluginId: string;
-    protocolMode: string;
-    baseUrl: string;
-    apiKey: string;
-    model: string;
+    providerName?: string;
+    protocolPluginId?: string;
+    protocolMode?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
     enabled: boolean;
     capabilities: ProviderCapabilityDeclaration;
     proxyPolicy: ProviderProxyPolicy;

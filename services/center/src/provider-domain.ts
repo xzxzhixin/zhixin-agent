@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {existsSync, mkdirSync, readFileSync, readdirSync, rmSync} from "node:fs";
-import {dirname, join} from "node:path";
+import {existsSync, readFileSync, readdirSync, rmSync} from "node:fs";
+import {join} from "node:path";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
@@ -68,11 +68,6 @@ const OPENAI_COMPATIBLE_PROTOCOL_PLUGIN: ModelProtocolPluginDescriptor = {
             label: "Chat Completions",
             description: "适用于 OpenAI 兼容 /v1/chat/completions 协议。",
         },
-        {
-            mode: "responses",
-            label: "Responses",
-            description: "适用于 OpenAI 兼容 /v1/responses 协议。",
-        },
     ],
     defaultProtocolMode: "chat-completions",
     defaultCapabilities: {
@@ -86,31 +81,8 @@ const OPENAI_COMPATIBLE_PROTOCOL_PLUGIN: ModelProtocolPluginDescriptor = {
     },
 };
 
-const ANTHROPIC_MESSAGES_PROTOCOL_PLUGIN: ModelProtocolPluginDescriptor = {
-    pluginId: "builtin-model-anthropic-messages",
-    pluginName: "Anthropic Messages",
-    protocolModes: [
-        {
-            mode: "messages",
-            label: "Messages",
-            description: "适用于 Anthropic /v1/messages 协议。",
-        },
-    ],
-    defaultProtocolMode: "messages",
-    defaultCapabilities: {
-        supportsVision: true,
-        supportsToolCalling: true,
-        supportsJsonOutput: true,
-        supportsReasoningEffort: true,
-        providesCacheUsage: true,
-        supportsModelList: false,
-        supportsStreaming: true,
-    },
-};
-
 const REGISTERED_MODEL_PROTOCOL_PLUGINS: ModelProtocolPluginDescriptor[] = [
     OPENAI_COMPATIBLE_PROTOCOL_PLUGIN,
-    ANTHROPIC_MESSAGES_PROTOCOL_PLUGIN,
 ];
 
 type ProviderConfigRecord = {
@@ -158,7 +130,11 @@ function resolveRegisteredModelProtocolPlugin(
     plugin: ModelProtocolPluginDescriptor;
     protocolMode: string;
 } {
-    const plugin = REGISTERED_MODEL_PROTOCOL_PLUGINS.find((item) => item.pluginId === protocolPluginId);
+    // normalizedPluginId: 保存草稿允许暂缺协议插件；中心服务保存时默认落到 OpenAI Chat Completions，启用时再要求用户显式确认完整字段。
+    const normalizedPluginId = protocolPluginId && protocolPluginId.trim().length > 0
+        ? protocolPluginId.trim()
+        : OPENAI_COMPATIBLE_PROTOCOL_PLUGIN.pluginId;
+    const plugin = REGISTERED_MODEL_PROTOCOL_PLUGINS.find((item) => item.pluginId === normalizedPluginId);
     if (!plugin) {
         throw new Error("MODEL_PROTOCOL_PLUGIN_NOT_REGISTERED");
     }
@@ -174,6 +150,74 @@ function resolveRegisteredModelProtocolPlugin(
         plugin,
         protocolMode: resolvedMode,
     };
+}
+
+/**
+ * listProviderEnableMissingFields：检查供应商启用所需配置字段。
+ *
+ * @param input 供应商待保存或已保存配置。
+ * @returns 缺失字段的中文名称列表，空数组表示可启用。
+ */
+export function listProviderEnableMissingFields(input: {
+    providerName?: unknown;
+    protocolPluginId?: unknown;
+    protocolMode?: unknown;
+    baseUrl?: unknown;
+    defaultModel?: unknown;
+    model?: unknown;
+}): string[] {
+    const missingFields: string[] = [];
+    const requiredFields = [
+        {
+            label: "供应商名称",
+            value: input.providerName,
+        },
+        {
+            label: "协议插件",
+            value: input.protocolPluginId,
+        },
+        {
+            label: "协议模式",
+            value: input.protocolMode,
+        },
+        {
+            label: "Base URL",
+            value: input.baseUrl,
+        },
+        {
+            label: "默认模型",
+            value: input.defaultModel ?? input.model,
+        },
+    ];
+
+    for (const field of requiredFields) {
+        if (typeof field.value !== "string" || field.value.trim().length === 0) {
+            missingFields.push(field.label);
+        }
+    }
+
+    return missingFields;
+}
+
+/**
+ * assertProviderCanEnable：在领域层阻止不完整供应商启用。
+ *
+ * @param input 供应商待保存或已保存配置。
+ * @returns 没有返回值，缺失字段时抛出业务错误。
+ */
+function assertProviderCanEnable(input: {
+    providerName?: unknown;
+    protocolPluginId?: unknown;
+    protocolMode?: unknown;
+    baseUrl?: unknown;
+    defaultModel?: unknown;
+    model?: unknown;
+}): true {
+    const missingFields = listProviderEnableMissingFields(input);
+    if (missingFields.length > 0) {
+        throw new Error(`配置不完整，无法启用：${missingFields.join("、")}`);
+    }
+    return true;
 }
 
 export function createProvider(
@@ -213,13 +257,14 @@ export function createProvider(
     const proxyPolicy = normalizeProviderProxyPolicy(input.proxyPolicy);
     writeJsonFile(join(centerDirectory, relativePath), {
         providerId,
-        providerName: input.providerName,
+        providerName: input.providerName?.trim() ?? "",
         protocolPluginId: modelProtocol.plugin.pluginId,
         protocolMode: modelProtocol.protocolMode,
-        baseUrl: input.baseUrl,
+        baseUrl: input.baseUrl?.trim() ?? "",
         apiKeySecretRef,
-        defaultModel: input.model,
-        enabled: input.enabled ?? true,
+        defaultModel: input.model?.trim() ?? "",
+        // enabled: 新增供应商默认先保存为停用，避免只填写 Base URL 和 API Key 的草稿因默认启用而保存失败。
+        enabled: input.enabled === true ? assertProviderCanEnable(input) : false,
         capabilities,
         proxyPolicy,
         updatedAt: new Date().toISOString(),
@@ -326,15 +371,21 @@ export function updateProviderConfig(
         : typeof existing.apiKeySecretRef === "string"
             ? existing.apiKeySecretRef
             : null;
-    writeJsonFile(providerPath, {
+    const nextProvider = {
         ...existing,
-        providerName: input.providerName ?? existing.providerName,
+        providerName: input.providerName?.trim() ?? existing.providerName,
         protocolPluginId: modelProtocol.plugin.pluginId,
         protocolMode: modelProtocol.protocolMode,
-        baseUrl: input.baseUrl ?? existing.baseUrl,
+        baseUrl: input.baseUrl?.trim() ?? existing.baseUrl,
         apiKeySecretRef,
-        enabled: input.enabled ?? existing.enabled,
-        defaultModel: input.defaultModel ?? existing.defaultModel,
+        enabled: input.enabled === true ? assertProviderCanEnable({
+            ...existing,
+            ...input,
+            protocolPluginId: modelProtocol.plugin.pluginId,
+            protocolMode: modelProtocol.protocolMode,
+            defaultModel: input.defaultModel?.trim() ?? existing.defaultModel,
+        }) : input.enabled ?? existing.enabled,
+        defaultModel: input.defaultModel?.trim() ?? existing.defaultModel,
         capabilities: input.capabilities
             ? normalizeProviderCapabilities(input.capabilities)
             : existing.capabilities,
@@ -342,6 +393,9 @@ export function updateProviderConfig(
             ? normalizeProviderProxyPolicy(input.proxyPolicy)
             : existing.proxyPolicy,
         updatedAt: new Date().toISOString(),
+    };
+    writeJsonFile(providerPath, {
+        ...nextProvider,
     });
     return {
         providerId: input.providerId,
@@ -1040,7 +1094,7 @@ export function clearDefaultRuntimeByType(
 
 export function prepareModelGatewayRequest(
     request: unknown,
-    protocolMode: "responses" | "chat-completions" | "messages",
+    protocolMode: "chat-completions",
 ): {
     protocolMode: string;
     request: unknown;

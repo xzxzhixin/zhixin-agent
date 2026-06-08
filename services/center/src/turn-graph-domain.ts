@@ -11,7 +11,7 @@ import type {TaskRecord} from "@zhixin/shared";
  * 默认值：无。
  * 约束：第一版只覆盖当前线性编排节点，后续 graph runner 可继续扩展。
  */
-export type TurnGraphNodeKind = "control" | "thinking" | "model" | "tool" | "extension" | "message" | "memory";
+export type TurnGraphNodeKind = "control" | "thinking" | "model" | "tool" | "extension" | "message" | "memory" | "usage";
 
 /**
  * TurnGraphCheckpoint：对话图检查点元数据。

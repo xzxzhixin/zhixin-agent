@@ -25,12 +25,6 @@
       "@zhixin/api-client/*": [
         "packages/api-client/src/*"
       ],
-      "@zhixin/model-protocol": [
-        "packages/model-protocol/src/index.ts"
-      ],
-      "@zhixin/model-protocol/*": [
-        "packages/model-protocol/src/*"
-      ],
       "@zhixin/plugin-sdk": [
         "packages/plugin-sdk/src/index.ts"
       ],

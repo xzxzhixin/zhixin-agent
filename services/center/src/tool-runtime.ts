@@ -7,9 +7,12 @@ import type {
     UnifiedToolCallIntent,
     UnifiedToolCapability,
 } from "@zhixin/shared";
-import type {ModelToolCall, ModelToolSpec} from "@zhixin/model-protocol";
 
 import type {CenterEventStore} from "./events.js";
+import type {
+    OpenAiToolCall,
+    OpenAiToolSpec,
+} from "./openai-chat-protocol.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
@@ -200,11 +203,11 @@ export function toModelSafeToolName(toolId: string): string {
 }
 
 /**
- * listAvailableModelToolSpecs：把中心服务工具能力转换为内部模型工具定义。
+ * listAvailableModelToolSpecs：把中心服务工具能力转换为 OpenAI 工具定义。
  *
- * @returns 模型请求可携带的工具定义列表。
+ * @returns OpenAI Chat Completions 请求可携带的工具定义列表。
  */
-export function listAvailableModelToolSpecs(): ModelToolSpec[] {
+export function listAvailableModelToolSpecs(): OpenAiToolSpec[] {
     return listUnifiedToolCapabilities()
         .filter((capability) => {
             return capability.availability === "available";
@@ -221,9 +224,9 @@ export function listAvailableModelToolSpecs(): ModelToolSpec[] {
  * listAvailableModelToolSpecsForCenter：读取静态工具和中心目录中的 MCP 动态工具。
  *
  * @param centerDirectory 中心目录绝对路径。
- * @returns 模型请求可携带的工具定义列表。
+ * @returns OpenAI Chat Completions 请求可携带的工具定义列表。
  */
-export async function listAvailableModelToolSpecsForCenter(centerDirectory: string | null | undefined): Promise<ModelToolSpec[]> {
+export async function listAvailableModelToolSpecsForCenter(centerDirectory: string | null | undefined): Promise<OpenAiToolSpec[]> {
     const staticTools = listAvailableModelToolSpecs();
     const dynamicMcpTools = centerDirectory
         ? await listConfiguredMcpModelToolSpecs(centerDirectory)
@@ -339,10 +342,10 @@ export function planUnifiedToolCallForUserText(userText: string): UnifiedToolCal
 /**
  * buildUnifiedToolCallIntentFromModelCall：把模型工具调用转换为中心服务工具意图。
  *
- * @param toolCall 模型返回的结构化工具调用。
+ * @param toolCall OpenAI 返回的结构化工具调用。
  * @returns 可执行工具意图；工具不存在或不可用时返回 null。
  */
-export function buildUnifiedToolCallIntentFromModelCall(toolCall: ModelToolCall): UnifiedToolCallIntent | null {
+export function buildUnifiedToolCallIntentFromModelCall(toolCall: OpenAiToolCall): UnifiedToolCallIntent | null {
     const dynamicMcpTool = readMcpDynamicToolName(toolCall.name);
     if (dynamicMcpTool) {
         return {
@@ -601,8 +604,8 @@ interface JsonRpcResponse {
  * @param centerDirectory 中心目录绝对路径。
  * @returns 可供模型直接选择的 MCP 动态工具列表。
  */
-async function listConfiguredMcpModelToolSpecs(centerDirectory: string): Promise<ModelToolSpec[]> {
-    const specs: ModelToolSpec[] = [];
+async function listConfiguredMcpModelToolSpecs(centerDirectory: string): Promise<OpenAiToolSpec[]> {
+    const specs: OpenAiToolSpec[] = [];
     for (const serverConfig of readAllMcpServerConfigs(centerDirectory)) {
         const tools = await listMcpTools(serverConfig).catch(() => {
             // catch: MCP Server 不可达时不阻断模型调用，静态 builtin.mcp.call 仍可返回失败事件。

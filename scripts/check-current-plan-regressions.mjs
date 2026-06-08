@@ -131,10 +131,6 @@ const packageFiles = [
     "packages/api-client/src",
     (file) => file.endsWith(".ts"),
   ),
-  ...listFiles(
-    "packages/model-protocol/src",
-    (file) => file.endsWith(".ts"),
-  ),
 ];
 
 for (const file of [

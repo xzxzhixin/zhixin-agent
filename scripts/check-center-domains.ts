@@ -431,7 +431,7 @@ async function main(): Promise<void> {
       payload: {
         providerName: "检查供应商",
         protocolPluginId: "builtin-model-openai-compatible",
-        protocolMode: "responses",
+        protocolMode: "chat-completions",
         baseUrl: "https://api.example.com",
         apiKey: "secret",
         model: "example-model",
