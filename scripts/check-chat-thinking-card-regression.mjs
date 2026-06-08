@@ -74,7 +74,7 @@ const panel = readFileSync(
   ),
   "utf-8",
 );
-// workflowDomain: 中心服务思考事件来源，必须继续使用真实上下文摘要字段。
+// workflowDomain: 中心服务思考事件来源，不能写入固定上下文摘要正文。
 const workflowDomain = readFileSync(
   join(
     process.cwd(),
@@ -123,6 +123,11 @@ assertIncludes(
 );
 assertNotIncludes(
   helpers,
+  ") || entry.event.summary",
+  "没有真实 thinkingText 时不能把事件摘要当作思考正文显示。",
+);
+assertNotIncludes(
+  helpers,
   "无思考内容：中心服务未返回可展示的思考片段。",
   "思考卡片不能用固定占位文本冒充思考正文。",
 );
@@ -131,15 +136,20 @@ assertIncludes(
   "<summary>{{ row.thinking.title }}</summary>",
   "对话面板应只展示聚合后的思考标题，不能再拼旧状态标签。",
 );
-assertIncludes(
+assertNotIncludes(
   workflowDomain,
   "thinkingText: contextSummary.runningText",
-  "中心服务 thinking.delta 必须写入真实可展示思考摘要。",
+  "中心服务 thinking.delta 不能写入固定上下文摘要正文。",
 );
-assertIncludes(
+assertNotIncludes(
   workflowDomain,
   "thinkingText: contextSummary.completedText",
-  "中心服务 thinking.completed 必须写入真实可展示思考摘要。",
+  "中心服务 thinking.completed 不能写入固定上下文摘要正文。",
+);
+assertNotIncludes(
+  workflowDomain,
+  "buildPublicThinkingContextSummary",
+  "中心服务不能继续构造固定上下文统计作为思考正文。",
 );
 assertNotIncludes(
   workflowDomain,

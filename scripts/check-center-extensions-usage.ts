@@ -42,7 +42,7 @@ async function main(): Promise<void> {
       url: "/api/provider/create",
       payload: {
         providerName: "聚合供应商",
-        protocolPluginId: "builtin-model-openai-compatible",
+        protocolPluginId: "openai-builtin",
         protocolMode: "chat-completions",
         baseUrl: "https://api.example.com",
         apiKey: "secret",

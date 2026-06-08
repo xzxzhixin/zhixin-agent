@@ -238,7 +238,7 @@ export interface ProviderDraft {
     providerId: string | null;
     /** providerName: 供应商名称。 */
     providerName: string;
-    /** protocolPluginId: 模型协议插件 ID。 */
+    /** protocolPluginId: 协议适配器 ID，OpenAI 内置固定为 openai-builtin。 */
     protocolPluginId: string;
     /** protocolMode: 协议模式。 */
     protocolMode: string;

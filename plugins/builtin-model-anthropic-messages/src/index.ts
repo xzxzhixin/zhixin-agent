@@ -39,7 +39,7 @@ export interface OpenAiChatPayload {
 /**
  * anthropicMessagesPluginManifest：Anthropic 内置模型适配器插件清单。
  *
- * 来源：系统内置模型协议插件交付要求。
+ * 来源：系统内置协议适配器插件交付要求。
  * 含义：供中心服务启动时注册插件身份和不可卸载来源。
  * 格式：插件 SDK 标准清单。
  * 默认值：系统内置、全局范围、无额外权限。
@@ -57,7 +57,7 @@ export const anthropicMessagesPluginManifest: PluginManifest = {
 /**
  * anthropicMessagesModelProtocolPlugin：Anthropic 适配器注册描述。
  *
- * 来源：中心服务模型协议插件注册表。
+ * 来源：中心服务协议适配器注册表。
  * 含义：描述该插件只接受中心内部 OpenAI Chat Completions 模式。
  * 格式：JSON 可序列化对象。
  * 默认值：默认模式为 chat-completions。

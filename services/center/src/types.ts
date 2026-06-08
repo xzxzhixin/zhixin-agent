@@ -41,6 +41,15 @@ export interface CenterServiceConfig {
      * 约束：只允许本机开发地址，避免中心服务把页面请求跳转到外部站点。
      */
     frontendDevServerUrl: string | null;
+
+    /**
+     * builtinPluginsDirectory: 随包或开发同步后的内置插件目录，来源于 ZHIXIN_BUILTIN_PLUGINS_DIR。
+     *
+     * 格式：绝对路径。
+     * 默认值：中心目录 plugins。
+     * 约束：中心服务只把该目录同步到中心目录 plugins，不直接把插件代码打入中心服务。
+     */
+    builtinPluginsDirectory: string;
 }
 
 /**
@@ -88,7 +97,7 @@ export interface CenterDirectoryLayoutItem {
 /**
  * ProviderCapabilityDeclaration：供应商模型能力声明。
  *
- * 来源：供应商配置和模型协议插件能力。
+ * 来源：供应商配置和协议适配器能力。
  * 含义：中心服务判断附件、工具调用、JSON 输出、推理深度、缓存用量、模型列表和流式输出是否可用。
  * 格式：JSON 布尔字段对象。
  * 默认值：未声明时所有能力为 false，避免前端自行猜测。

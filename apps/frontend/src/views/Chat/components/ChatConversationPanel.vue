@@ -670,14 +670,27 @@ onBeforeUnmount(() => {
           </article>
           <article
               v-else-if="row.rowKind === 'process'"
-              :class="['message-row', 'process', row.process.kind]"
+              :class="[
+                'message-row',
+                'process',
+                row.process.kind,
+                `process-${row.process.processKind}`,
+              ]"
           >
-            <section class="process-card">
-              <header>
-                <strong>{{ row.process.title }}</strong>
-              </header>
-              <pre>{{ row.process.responseText }}</pre>
-            </section>
+            <details
+                class="process-card"
+                :class="`process-card--${row.process.processKind}`"
+                :open="row.process.defaultOpen"
+            >
+              <summary class="process-card__summary">
+                <span class="process-card__kind">
+                  {{ row.process.processKind === "command" ? "命令" : row.process.statusLabel }}
+                </span>
+                <strong class="process-card__title">{{ row.process.title }}</strong>
+                <small class="process-card__status">{{ row.process.statusLabel }}</small>
+              </summary>
+              <pre class="process-card__body">{{ row.process.responseText }}</pre>
+            </details>
           </article>
           <article
               v-else
@@ -1018,6 +1031,71 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.process-card {
+  max-width: min(760px, 100%);
+  box-sizing: border-box;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+}
+
+.process-card--command {
+  border-color: color-mix(in srgb, var(--el-color-warning) 50%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-warning) 8%, var(--el-fill-color-blank));
+}
+
+.process-card__summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.process-card__summary::marker {
+  color: var(--el-text-color-secondary);
+}
+
+.process-card__kind {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.process-card__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.process-card__status {
+  flex: 0 0 auto;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.process-card__body {
+  max-height: 200px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 12px 12px;
+  overflow: auto;
+  color: var(--el-text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .composer {

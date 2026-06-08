@@ -120,6 +120,10 @@ const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const frontendDistPath = isDev
   ? join(repoRoot, "apps", "frontend", "dist")
   : join(process.resourcesPath, "frontend");
+// builtinPluginsPath: 内置插件源码或随包资源目录，中心服务启动时同步到中心目录 plugins。
+const builtinPluginsPath = isDev
+  ? join(repoRoot, "plugins")
+  : join(process.resourcesPath, "plugins");
 // frontendDevUrl: 开发期前端 dev server 地址，由根开发脚本注入以获得热更新体验。
 const frontendDevUrl = process.env.ZHIXIN_FRONTEND_DEV_URL;
 // centerEntryPath: 开发期直接运行中心服务 TS 入口，绿色版运行随包中心服务入口。
@@ -760,6 +764,7 @@ function startCenterService(): void {
       ZHIXIN_CENTER_DIR: centerLaunchConfig.centerDirectory,
       ZHIXIN_FRONTEND_DIST: frontendDistPath,
       ZHIXIN_FRONTEND_DEV_URL: frontendDevUrl ?? "",
+      ZHIXIN_BUILTIN_PLUGINS_DIR: builtinPluginsPath,
     },
     shell: isDev,
     stdio: "pipe",

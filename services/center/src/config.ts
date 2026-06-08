@@ -37,12 +37,17 @@ export function readCenterServiceConfig(input: CenterServiceConfigInput = {}): C
         : existsSync(join(defaultFrontendDistDirectory, "index.html"))
             ? defaultFrontendDistDirectory
             : null;
+    // builtinPluginsDirectory: 开发期默认同步到中心目录 plugins，绿色版由桌面壳传入 resources/plugins。
+    const builtinPluginsDirectory = env.ZHIXIN_BUILTIN_PLUGINS_DIR
+        ? resolve(env.ZHIXIN_BUILTIN_PLUGINS_DIR)
+        : resolve(centerDirectory, "plugins");
 
     return {
         port,
         centerDirectory,
         frontendDistDirectory,
         frontendDevServerUrl,
+        builtinPluginsDirectory,
     };
 }
 

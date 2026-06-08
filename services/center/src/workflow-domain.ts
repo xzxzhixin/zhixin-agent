@@ -9,18 +9,11 @@ import {broadcastGlobalEvent} from "./realtime.js";
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
 import {createDataAccess} from "./data-access/index.js";
-import {SessionRepository} from "./data-access/session-repository.js";
 import {findProject, findSession, createMessageTurnAndTask} from "./session-domain.js";
 import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "./types.js";
 import {writeJsonFile} from "./helpers.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
-import {listProviderConfigs} from "./provider-domain.js";
-import {
-    listInstalledSkills,
-    listMcpConfigs,
-    listPlugins,
-} from "./extension-domain.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
@@ -704,13 +697,9 @@ export function appendThinkingEvents(
 ): void {
     // thinkingId: 同一次公开思考过程的稳定聚合键，前端依赖它把 delta 和 completed 合成一张卡片。
     const thinkingId = `${turnId}:context-planning`;
-    // contextSummary: 思考正文只展示当前轮次真实读取到的上下文统计，避免固定模板被误认为模型真实思考。
-    const contextSummary = buildPublicThinkingContextSummary(
-        database,
-        sessionId,
-        turnId,
-        userText,
-    );
+    // database/userText: 当前函数签名沿用执行图调用边界；本阶段思考事件不把上下文统计写成正文，避免固定阶段摘要冒充真实思考。
+    void database;
+    void userText;
     events.append({
         eventType: "thinking.delta",
         scopeType: "thinking",
@@ -720,11 +709,10 @@ export function appendThinkingEvents(
         taskId,
         status: "running",
         title: "思考片段",
-        summary: `正在分析用户输入：${userText.slice(0, 80)}`,
+        summary: "正在思考",
         payload: withOptionalGraphCheckpoint({
             thinkingId,
             phase: "上下文整理",
-            thinkingText: contextSummary.runningText,
         }, graphCheckpoint),
     });
     events.append({
@@ -741,56 +729,8 @@ export function appendThinkingEvents(
             taskId,
             thinkingId,
             phase: "上下文整理",
-            thinkingText: contextSummary.completedText,
         }, graphCheckpoint),
     });
-}
-
-/**
- * buildPublicThinkingContextSummary：构造可公开展示的上下文整理摘要。
- *
- * @param database 中心服务数据库。
- * @param sessionId 当前会话 ID。
- * @param turnId 当前轮次 ID。
- * @param userText 当前轮次用户输入，用于公开摘要中说明本轮输入规模。
- * @returns 思考开始和完成时可展示的摘要。
- */
-function buildPublicThinkingContextSummary(
-    database: CenterDatabase,
-    sessionId: string,
-    turnId: string,
-    userText: string,
-): {
-    /** runningText: 思考流式生成时展示的摘要。 */
-    runningText: string;
-    /** completedText: 思考完成时展示的摘要。 */
-    completedText: string;
-} {
-    const repository = new SessionRepository(database);
-    // messages: 当前会话真实消息列表，来源是中心服务 messages 表。
-    const messages = repository.listMessages(sessionId);
-    // previousUserMessageCount: 排除本轮用户消息，得到当前窗口里本轮之前的用户消息数量。
-    const previousUserMessageCount = messages.filter((message) => {
-        return message.role === "user" && message.turnId !== turnId;
-    }).length;
-    // taskCount: 当前会话真实任务数量，用于说明任务状态读取范围。
-    const taskCount = repository.listTasks(sessionId).length;
-    // centerDirectory: 中心目录由桌面壳启动中心服务时写入 system meta，用于读取供应商和扩展能力配置。
-    const centerDirectory = createDataAccess(database).system.readMetaValue("centerDirectory") ?? "";
-    // providerCount: 当前中心目录已登记供应商数量，来源是中心服务供应商配置。
-    const providerCount = centerDirectory
-        ? listProviderConfigs(centerDirectory).length
-        : 0;
-    // extensionCount: 插件、MCP 和 skill 都属于扩展能力状态，统一按中心服务管理快照统计。
-    const extensionCount = listPlugins(database).length
-        + (centerDirectory ? listMcpConfigs(centerDirectory).length : 0)
-        + (centerDirectory ? listInstalledSkills(centerDirectory).length : 0);
-    // userInputCharacterCount: 只写入字符规模，不泄露或复述完整用户输入，避免公开思考区显示固定模型化话术。
-    const userInputCharacterCount = userText.length;
-    return {
-        runningText: `上下文读取范围：本轮输入 ${userInputCharacterCount} 字符；会话历史用户消息 ${previousUserMessageCount} 条，任务记录 ${taskCount} 条，供应商配置 ${providerCount} 个，扩展能力快照 ${extensionCount} 项。`,
-        completedText: `上下文读取完成：本轮公开摘要仅展示真实读取范围；会话历史用户消息 ${previousUserMessageCount} 条，任务记录 ${taskCount} 条，供应商配置 ${providerCount} 个，扩展能力快照 ${extensionCount} 项。`,
-    };
 }
 
 export function appendModelStreamEvent(

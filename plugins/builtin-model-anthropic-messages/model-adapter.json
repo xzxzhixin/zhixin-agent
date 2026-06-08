@@ -1,0 +1,21 @@
+{
+  "pluginId": "builtin-model-anthropic-messages",
+  "pluginName": "Anthropic 适配器",
+  "protocolModes": [
+    {
+      "mode": "chat-completions",
+      "label": "Chat Completions",
+      "description": "中心内部使用 OpenAI Chat Completions，插件负责转换到 Anthropic 请求。"
+    }
+  ],
+  "defaultProtocolMode": "chat-completions",
+  "defaultCapabilities": {
+    "supportsVision": true,
+    "supportsToolCalling": true,
+    "supportsJsonOutput": true,
+    "supportsReasoningEffort": true,
+    "providesCacheUsage": true,
+    "supportsModelList": false,
+    "supportsStreaming": true
+  }
+}

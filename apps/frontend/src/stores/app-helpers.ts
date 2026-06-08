@@ -176,7 +176,7 @@ export function createProviderDraft(): ProviderDraft {
     return {
         providerId: null,
         providerName: "",
-        protocolPluginId: "builtin-model-openai-compatible",
+        protocolPluginId: "openai-builtin",
         protocolMode: "chat-completions",
         baseUrl: "",
         apiKey: "",

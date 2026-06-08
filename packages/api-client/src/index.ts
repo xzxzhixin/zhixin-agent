@@ -235,7 +235,7 @@ export interface CommittedAttachmentResult {
  * ProviderCapabilityDeclaration：供应商模型能力声明。
  *
  * 来源：中心服务供应商配置协议。
- * 含义：描述模型协议插件暴露给 UI 的能力开关。
+ * 含义：描述协议适配器暴露给 UI 的能力开关。
  * 格式：布尔字段对象。
  * 默认值：创建表单默认全部 false。
  * 约束：前端只提交明确字段，不猜测能力。
@@ -258,10 +258,10 @@ export interface ProviderCapabilityDeclaration {
 }
 
 /**
- * ProviderProtocolModeView：模型协议插件模式展示结构。
+ * ProviderProtocolModeView：协议适配器模式展示结构。
  *
  * 来源：`POST /api/provider/protocol-plugin/list`。
- * 含义：描述某个模型协议插件支持的供应商协议模式。
+ * 含义：描述某个协议适配器支持的供应商协议模式。
  * 格式：JSON 对象。
  * 默认值：无。
  * 约束：mode 是保存到供应商配置的稳定协议值。
@@ -276,24 +276,24 @@ export interface ProviderProtocolModeView {
 }
 
 /**
- * ProviderProtocolPluginView：模型协议插件展示结构。
+ * ProviderProtocolPluginView：协议适配器展示结构。
  *
- * 来源：中心服务已注册模型协议插件列表。
- * 含义：供应商页协议插件下拉的数据源。
+ * 来源：中心服务固定 OpenAI 内置项和中心目录 `plugins/builtin-model-*`。
+ * 含义：供应商页协议适配器下拉的数据源。
  * 格式：JSON 对象。
  * 默认值：无。
  * 约束：pluginId 必须与供应商配置 protocolPluginId 一致。
  */
 export interface ProviderProtocolPluginView {
-  /** pluginId: 模型协议插件 ID。 */
+  /** pluginId: 协议适配器 ID。 */
   pluginId: string;
-  /** pluginName: 模型协议插件显示名。 */
+  /** pluginName: 协议适配器显示名。 */
   pluginName: string;
   /** protocolModes: 该插件支持的协议模式列表。 */
   protocolModes: ProviderProtocolModeView[];
   /** defaultProtocolMode: 新建供应商时推荐默认模式。 */
   defaultProtocolMode: string;
-  /** defaultCapabilities: 该协议插件推荐默认能力声明。 */
+  /** defaultCapabilities: 该协议适配器推荐默认能力声明。 */
   defaultCapabilities: ProviderCapabilityDeclaration;
 }
 
@@ -327,7 +327,7 @@ export interface ProviderConfigView {
   providerId: string;
   /** providerName: 供应商名称。 */
   providerName: string;
-  /** protocolPluginId: 模型协议插件 ID。 */
+  /** protocolPluginId: 协议适配器 ID。 */
   protocolPluginId: string;
   /** protocolMode: 协议模式。 */
   protocolMode: string;
@@ -914,9 +914,9 @@ export class CenterApiClient {
   }
 
   /**
-   * listProviderProtocolPlugins：查询中心服务已注册模型协议插件。
+   * listProviderProtocolPlugins：查询中心服务协议适配器。
    *
-   * @returns 模型协议插件列表。
+   * @returns 协议适配器列表。
    */
   listProviderProtocolPlugins(): Promise<{
     plugins: ProviderProtocolPluginView[];

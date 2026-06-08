@@ -171,7 +171,7 @@ export function createManagementActions() {
         },
 
         /**
-         * loadProviderProtocolPlugins：加载中心服务已注册模型协议插件列表。
+         * loadProviderProtocolPlugins：加载中心服务协议适配器列表。
          *
          * @returns 加载完成后没有返回值。
          */
@@ -182,13 +182,16 @@ export function createManagementActions() {
         },
 
         /**
-         * syncProviderDraftWithProtocolPlugins：根据中心服务注册列表修正供应商草稿。
+         * syncProviderDraftWithProtocolPlugins：根据中心服务协议适配器列表修正供应商草稿。
          *
-         * @param plugins 已注册模型协议插件。
+         * @param plugins 已注册协议适配器。
          * @returns 没有返回值。
          */
         syncProviderDraftWithProtocolPlugins(plugins: ProviderProtocolPluginView[]): void {
-            const currentPlugin = plugins.find((plugin) => plugin.pluginId === this.providerDraft.protocolPluginId) ?? plugins[0];
+            // currentPlugin: 旧中心目录或浏览器热更新状态可能残留已删除的 OpenAI 插件 ID；不在当前列表时必须回到第一个真实适配器。
+            const currentPlugin = plugins.find((plugin) => {
+                return plugin.pluginId === this.providerDraft.protocolPluginId;
+            }) ?? plugins[0];
             if (!currentPlugin) {
                 return;
             }
@@ -202,9 +205,9 @@ export function createManagementActions() {
         },
 
         /**
-         * selectProviderProtocolPlugin：用户切换协议插件时同步默认协议模式和默认能力。
+         * selectProviderProtocolPlugin：用户切换协议适配器时同步默认协议模式和默认能力。
          *
-         * @param pluginId 模型协议插件 ID。
+         * @param pluginId 协议适配器 ID。
          * @returns 没有返回值。
          */
         selectProviderProtocolPlugin(pluginId: string): void {

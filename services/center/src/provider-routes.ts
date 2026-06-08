@@ -94,8 +94,8 @@ export function registerProviderRoutes(
     }));
 
     app.post("/api/provider/protocol-plugin/list", async () => createSuccessResponse({
-        // plugins: 供应商页协议插件唯一来源；中心服务只返回已注册内置协议，前端不再猜测协议 ID。
-        plugins: listRegisteredModelProtocolPlugins(),
+        // plugins: 供应商页协议适配器唯一来源；固定 OpenAI 内置项和中心目录 plugins/builtin-model-* 动态适配器都由中心服务返回。
+        plugins: listRegisteredModelProtocolPlugins(config.centerDirectory),
     }));
 
     app.post("/api/provider/update", async (request) => {

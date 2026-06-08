@@ -165,16 +165,6 @@ importers:
         specifier: 5.6.3
         version: 5.6.3
 
-  plugins/builtin-model-openai-compatible:
-    dependencies:
-      '@zhixin/plugin-sdk':
-        specifier: workspace:*
-        version: link:../../packages/plugin-sdk
-    devDependencies:
-      typescript:
-        specifier: 5.6.3
-        version: 5.6.3
-
   plugins/builtin-office-integration:
     dependencies:
       '@zhixin/plugin-sdk':

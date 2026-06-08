@@ -131,12 +131,21 @@ export interface ProcessMessageGroupRow {
     turnId: string | null;
     /** taskId: 所属任务 ID，来自中心服务事件；无任务时为 null。 */
     taskId: string | null;
-    /** kind: 过程类型。 */
+    /** kind: 渲染行大类，当前过程卡片统一归为工具过程。 */
     kind: "tool";
+    /** processKind: 过程细分类型，来源于事件类型或 payload.toolKind，用于区分命令、MCP、插件、skill 和普通工具。 */
+    processKind:
+        | "command"
+        | "mcp"
+        | "plugin"
+        | "skill"
+        | "tool";
     /** title: 展示标题。 */
     title: string;
     /** statusLabel: 当前聚合过程状态。 */
     statusLabel: string;
+    /** defaultOpen: 是否默认展开；运行中展开，完成和失败后折叠。 */
+    defaultOpen: boolean;
     /** traceId: 最近事件排查 ID。 */
     traceId: string;
     /** summary: 聚合摘要。 */
@@ -445,17 +454,20 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
             return entry.statusMeta.status === "running";
         }) && !hasCompleted && !hasFailed;
         const title = resolveProcessGroupTitle(latestEvent);
+        const processKind = resolveProcessKind(latestEvent);
         return {
             rowId: `process-${groupKey}`,
             turnId: latestEvent.turnId,
             taskId: latestEvent.taskId,
             kind: "tool",
+            processKind,
             title,
             statusLabel: hasFailed
                 ? "失败"
                 : isRunning
                     ? "执行中"
                     : "已完成",
+            defaultOpen: isRunning,
             traceId: latestEvent.traceId,
             summary: resolveProcessSummary(latestEvent),
             responseText: resolveProcessResponseText(
@@ -596,8 +608,8 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             "command",
         );
         return command
-            ? `执行：${command}`
-            : "执行：命令";
+            ? command
+            : "命令";
     }
     if (event.eventType.startsWith("tool.call.")) {
         return readEventText(
@@ -666,11 +678,29 @@ function resolveProcessResponseText(
     });
 
     if (responseParts.length > 0) {
-        return responseParts.join("\n");
+        return deduplicateProcessTextParts(responseParts).join("\n");
     }
 
     const title = resolveProcessGroupTitle(latestEvent);
     return `${title} 已开始，等待响应。`;
+}
+
+/**
+ * deduplicateProcessTextParts：去除同一过程卡片里的重复正文片段。
+ *
+ * @param parts 按事件顺序读取的输出、完成摘要和失败原因。
+ * @returns 去重后的正文片段。
+ */
+function deduplicateProcessTextParts(parts: string[]): string[] {
+    const seen = new Set<string>();
+    return parts.filter((part) => {
+        const normalizedPart = part.trim();
+        if (normalizedPart.length === 0 || seen.has(normalizedPart)) {
+            return false;
+        }
+        seen.add(normalizedPart);
+        return true;
+    });
 }
 
 /**
@@ -809,13 +839,38 @@ export function createThinkingProcessRows(events: EventRecord[]): ThinkingProces
                     summary: readEventText(
                         entry.event,
                         "thinkingText",
-                    ) || entry.event.summary,
+                    ),
                 };
             }).filter((segment) => {
                 return segment.summary.trim().length > 0;
             }),
         };
     });
+}
+
+/**
+ * resolveProcessKind：解析过程卡片细分类型。
+ *
+ * @param event 同组最新事件。
+ * @returns 命令、MCP、插件、skill 或普通工具。
+ */
+function resolveProcessKind(event: EventRecord): ProcessMessageGroupRow["processKind"] {
+    const payload = typeof event.payload === "object" && event.payload !== null
+        ? event.payload as Record<string, unknown>
+        : {};
+    if (event.eventType.startsWith("tool.command.") || payload.toolKind === "command") {
+        return "command";
+    }
+    if (event.eventType.startsWith("tool.mcp.") || payload.toolKind === "mcp") {
+        return "mcp";
+    }
+    if (event.eventType.startsWith("tool.plugin.") || payload.toolKind === "plugin") {
+        return "plugin";
+    }
+    if (event.eventType.startsWith("tool.skill.") || payload.toolKind === "skill") {
+        return "skill";
+    }
+    return "tool";
 }
 
 /**

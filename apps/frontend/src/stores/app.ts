@@ -193,7 +193,7 @@ export const useAppStore = defineStore("app", {
         providers: [] as ProviderConfigView[],
 
         /**
-         * providerProtocolPlugins: 中心服务已注册模型协议插件列表。
+         * providerProtocolPlugins: 中心服务返回的协议适配器列表。
          */
         providerProtocolPlugins: [] as ProviderProtocolPluginView[],
 

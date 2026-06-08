@@ -183,7 +183,7 @@ async function writeEnabledProvider(centerDirectory: string, baseUrl: string): P
         providerId: "fake-tool-loop",
         displayName: "工具闭环假模型",
         baseUrl,
-        protocolPluginId: "builtin-model-openai-compatible",
+        protocolPluginId: "openai-builtin",
         protocolMode: "chat-completions",
         defaultModel: "fake-tool-model",
         defaultReasoningEffort: null,

@@ -106,7 +106,6 @@ assertExists(builtinPluginsRoot, "绿色版缺少内置插件目录。");
 
 // pluginNames: 架构规定必须随包交付的系统内置插件。
 const pluginNames = [
-  "builtin-model-openai-compatible",
   "builtin-model-anthropic-messages",
   "builtin-automation",
   "builtin-browser-collector",

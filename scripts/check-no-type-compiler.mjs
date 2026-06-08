@@ -21,7 +21,6 @@ const workspacePackages = [
   "packages/api-client",
   "packages/ui",
   "packages/plugin-sdk",
-  "plugins/builtin-model-openai-compatible",
   "plugins/builtin-model-anthropic-messages",
   "plugins/builtin-automation",
   "plugins/builtin-browser-collector",

@@ -1,15 +1,11 @@
 /**
- * 模型协议插件和内置插件清单检查。
+ * 协议适配器和内置插件清单检查。
  *
  * 用途：验证阶段 9 和阶段 11 的内置插件导出可用，且插件权限校验生效。
  * 关键逻辑：直接调用纯转换函数，不访问外部供应商网络。
  * 参数：无。
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
-import {
-  toOpenAiCompatibleRequest,
-  normalizeOpenAiUsage,
-} from "../plugins/builtin-model-openai-compatible/src/index";
 import {
   toAnthropicAdapterRequest,
   normalizeAnthropicUsage,
@@ -62,18 +58,8 @@ const request = {
   stream: true,
 } as const;
 
-const chatRequest = toOpenAiCompatibleRequest(request);
-assert(chatRequest.endpoint === "/v1/chat/completions", "OpenAI Chat Completions endpoint 错误");
-
 const anthropicRequest = toAnthropicAdapterRequest(request);
 assert(anthropicRequest.endpoint === "/v1/messages", "Anthropic 适配器 endpoint 错误");
-
-const openAiUsage = normalizeOpenAiUsage({
-  input_tokens: 1,
-  output_tokens: 2,
-  total_tokens: 3,
-});
-assert(openAiUsage?.cacheMissTokens === null, "OpenAI 未提供缓存未命中字段时必须为 null");
 
 const anthropicUsage = normalizeAnthropicUsage({
   input_tokens: 1,

@@ -184,10 +184,10 @@ export async function runCommandTool(
         };
 
         child.stdout?.on("data", (chunk: Buffer) => {
-            appendOutputChunk(chunk.toString("utf-8"));
+            appendOutputChunk(decodeCommandOutputChunk(chunk));
         });
         child.stderr?.on("data", (chunk: Buffer) => {
-            appendOutputChunk(chunk.toString("utf-8"));
+            appendOutputChunk(decodeCommandOutputChunk(chunk));
         });
         child.on("error", (error) => {
             if (settled) {
@@ -229,6 +229,71 @@ export async function runCommandTool(
             );
         });
     });
+}
+
+/**
+ * decodeCommandOutputChunk：把命令输出字节解码为 UI 可读文本。
+ *
+ * @param chunk stdout 或 stderr 原始字节。
+ * @returns 已按平台兼容处理的文本。
+ */
+function decodeCommandOutputChunk(chunk: Buffer): string {
+    // utf8Text: 非 Windows 和多数现代工具默认输出 UTF-8，先保留最常见路径。
+    const utf8Text = new TextDecoder("utf-8").decode(chunk);
+    if (process.platform !== "win32" || !utf8Text.includes("\uFFFD")) {
+        return utf8Text;
+    }
+
+    // gb18030Text: Windows 中文环境下 PowerShell、cmd 或 Python traceback 可能按系统代码页输出。
+    const gb18030Text = decodeWithEncoding(
+        chunk,
+        "gb18030",
+    );
+    if (gb18030Text && countReplacementCharacters(gb18030Text) < countReplacementCharacters(utf8Text)) {
+        return gb18030Text;
+    }
+
+    // windows1252Text: 英文 Windows 工具的 ANSI 输出兜底，仍以替换字符数量作为选择依据。
+    const windows1252Text = decodeWithEncoding(
+        chunk,
+        "windows-1252",
+    );
+    if (windows1252Text && countReplacementCharacters(windows1252Text) < countReplacementCharacters(utf8Text)) {
+        return windows1252Text;
+    }
+
+    return utf8Text;
+}
+
+/**
+ * decodeWithEncoding：按指定编码尝试解码命令输出。
+ *
+ * @param chunk 原始字节。
+ * @param encoding TextDecoder 支持的编码名。
+ * @returns 解码文本；当前 Node 环境不支持该编码时返回 null。
+ */
+function decodeWithEncoding(
+    chunk: Buffer,
+    encoding: string,
+): string | null {
+    try {
+        return new TextDecoder(encoding).decode(chunk);
+    } catch {
+        // catch: 不同 Node ICU 构建支持的 legacy encoding 可能不同，失败时让调用方继续使用其他编码。
+        return null;
+    }
+}
+
+/**
+ * countReplacementCharacters：统计解码替换字符数量。
+ *
+ * @param text 已解码文本。
+ * @returns Unicode 替换字符数量。
+ */
+function countReplacementCharacters(text: string): number {
+    return Array.from(text).filter((character) => {
+        return character === "\uFFFD";
+    }).length;
 }
 
 /**

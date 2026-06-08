@@ -27,14 +27,14 @@ const usageChartModulesRegistered = use;
 const currentWorkspacePage = "providers";
 // providerDialogVisible: 供应商新增和编辑弹框显隐。
 const providerDialogVisible = ref(false);
-// selectedProtocolPlugin：当前草稿选中的协议插件，来源于中心服务注册列表。
+// selectedProtocolPlugin：当前草稿选中的协议适配器，来源于中心服务固定项和中心目录模型插件扫描结果。
 const selectedProtocolPlugin = computed(() => {
   return appStore.providerProtocolPlugins.find((plugin) => {
     return plugin.pluginId === appStore.providerDraft.protocolPluginId;
   }) ?? null;
 });
 
-// selectedProtocolModes：当前协议插件支持的协议模式列表，用于避免前端写死模式。
+// selectedProtocolModes：当前协议适配器支持的协议模式列表，用于避免前端写死模式。
 const selectedProtocolModes = computed(() => {
   return selectedProtocolPlugin.value?.protocolModes ?? [];
 });
@@ -215,6 +215,8 @@ const manualModelContextError = computed(() => {
  */
 function openCreateProviderDialog(): void {
   appStore.resetProviderDraft();
+  // 协议适配器：打开新增弹框时立即按中心服务当前列表校准，避免本地热状态残留已删除的 OpenAI 插件 ID。
+  appStore.syncProviderDraftWithProtocolPlugins(appStore.providerProtocolPlugins);
   // enabled: 新增供应商默认保存为停用，避免只填 Base URL 和 API Key 的草稿触发启用完整性校验。
   appStore.providerDraft.enabled = false;
   providerDialogVisible.value = true;
@@ -464,7 +466,7 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="6">
-            <el-form-item label="协议插件">
+            <el-form-item label="协议适配器">
               <el-select
                   v-model="appStore.providerDraft.protocolPluginId"
                   @change="appStore.selectProviderProtocolPlugin"
@@ -476,7 +478,7 @@ onMounted(() => {
                     :value="plugin.pluginId"
                 />
               </el-select>
-              <small class="field-helper">协议插件来自中心服务已注册内置模型协议清单。</small>
+              <small class="field-helper">OpenAI 内置为固定项；其他适配器来自中心目录 plugins/builtin-model-*。</small>
             </el-form-item>
           </el-col>
           <el-col :span="6">
@@ -492,7 +494,7 @@ onMounted(() => {
                   <small class="option-helper">{{ mode.description }}</small>
                 </el-option>
               </el-select>
-              <small class="field-helper">协议模式由当前模型协议插件声明，保存后进入中心服务供应商配置。</small>
+              <small class="field-helper">协议模式由当前协议适配器声明，保存后进入中心服务供应商配置。</small>
             </el-form-item>
           </el-col>
           <el-col :span="6">

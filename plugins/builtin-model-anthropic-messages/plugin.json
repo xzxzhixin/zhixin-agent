@@ -1,0 +1,10 @@
+{
+  "id": "builtin-model-anthropic-messages",
+  "name": "Anthropic 适配器",
+  "version": "0.1.0",
+  "source": "system-builtin",
+  "scope": "global",
+  "permissions": [],
+  "category": "model",
+  "kind": "anthropic"
+}

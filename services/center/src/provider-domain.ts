@@ -25,17 +25,17 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 export type ModelProtocolPluginDescriptor = {
     /**
-     * pluginId: 模型协议插件 ID，来源于内置插件清单。
+     * pluginId: 协议适配器 ID，OpenAI 内置固定为 openai-builtin。
      */
     pluginId: string;
 
     /**
-     * pluginName: 模型协议插件显示名，供应商页用于下拉展示。
+     * pluginName: 协议适配器显示名，供应商页用于下拉展示。
      */
     pluginName: string;
 
     /**
-     * protocolModes: 当前协议插件支持的模式列表。
+     * protocolModes: 当前协议适配器支持的模式列表。
      */
     protocolModes: Array<{
         /**
@@ -60,19 +60,19 @@ export type ModelProtocolPluginDescriptor = {
     defaultProtocolMode: string;
 
     /**
-     * defaultCapabilities: 该协议插件的默认能力声明。
+     * defaultCapabilities: 该协议适配器的默认能力声明。
      */
     defaultCapabilities: ProviderCapabilityDeclaration;
 };
 
-const OPENAI_COMPATIBLE_PROTOCOL_PLUGIN: ModelProtocolPluginDescriptor = {
-    pluginId: "builtin-model-openai-compatible",
-    pluginName: "OpenAI 兼容",
+const OPENAI_BUILTIN_PROTOCOL_ADAPTER: ModelProtocolPluginDescriptor = {
+    pluginId: "openai-builtin",
+    pluginName: "OpenAI 内置",
     protocolModes: [
         {
             mode: "chat-completions",
             label: "Chat Completions",
-            description: "适用于 OpenAI 兼容 /v1/chat/completions 协议。",
+            description: "中心服务内部固定使用 OpenAI Chat Completions，直接调用兼容接口。",
         },
     ],
     defaultProtocolMode: "chat-completions",
@@ -86,10 +86,6 @@ const OPENAI_COMPATIBLE_PROTOCOL_PLUGIN: ModelProtocolPluginDescriptor = {
         supportsStreaming: true,
     },
 };
-
-const REGISTERED_MODEL_PROTOCOL_PLUGINS: ModelProtocolPluginDescriptor[] = [
-    OPENAI_COMPATIBLE_PROTOCOL_PLUGIN,
-];
 
 type ProviderConfigRecord = {
     providerId: string;
@@ -106,12 +102,16 @@ type ProviderConfigRecord = {
 };
 
 /**
- * listRegisteredModelProtocolPlugins：读取中心服务已注册模型协议插件。
+ * listModelProtocolAdapters：读取供应商页可用协议适配器。
  *
- * @returns 已注册的内置模型协议插件清单。
+ * @param centerDirectory 中心目录绝对路径，动态适配器从 `plugins/builtin-model-*` 读取。
+ * @returns 固定 OpenAI 内置项加已同步模型适配器插件清单。
  */
-export function listRegisteredModelProtocolPlugins(): ModelProtocolPluginDescriptor[] {
-    return REGISTERED_MODEL_PROTOCOL_PLUGINS.map((plugin) => ({
+export function listModelProtocolAdapters(centerDirectory: string): ModelProtocolPluginDescriptor[] {
+    return [
+        OPENAI_BUILTIN_PROTOCOL_ADAPTER,
+        ...listBuiltinModelAdapterPlugins(centerDirectory),
+    ].map((plugin) => ({
         ...plugin,
         protocolModes: plugin.protocolModes.map((mode) => ({
             ...mode,
@@ -123,24 +123,87 @@ export function listRegisteredModelProtocolPlugins(): ModelProtocolPluginDescrip
 }
 
 /**
+ * listRegisteredModelProtocolPlugins：兼容旧接口名，返回供应商页协议适配器列表。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @returns 协议适配器列表。
+ */
+export function listRegisteredModelProtocolPlugins(centerDirectory: string): ModelProtocolPluginDescriptor[] {
+    return listModelProtocolAdapters(centerDirectory);
+}
+
+/**
+ * listBuiltinModelAdapterPlugins：扫描中心目录中的内置模型适配器插件。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @returns `plugins/builtin-model-*` 下声明的模型协议适配器。
+ */
+function listBuiltinModelAdapterPlugins(centerDirectory: string): ModelProtocolPluginDescriptor[] {
+    const pluginsDirectory = join(centerDirectory, "plugins");
+    if (!existsSync(pluginsDirectory)) {
+        return [];
+    }
+
+    return readdirSync(pluginsDirectory, {
+        withFileTypes: true,
+    }).filter((entry) => {
+        // builtin-model-: 只有模型协议适配器插件能进入供应商页下拉，其他 builtin-* 插件不参与。
+        return entry.isDirectory() && entry.name.startsWith("builtin-model-");
+    }).map((entry) => {
+        const adapterPath = join(
+            pluginsDirectory,
+            entry.name,
+            "model-adapter.json",
+        );
+        return readJsonFileIfExists<ModelProtocolPluginDescriptor>(adapterPath);
+    }).filter((plugin): plugin is ModelProtocolPluginDescriptor => {
+        return isValidModelProtocolPluginDescriptor(plugin);
+    });
+}
+
+/**
+ * isValidModelProtocolPluginDescriptor：校验模型适配器插件声明是否完整。
+ *
+ * @param plugin 插件目录中的 model-adapter.json 内容。
+ * @returns 满足供应商页下拉协议时返回 true。
+ */
+function isValidModelProtocolPluginDescriptor(plugin: unknown): plugin is ModelProtocolPluginDescriptor {
+    if (!plugin || typeof plugin !== "object") {
+        return false;
+    }
+
+    const candidate = plugin as Partial<ModelProtocolPluginDescriptor>;
+    return typeof candidate.pluginId === "string"
+        && candidate.pluginId.startsWith("builtin-model-")
+        && typeof candidate.pluginName === "string"
+        && Array.isArray(candidate.protocolModes)
+        && typeof candidate.defaultProtocolMode === "string"
+        && typeof candidate.defaultCapabilities === "object"
+        && candidate.defaultCapabilities !== null;
+}
+
+/**
  * resolveRegisteredModelProtocolPlugin：按插件 ID 和协议模式解析注册项。
  *
- * @param protocolPluginId 模型协议插件 ID。
+ * @param centerDirectory 中心目录绝对路径。
+ * @param protocolPluginId 协议适配器 ID。
  * @param protocolMode 协议模式。
  * @returns 已注册插件和模式。
  */
 function resolveRegisteredModelProtocolPlugin(
+    centerDirectory: string,
     protocolPluginId: string | undefined,
     protocolMode: string | undefined,
 ): {
     plugin: ModelProtocolPluginDescriptor;
     protocolMode: string;
 } {
-    // normalizedPluginId: 保存草稿允许暂缺协议插件；中心服务保存时默认落到 OpenAI Chat Completions，启用时再要求用户显式确认完整字段。
+    const registeredPlugins = listModelProtocolAdapters(centerDirectory);
+    // normalizedPluginId: 保存草稿允许暂缺协议适配器；中心服务保存时默认落到 OpenAI 内置，启用时再要求用户显式确认完整字段。
     const normalizedPluginId = protocolPluginId && protocolPluginId.trim().length > 0
         ? protocolPluginId.trim()
-        : OPENAI_COMPATIBLE_PROTOCOL_PLUGIN.pluginId;
-    const plugin = REGISTERED_MODEL_PROTOCOL_PLUGINS.find((item) => item.pluginId === normalizedPluginId);
+        : OPENAI_BUILTIN_PROTOCOL_ADAPTER.pluginId;
+    const plugin = registeredPlugins.find((item) => item.pluginId === normalizedPluginId);
     if (!plugin) {
         throw new Error("MODEL_PROTOCOL_PLUGIN_NOT_REGISTERED");
     }
@@ -179,7 +242,7 @@ export function listProviderEnableMissingFields(input: {
             value: input.providerName,
         },
         {
-            label: "协议插件",
+            label: "协议适配器",
             value: input.protocolPluginId,
         },
         {
@@ -248,6 +311,7 @@ export function createProvider(
     const providerId = randomUUID();
     const relativePath = `providers/${providerId}.json`;
     const modelProtocol = resolveRegisteredModelProtocolPlugin(
+        centerDirectory,
         input.protocolPluginId,
         input.protocolMode,
     );
@@ -360,6 +424,7 @@ export function updateProviderConfig(
 
     const existing = JSON.parse(readFileSync(providerPath, "utf-8")) as Record<string, unknown>;
     const modelProtocol = resolveRegisteredModelProtocolPlugin(
+        centerDirectory,
         input.protocolPluginId ?? String(existing.protocolPluginId),
         input.protocolMode ?? String(existing.protocolMode),
     );
@@ -886,7 +951,7 @@ export function fetchProviderModelsFromUpstream(
     if (!provider) {
         throw new Error("PROVIDER_NOT_FOUND");
     }
-    if (provider.protocolPluginId !== "builtin-model-openai-compatible") {
+    if (provider.protocolPluginId !== OPENAI_BUILTIN_PROTOCOL_ADAPTER.pluginId) {
         throw new Error("PROVIDER_MODEL_FETCH_UNSUPPORTED");
     }
 

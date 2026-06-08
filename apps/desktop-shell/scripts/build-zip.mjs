@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import {
   cpSync,
   mkdirSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -57,15 +58,13 @@ cpSync(
   },
 );
 
-for (const pluginName of [
-  "builtin-model-openai-compatible",
-  "builtin-model-anthropic-messages",
-  "builtin-automation",
-  "builtin-browser-collector",
-  "builtin-office-integration",
-  "builtin-file-organizer",
-]) {
-  // pluginName: 架构规定随桌面绿色版交付的系统内置插件目录。
+for (const pluginName of readdirSync(join(repoRoot, "plugins"), {
+  withFileTypes: true,
+}).filter((entry) => {
+  // builtin-: 所有系统内置插件统一随桌面产物交付；协议适配器由 builtin-model-* 再细分。
+  return entry.isDirectory() && entry.name.startsWith("builtin-");
+}).map((entry) => entry.name)) {
+  // pluginName: 架构规定随桌面绿色版交付的系统内置插件目录，不再包含已移除的 OpenAI 兼容插件包。
   cpSync(
     join(repoRoot, "plugins", pluginName),
     join(portableRoot, "resources", "plugins", pluginName),

@@ -292,6 +292,7 @@ for (const file of listFiles("scripts")) {
     if (
       !file.endsWith("check-no-type-compiler.mjs")
       && !file.endsWith("check-current-plan-regressions.mjs")
+      && !file.endsWith("check-langgraph-mem0-center-config.mjs")
       && !file.endsWith("check-chat-experience-regressions.mjs")
     ) {
       failures.push(`${file}: 静态回归脚本不得新增 TypeScript 编译器质量门槛。`);

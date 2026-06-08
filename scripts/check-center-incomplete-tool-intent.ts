@@ -153,7 +153,7 @@ async function writeEnabledProvider(
         providerId: "fake-incomplete-intent",
         displayName: "半截意图假模型",
         baseUrl,
-        protocolPluginId: "builtin-model-openai-compatible",
+        protocolPluginId: "openai-builtin",
         protocolMode: "chat-completions",
         defaultModel: "fake-incomplete-model",
         defaultReasoningEffort: null,

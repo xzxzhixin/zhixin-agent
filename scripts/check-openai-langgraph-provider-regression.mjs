@@ -120,10 +120,6 @@ const protocolSearchSources = [
     readText("services/center/package.json"),
   ],
   [
-    "plugins/builtin-model-openai-compatible/package.json",
-    readText("plugins/builtin-model-openai-compatible/package.json"),
-  ],
-  [
     "plugins/builtin-model-anthropic-messages/package.json",
     readText("plugins/builtin-model-anthropic-messages/package.json"),
   ],

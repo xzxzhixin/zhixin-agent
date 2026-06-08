@@ -172,7 +172,7 @@ async function writeMemoryFakeProvider(
         providerId: "memory-fake-provider",
         displayName: "记忆闭环假模型",
         baseUrl,
-        protocolPluginId: "builtin-model-openai-compatible",
+        protocolPluginId: "openai-builtin",
         protocolMode: "chat-completions",
         defaultModel: "memory-fake-model",
         defaultReasoningEffort: null,
@@ -430,7 +430,7 @@ async function main(): Promise<void> {
       url: "/api/provider/create",
       payload: {
         providerName: "检查供应商",
-        protocolPluginId: "builtin-model-openai-compatible",
+        protocolPluginId: "openai-builtin",
         protocolMode: "chat-completions",
         baseUrl: "https://api.example.com",
         apiKey: "secret",
@@ -547,8 +547,8 @@ async function main(): Promise<void> {
       url: "/api/plugin/install",
       payload: {
         manifest: {
-          id: "builtin-model-openai-compatible",
-          name: "OpenAI 兼容协议",
+          id: "builtin-model-anthropic-messages",
+          name: "Anthropic 适配器",
           version: "0.1.0",
           source: "system-builtin",
           scope: "global",
@@ -557,18 +557,18 @@ async function main(): Promise<void> {
           ],
         },
       },
-    })).json<ApiResponse<unknown>>().success, "系统内置模型协议插件安装失败");
+    })).json<ApiResponse<unknown>>().success, "系统内置协议适配器插件安装失败");
     const builtinDeleteResponse = await service.app.inject({
       method: "POST",
       url: "/api/plugin/delete",
       payload: {
-        pluginId: "builtin-model-openai-compatible",
+        pluginId: "builtin-model-anthropic-messages",
       },
     });
     const builtinDelete = builtinDeleteResponse.json<ApiResponse<{
       deleted: boolean;
     }>>();
-    assert(!builtinDelete.data?.deleted, "系统内置模型协议插件不允许卸载");
+    assert(!builtinDelete.data?.deleted, "系统内置协议适配器插件不允许卸载");
 
     const todoResponse = await service.app.inject({
       method: "POST",

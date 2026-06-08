@@ -1,4 +1,15 @@
 import {randomUUID} from "node:crypto";
+import {
+    cpSync,
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    rmSync,
+} from "node:fs";
+import {
+    join,
+    resolve,
+} from "node:path";
 import websocket from "@fastify/websocket";
 import Fastify, {type FastifyInstance} from "fastify";
 
@@ -171,6 +182,7 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
      */
     async function initialize(): Promise<void> {
         await directory.initialize();
+        syncBuiltinPluginsToCenterDirectory(config);
         database.initialize();
         await logger.info("center.bootstrap.initialized", {
             centerDirectory: config.centerDirectory,
@@ -331,4 +343,68 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
         },
         close,
     };
+}
+
+/**
+ * syncBuiltinPluginsToCenterDirectory：把随包内置插件同步到中心目录 plugins。
+ *
+ * @param config 中心服务启动配置。
+ * @returns 没有返回值。
+ */
+function syncBuiltinPluginsToCenterDirectory(config: CenterServiceConfig): void {
+    const sourceDirectory = config.builtinPluginsDirectory;
+    const targetDirectory = join(
+        config.centerDirectory,
+        "plugins",
+    );
+    if (resolve(sourceDirectory) === resolve(targetDirectory)) {
+        mkdirSync(targetDirectory, {
+            recursive: true,
+        });
+        return;
+    }
+
+    if (!existsSync(sourceDirectory)) {
+        mkdirSync(targetDirectory, {
+            recursive: true,
+        });
+        return;
+    }
+
+    mkdirSync(targetDirectory, {
+        recursive: true,
+    });
+
+    for (const entry of readdirSync(sourceDirectory, {
+        withFileTypes: true,
+    })) {
+        if (!entry.isDirectory() || !entry.name.startsWith("builtin-")) {
+            continue;
+        }
+
+        const sourcePluginDirectory = join(
+            sourceDirectory,
+            entry.name,
+        );
+        const targetPluginDirectory = join(
+            targetDirectory,
+            entry.name,
+        );
+        rmSync(targetPluginDirectory, {
+            force: true,
+            recursive: true,
+        });
+        cpSync(
+            sourcePluginDirectory,
+            targetPluginDirectory,
+            {
+                recursive: true,
+                filter: (sourcePath) => {
+                    // node_modules: 中心目录保存插件清单和构建产物，不复制开发依赖缓存。
+                    return !sourcePath.includes(`${entry.name}\\node_modules`)
+                        && !sourcePath.includes(`${entry.name}/node_modules`);
+                },
+            },
+        );
+    }
 }
