@@ -11,6 +11,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 
 // appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
@@ -203,13 +204,10 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-dialog
+      <ManagementDialogShell
           v-model="proxyDialogVisible"
-          append-to-body
-          class="management-config-dialog proxy-config-dialog"
+          dialog-class="proxy-config-dialog"
           title="网络代理配置"
-          width="80vw"
-          destroy-on-close
       >
         <el-form
           class="management-form"
@@ -297,7 +295,8 @@ onMounted(() => {
             </el-form-item>
           </el-col>
         </el-row>
-        <div class="management-actions">
+        </el-form>
+        <template #footer>
           <el-button
               type="primary"
               @click="saveProxyDialog"
@@ -310,9 +309,8 @@ onMounted(() => {
           <el-button @click="appStore.setGlobalDefaultProxy(null)">
             取消全局默认代理
           </el-button>
-        </div>
-        </el-form>
-      </el-dialog>
+        </template>
+      </ManagementDialogShell>
       <el-table
           :data="appStore.proxies"
           class="management-table"

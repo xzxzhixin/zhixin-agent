@@ -67,7 +67,11 @@ function assertNotIncludes(
   }
 }
 
-const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
+const toolRuntime = [
+  readProjectFile("services/center/src/tool-runtime.ts"),
+  readProjectFile("services/center/src/tool-runtime-command.ts"),
+].join("\n");
+const mcpToolRuntime = readProjectFile("services/center/src/tool-runtime-mcp.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
 const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
 const messageRoute = readProjectFile("services/center/src/session-message-route.ts");
@@ -123,3 +127,14 @@ assertIncludes(
   "await completeCreatedTurn",
   "发送路由必须等待异步对话执行链路完成。",
 );
+
+for (const staleHelper of [
+  "readInternalToolIdFromModelName",
+  "readToolInputSummary",
+]) {
+  assertNotIncludes(
+    mcpToolRuntime,
+    staleHelper,
+    `MCP 工具运行时不能残留未定义的统一工具辅助函数：${staleHelper}`,
+  );
+}

@@ -11,6 +11,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 
 // appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
@@ -173,13 +174,10 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-dialog
+      <ManagementDialogShell
           v-model="pluginDialogVisible"
-          append-to-body
-          class="management-config-dialog plugin-config-dialog"
+          dialog-class="plugin-config-dialog"
           title="安装插件清单"
-          width="80vw"
-          destroy-on-close
       >
         <el-form
           class="management-form"
@@ -192,16 +190,16 @@ onMounted(() => {
               :rows="8"
           />
         </el-form-item>
-        <div class="management-actions">
+        </el-form>
+        <template #footer>
           <el-button
               type="primary"
               @click="appStore.installPlugin"
           >
             安装插件清单
           </el-button>
-        </div>
-        </el-form>
-      </el-dialog>
+        </template>
+      </ManagementDialogShell>
       <el-table
           :data="appStore.globalPlugins"
           class="management-table"

@@ -657,7 +657,7 @@ onBeforeUnmount(() => {
                 class="thinking-block"
                 :open="row.thinking.defaultOpen"
             >
-              <summary>{{ row.thinking.title }} · {{ row.thinking.statusLabel }}</summary>
+              <summary>{{ row.thinking.title }}</summary>
               <div class="thinking-segments">
                 <p
                     v-for="segment in row.thinking.segments"

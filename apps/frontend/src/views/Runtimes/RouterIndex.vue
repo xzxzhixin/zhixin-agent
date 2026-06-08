@@ -11,6 +11,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 
 // appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
@@ -203,13 +204,10 @@ onMounted(() => {
           :closable="false"
           :title="managementError"
       />
-      <el-dialog
+      <ManagementDialogShell
           v-model="runtimeDialogVisible"
-          append-to-body
-          class="management-config-dialog runtime-config-dialog"
+          dialog-class="runtime-config-dialog"
           title="运行环境配置"
-          width="80vw"
-          destroy-on-close
       >
         <el-form
           class="management-form"
@@ -232,7 +230,8 @@ onMounted(() => {
             </el-form-item>
           </el-col>
         </el-row>
-        <div class="management-actions">
+        </el-form>
+        <template #footer>
           <el-button
               type="primary"
               @click="saveRuntimeDialog"
@@ -245,9 +244,8 @@ onMounted(() => {
           <el-button @click="appStore.setDefaultRuntime">
             设置默认环境
           </el-button>
-        </div>
-        </el-form>
-      </el-dialog>
+        </template>
+      </ManagementDialogShell>
       <el-table
           :data="appStore.runtimes"
           class="management-table"

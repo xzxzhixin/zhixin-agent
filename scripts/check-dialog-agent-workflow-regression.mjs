@@ -90,7 +90,11 @@ const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts")
 const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
 const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
-const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
+const toolRuntime = [
+  readProjectFile("services/center/src/tool-runtime.ts"),
+  readProjectFile("services/center/src/tool-runtime-command.ts"),
+  readProjectFile("services/center/src/tool-runtime-mcp.ts"),
+].join("\n");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const langgraphRunner = readProjectFile("services/center/src/langgraph-runner.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;

@@ -15,6 +15,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 
 // appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
@@ -446,12 +447,10 @@ onMounted(() => {
       </el-button>
     </header>
     <section class="page-scroll">
-      <el-dialog
+      <ManagementDialogShell
           v-model="providerDialogVisible"
-          append-to-body
-          class="management-config-dialog provider-config-dialog"
+          dialog-class="provider-config-dialog"
           title="供应商配置"
-          width="80vw"
       >
         <el-form
           class="management-form"
@@ -637,19 +636,21 @@ onMounted(() => {
             </el-form-item>
           </el-col>
         </el-row>
-        <div class="management-actions">
+        </el-form>
+        <template #footer>
           <el-button
               type="primary"
               @click="saveProviderDialog"
           >
             保存供应商
           </el-button>
-          <el-button @click="refreshProvidersWithMessage">
-            刷新列表
-          </el-button>
-        </div>
-        </el-form>
-      </el-dialog>
+        </template>
+      </ManagementDialogShell>
+      <div class="provider-list-toolbar">
+        <el-button @click="refreshProvidersWithMessage">
+          刷新列表
+        </el-button>
+      </div>
       <el-table
           :data="appStore.providers"
           class="management-table"

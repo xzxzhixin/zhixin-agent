@@ -77,8 +77,8 @@ function findSqlSignals(source) {
       /\.prepare\s*\(/u,
     ],
     [
-      "exec(",
-      /\.exec\s*\(/u,
+      "database.exec(",
+      /\b(?:database|connection|sqlite|db)\.exec\s*\(/u,
     ],
     [
       "transaction(",

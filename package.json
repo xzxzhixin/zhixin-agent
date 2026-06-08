@@ -19,6 +19,10 @@
     "check:web-dist-boundary": "node scripts/check-web-dist-boundary.mjs",
     "check:desktop-dev-startup": "node scripts/check-desktop-dev-startup.mjs"
   },
+  "devDependencies": {
+    "@zhixin/shared": "workspace:*",
+    "tsx": "4.19.2"
+  },
   "engines": {
     "node": ">=20.9.0",
     "pnpm": ">=9.15.4"

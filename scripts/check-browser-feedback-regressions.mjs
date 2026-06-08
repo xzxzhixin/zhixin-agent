@@ -48,6 +48,25 @@ function assertIncludes(
   }
 }
 
+/**
+ * assertNotIncludes：检查源码不能包含指定片段。
+ *
+ * @param {string} source 源码。
+ * @param {string} signal 禁止出现的片段。
+ * @param {string} message 错误消息。
+ * @returns {void}
+ */
+function assertNotIncludes(
+  source,
+  signal,
+  message,
+) {
+  if (source.includes(signal)) {
+    console.error(message);
+    process.exitCode = 1;
+  }
+}
+
 const dialogSources = [
   "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
   "apps/frontend/src/views/Center/RouterIndex.vue",
@@ -82,7 +101,10 @@ const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
 const sessionMessageRoute = readProjectFile("services/center/src/session-message-route.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
-const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
+const toolRuntime = [
+  readProjectFile("services/center/src/tool-runtime.ts"),
+  readProjectFile("services/center/src/tool-runtime-command.ts"),
+].join("\n");
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 
 for (const signal of [
@@ -99,10 +121,11 @@ for (const signal of [
 }
 
 for (const signal of [
-  "思考中",
+  "正在思考",
+  "已思考（用时 ${durationText}）",
   "阶段状态",
   "生成中",
-  "无思考内容",
+  "thinkingText",
   "deltaText",
 ]) {
   assertIncludes(
@@ -111,6 +134,12 @@ for (const signal of [
     `思考或流式展示缺少测试可见文案：${signal}`,
   );
 }
+
+assertNotIncludes(
+  chatPage + chatHelpers + readProjectFile("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue"),
+  "无思考内容",
+  "思考卡片不能使用“无思考内容”这类固定占位冒充真实思考摘要。",
+);
 
 for (const signal of [
   "traceIdUnavailableReason",

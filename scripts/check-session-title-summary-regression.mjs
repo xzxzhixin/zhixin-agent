@@ -81,6 +81,18 @@ const appStore = readFileSync(
   ),
   "utf-8",
 );
+// conversationActions: WebSocket 接收源码，必须把 session.updated 转给 appStore 动作。
+const conversationActions = readFileSync(
+  join(
+    process.cwd(),
+    "apps",
+    "frontend",
+    "src",
+    "stores",
+    "app-conversation-actions.ts",
+  ),
+  "utf-8",
+);
 
 assertIncludes(
   sessionDomain,
@@ -94,6 +106,21 @@ assertIncludes(
 );
 assertIncludes(
   sessionDomain,
+  "findTurn(sent.turnId)",
+  "标题总结必须读取当前轮次信息，用 turnNumber 判断是否第一次对话。",
+);
+assertIncludes(
+  sessionDomain,
+  "turn.turnNumber !== 1",
+  "标题总结必须在非第一次对话时跳过，不能后续轮次覆盖标题。",
+);
+assertIncludes(
+  sessionDomain,
+  "SESSION_TITLE_SUMMARY_SKIPPED_AFTER_FIRST_TURN",
+  "标题总结跳过后续轮次时必须保留可排查原因。",
+);
+assertIncludes(
+  sessionDomain,
   'eventType: "session.updated"',
   "会话标题固化没有写入 session.updated 事件。",
 );
@@ -104,7 +131,7 @@ assertIncludes(
 );
 assertIncludes(
   sessionDomain,
-  "updateSessionTitleAfterTurn(database, events, sent, userText, modelResult.assistantText)",
+  "updateSessionTitleAfterTurn(",
   "真实对话完成链路没有调用标题总结固化函数。",
 );
 assertIncludes(
@@ -133,7 +160,7 @@ assertIncludes(
   "前端 store 缺少处理会话更新的动作。",
 );
 assertIncludes(
-  appStore,
+  conversationActions,
   'message.type === "session.updated"',
   "前端 WebSocket 收到 session.updated 后没有刷新状态。",
 );

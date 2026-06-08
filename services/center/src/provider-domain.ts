@@ -1,7 +1,10 @@
 import {randomUUID} from "node:crypto";
 import {spawnSync} from "node:child_process";
 import {existsSync, readFileSync, readdirSync, rmSync} from "node:fs";
-import {join} from "node:path";
+import {
+    join,
+    resolve,
+} from "node:path";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
@@ -16,6 +19,9 @@ import {writeJsonFile} from "./helpers.js";
 
 // DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS: OpenAI 兼容 `/v1/models` 通常只返回模型 ID，不返回上下文窗口；需求中手填示例使用 200K，这里仅给新增模型写入可继续编辑的默认窗口。
 const DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS = 200000;
+
+// UUID_PATTERN: 供应商、代理和运行环境 ID 均由中心服务 randomUUID 生成；删除文件前必须用该格式阻断路径穿越。
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export type ModelProtocolPluginDescriptor = {
     /**
@@ -490,6 +496,86 @@ export function readProviderModelList(
             ? value.updatedAt
             : null,
     };
+}
+
+/**
+ * deleteProviderConfig：删除供应商配置和该供应商的模型列表缓存。
+ *
+ * @param centerDirectory 中心目录。
+ * @param providerId 供应商 ID。
+ * @returns 删除结果，deleted 表示当前列表事实源已不再返回该供应商。
+ */
+export function deleteProviderConfig(
+    centerDirectory: string,
+    providerId: string,
+): {
+    /** providerId: 被删除的供应商 ID，来源于前端删除请求。 */
+    providerId: string;
+    /** deleted: 删除语义是否完成；文件已不存在时也返回 true，便于重复删除后刷新列表。 */
+    deleted: boolean;
+} {
+    const providersDirectory = resolve(
+        centerDirectory,
+        "providers",
+    );
+    assertProviderIdSafeForFileOperation(
+        providersDirectory,
+        providerId,
+    );
+    const providerPath = resolve(
+        providersDirectory,
+        `${providerId}.json`,
+    );
+    const modelListPath = resolve(
+        providersDirectory,
+        `${providerId}.models.json`,
+    );
+    rmSync(providerPath, {
+        force: true,
+    });
+    rmSync(modelListPath, {
+        force: true,
+    });
+    removeSecretValue(
+        centerDirectory,
+        `provider-api-key:${providerId}`,
+    );
+    return {
+        providerId,
+        deleted: true,
+    };
+}
+
+/**
+ * assertProviderIdSafeForFileOperation：校验供应商 ID 和删除目标目录边界。
+ *
+ * @param providersDirectory 供应商配置目录绝对路径。
+ * @param providerId 请求体中的供应商 ID。
+ * @returns 没有返回值；不安全时抛出错误阻断文件操作。
+ */
+function assertProviderIdSafeForFileOperation(
+    providersDirectory: string,
+    providerId: string,
+): void {
+    if (!UUID_PATTERN.test(providerId)) {
+        throw new Error("PROVIDER_ID_INVALID");
+    }
+
+    // providerPath/modelListPath: 即使 UUID 校验被未来放宽，也再次用 resolve 确认目标没有逃出 providers 目录。
+    for (const targetPath of [
+        resolve(
+            providersDirectory,
+            `${providerId}.json`,
+        ),
+        resolve(
+            providersDirectory,
+            `${providerId}.models.json`,
+        ),
+    ]) {
+        if (!targetPath.startsWith(`${providersDirectory}\\`) && !targetPath.startsWith(`${providersDirectory}/`)) {
+            throw new Error("PROVIDER_PATH_OUT_OF_BOUNDARY");
+        }
+    }
 }
 
 /**

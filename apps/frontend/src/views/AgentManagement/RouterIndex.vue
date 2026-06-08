@@ -11,6 +11,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 import type {
   AgentConfigView,
 } from "@zhixin/api-client";
@@ -309,13 +310,10 @@ onMounted(() => {
       </section>
     </section>
 
-    <el-dialog
+    <ManagementDialogShell
         v-model="agentDialogVisible"
-        append-to-body
-        class="agent-management-dialog"
+        dialog-class="agent-management-dialog"
         :title="agentDialogTitle"
-        width="80vw"
-        destroy-on-close
     >
       <el-form
           class="agent-management-form"
@@ -387,7 +385,6 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <div class="management-actions">
           <el-button @click="agentDialogVisible = false">
             取消
           </el-button>
@@ -397,9 +394,8 @@ onMounted(() => {
           >
             保存
           </el-button>
-        </div>
       </template>
-    </el-dialog>
+    </ManagementDialogShell>
   </section>
 </template>
 

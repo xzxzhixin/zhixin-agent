@@ -173,6 +173,24 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-chat-thinking-card-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-session-title-summary-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-provider-management-dialog-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-frontend-management-pages.mjs",
     ],
   ],

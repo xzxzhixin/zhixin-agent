@@ -1034,14 +1034,17 @@ export class CenterApiClient {
   }
 
   /**
-   * deleteProvider：按中心服务能力停用供应商。
+   * deleteProvider：从中心服务供应商列表中删除供应商配置。
    *
    * @param payload 供应商 ID。
-   * @returns 更新结果。
+   * @returns 删除结果。
    */
   deleteProvider(payload: {
     providerId: string;
-  }): Promise<unknown> {
+  }): Promise<{
+    providerId: string;
+    deleted: boolean;
+  }> {
     return this.post("/api/provider/delete", payload);
   }
 

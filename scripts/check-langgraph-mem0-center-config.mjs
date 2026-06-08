@@ -136,17 +136,34 @@ if (existsSync(join(root, "services/center/src/langgraph-runner.ts"))) {
     "StateGraph",
     "START",
     "END",
+    ".addNode(\"thinking.context\"",
+    ".addNode(\"model.stream\"",
+    ".addConditionalEdges(",
     "thread_id",
     "sessionId",
     "turnId",
-    "payload.graph",
-    "completeCreatedTurn",
   ]) {
     assertIncludes(
       "services/center/src/langgraph-runner.ts",
       langgraphRunner,
       signal,
       `LangGraph runner 缺少核心信号：${signal}`,
+    );
+  }
+}
+
+if (existsSync(join(root, "services/center/src/session-domain.ts"))) {
+  const sessionDomain = readText("services/center/src/session-domain.ts");
+  for (const signal of [
+    "export async function completeCreatedTurn",
+    "runLangGraphTurn(",
+    "payload: withTurnGraphCheckpoint",
+  ]) {
+    assertIncludes(
+      "services/center/src/session-domain.ts",
+      sessionDomain,
+      signal,
+      `会话域缺少 LangGraph 轮次闭环信号：${signal}`,
     );
   }
 }

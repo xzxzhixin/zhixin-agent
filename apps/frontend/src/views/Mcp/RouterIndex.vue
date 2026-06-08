@@ -12,6 +12,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 import {
   createMcpDraft,
 } from "@stores/app-helpers";
@@ -250,13 +251,10 @@ onMounted(() => {
       </el-button>
     </header>
     <section class="page-scroll">
-      <el-dialog
+      <ManagementDialogShell
           v-model="mcpDialogVisible"
-          append-to-body
-          class="management-config-dialog mcp-config-dialog"
+          dialog-class="mcp-config-dialog"
           title="MCP 配置"
-          width="80vw"
-          destroy-on-close
       >
         <el-form
           class="management-form"
@@ -273,16 +271,16 @@ onMounted(() => {
               placeholder="{\n  &quot;mcpServers&quot;: {\n    &quot;idea&quot;: {\n      &quot;type&quot;: &quot;http&quot;,\n      &quot;url&quot;: &quot;http://127.0.0.1:64342/stream&quot;\n    }\n  }\n}"
           />
         </el-form-item>
-        <div class="management-actions">
+        </el-form>
+        <template #footer>
           <el-button
               type="primary"
               @click="saveMcpDialog"
           >
             保存 MCP 配置
           </el-button>
-        </div>
-        </el-form>
-      </el-dialog>
+        </template>
+      </ManagementDialogShell>
       <el-table
           :data="appStore.globalMcpConfigs"
           class="management-table"

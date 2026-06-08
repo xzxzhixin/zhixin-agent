@@ -170,6 +170,10 @@ export interface ThinkingProcessRow {
     title: string;
     /** statusLabel: 当前阶段状态中文说明。 */
     statusLabel: string;
+    /** startedAt: 思考过程首个事件时间，来源于中心服务事件 createdAt。 */
+    startedAt: string;
+    /** endedAt: 思考过程结束或最近事件时间，来源于中心服务事件 createdAt。 */
+    endedAt: string;
     /** defaultOpen: 是否默认展开，只影响浏览器当前 UI。 */
     defaultOpen: boolean;
     /** traceId: 最近事件排查 ID。 */
@@ -363,7 +367,10 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
             title: statusMeta.status === "completed"
                 ? "思考完成"
                 : "思考中",
-            summary: event.summary || "无思考内容：中心服务未返回可展示的思考片段。",
+            summary: readEventText(
+                event,
+                "thinkingText",
+            ) || event.summary,
             statusLabel: statusMeta.label,
         };
     }
@@ -773,18 +780,26 @@ export function createThinkingProcessRows(events: EventRecord[]): ThinkingProces
         const hasFailed = statusEntries.some((entry) => {
             return entry.statusMeta.status === "failed";
         });
+        const startedAt = sortedEvents[0].createdAt;
+        const endedAt = latestEvent.createdAt;
+        const durationText = formatThinkingDuration(
+            startedAt,
+            endedAt,
+        );
         return {
             rowId: `thinking-${groupKey}`,
             turnId: latestEvent.turnId,
             taskId: latestEvent.taskId,
             title: isRunning
-                ? "思考中"
-                : "思考过程",
+                ? "正在思考"
+                : `已思考（用时 ${durationText}）`,
             statusLabel: hasFailed
                 ? "失败"
                 : isRunning
                     ? "生成中"
                     : "已完成",
+            startedAt,
+            endedAt,
             defaultOpen: isRunning,
             traceId: latestEvent.traceId,
             orderSequence: sortedEvents[0].sequence,
@@ -794,11 +809,36 @@ export function createThinkingProcessRows(events: EventRecord[]): ThinkingProces
                     summary: readEventText(
                         entry.event,
                         "thinkingText",
-                    ) || entry.event.summary || "无思考内容：中心服务未返回可展示的思考片段。",
+                    ) || entry.event.summary,
                 };
+            }).filter((segment) => {
+                return segment.summary.trim().length > 0;
             }),
         };
     });
+}
+
+/**
+ * formatThinkingDuration：格式化单个思考过程耗时。
+ *
+ * @param startedAt 思考首个事件时间。
+ * @param endedAt 思考完成或最近事件时间。
+ * @returns 面向思考卡片标题的耗时文本。
+ */
+function formatThinkingDuration(
+    startedAt: string,
+    endedAt: string,
+): string {
+    const startedTime = new Date(startedAt).getTime();
+    const endedTime = new Date(endedAt).getTime();
+    if (!Number.isFinite(startedTime) || !Number.isFinite(endedTime) || endedTime < startedTime) {
+        return "0 秒";
+    }
+    const durationSeconds = Math.max(
+        0,
+        Math.round((endedTime - startedTime) / 1000),
+    );
+    return `${durationSeconds} 秒`;
 }
 
 /**

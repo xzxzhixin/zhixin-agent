@@ -60,8 +60,13 @@ if (!existsSync(graphDomainPath)) {
 
 const graphDomain = readProjectFile("services/center/src/turn-graph-domain.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
 const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
-const toolRuntime = readProjectFile("services/center/src/tool-runtime.ts");
+const toolRuntime = [
+  readProjectFile("services/center/src/tool-runtime.ts"),
+  readProjectFile("services/center/src/tool-runtime-command.ts"),
+  readProjectFile("services/center/src/tool-runtime-mcp.ts"),
+].join("\n");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const sharedTypes = readProjectFile("packages/shared/src/index.ts");
 const chatHelpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
@@ -106,12 +111,12 @@ for (const signal of [
 for (const signal of [
   "createTurnGraphContext",
   "withTurnGraphCheckpoint",
-  "nodeId: \"thinking.context\"",
-  "nodeId: \"model.stream\"",
-  "nodeId: \"tool.plan\"",
-  "nodeId: \"extension.visibility\"",
-  "nodeId: \"message.persist\"",
-  "nodeId: \"tool.command\"",
+  "\"thinking.context\"",
+  "\"model.stream\"",
+  "\"tool.plan\"",
+  "appendToolVisibilityEvents",
+  "\"message.persist\"",
+  "\"tool.execute\"",
   "task.step.started",
   "task.step.updated",
 ]) {
@@ -124,10 +129,19 @@ for (const signal of [
 
 for (const signal of [
   "payload: withTurnGraphCheckpoint",
-  "model.tool.requested",
 ]) {
   assertIncludes(
     sessionDomain,
+    signal,
+    `模型工具闭环关键事件缺少 graph/checkpoint：${signal}`,
+  );
+}
+
+for (const signal of [
+  "model.tool.requested",
+]) {
+  assertIncludes(
+    sessionTurnEffects,
     signal,
     `模型工具闭环关键事件缺少 graph/checkpoint：${signal}`,
   );

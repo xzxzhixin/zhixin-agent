@@ -11,6 +11,7 @@ import {
 import {
   useAppStore,
 } from "@stores/app";
+import ManagementDialogShell from "@components/ManagementDialogShell.vue";
 
 // appStore：页面宿主复用现有 Pinia 状态和 API 行为，不新建协议适配层。
 const appStore = useAppStore();
@@ -178,13 +179,10 @@ onMounted(() => {
       </el-button>
     </header>
     <section class="page-scroll">
-      <el-dialog
+      <ManagementDialogShell
           v-model="skillDialogVisible"
-          append-to-body
-          class="management-config-dialog skill-config-dialog"
+          dialog-class="skill-config-dialog"
           title="安装 skill"
-          width="80vw"
-          destroy-on-close
       >
         <el-form
           class="management-form"
@@ -203,16 +201,16 @@ onMounted(() => {
               :rows="10"
           />
         </el-form-item>
-        <div class="management-actions">
+        </el-form>
+        <template #footer>
           <el-button
               type="primary"
               @click="saveSkillDialog"
           >
             安装 skill
           </el-button>
-        </div>
-        </el-form>
-      </el-dialog>
+        </template>
+      </ManagementDialogShell>
       <el-table
           :data="appStore.globalSkills"
           class="management-table"

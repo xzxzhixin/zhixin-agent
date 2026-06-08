@@ -1345,6 +1345,7 @@ export function updateSessionTitleAfterTurn(
     assistantText: string,
 ): ConversationSession | null {
     const turnSessionId = new SessionRepository(database).findSessionIdByTurn(sent.turnId);
+    const turn = new SessionRepository(database).findTurn(sent.turnId);
     const session = turnSessionId ? findSession(database, turnSessionId) : null;
     if (!session) {
         events.append({
@@ -1365,7 +1366,27 @@ export function updateSessionTitleAfterTurn(
         });
         return null;
     }
-
+    if (!turn || turn.turnNumber !== 1) {
+        events.append({
+            eventType: "session.title_summary.skipped",
+            scopeType: "session",
+            scopeId: session.sessionId,
+            sessionId: session.sessionId,
+            turnId: sent.turnId,
+            taskId: sent.taskId,
+            projectId: session.projectId,
+            status: "completed",
+            title: "会话标题总结跳过",
+            summary: "会话标题只在第一次对话完成后自动总结，后续轮次保留原标题。",
+            payload: {
+                sessionId: session.sessionId,
+                turnNumber: turn?.turnNumber ?? null,
+                preservedTitle: session.title,
+                reason: "SESSION_TITLE_SUMMARY_SKIPPED_AFTER_FIRST_TURN",
+            },
+        });
+        return session;
+    }
     try {
         // nextTitle: 标题摘要只使用当前轮真实用户输入和助手回复，避免从旧标题或多候选字段猜测。
         const nextTitle = summarizeSessionTitle(

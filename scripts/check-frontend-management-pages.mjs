@@ -83,6 +83,14 @@ const centerApiRoutesPath = join(
   "src",
   "api-routes.ts",
 );
+// centerProviderRoutesPath: 供应商、代理、运行环境和模型网关路由拆分文件路径。
+const centerProviderRoutesPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "provider-routes.ts",
+);
 // centerProviderDomainPath: 中心服务供应商和代理领域文件路径。
 const centerProviderDomainPath = join(
   process.cwd(),
@@ -128,6 +136,15 @@ const routerPath = join(
   "frontend",
   "src",
   "router.ts",
+);
+// managementDialogShellPath: 管理配置弹框共享外壳源码路径。
+const managementDialogShellPath = join(
+  process.cwd(),
+  "apps",
+  "frontend",
+  "src",
+  "components",
+  "ManagementDialogShell.vue",
 );
 
 // mainViewOnly: 工作台主页面源码文本，用于检查对话页和外壳。
@@ -175,6 +192,11 @@ const chatOptionsOnly = readFileSync(
     "Chat",
     "chat-view-options.ts",
   ),
+  "utf-8",
+);
+// managementDialogShellOnly: 共享弹框外壳源码，用于检查默认宽度和滚动布局。
+const managementDialogShellOnly = readFileSync(
+  managementDialogShellPath,
   "utf-8",
 );
 // workspacePageHost: 供应商真实路由入口源码文本，用于检查真实表单、列表和操作按钮。
@@ -228,6 +250,7 @@ const apiClient = readFileSync(
 const centerService = [
   centerServicePath,
   centerApiRoutesPath,
+  centerProviderRoutesPath,
   centerProviderDomainPath,
   centerUsageDomainPath,
   centerAgentDomainPath,
@@ -479,8 +502,13 @@ const expectations = [
   ],
   [
     mainView,
-    "width=\"80vw\"",
+    "dialog-class=\"agent-management-dialog\"",
     "智能体管理弹窗默认宽度必须为 80vw。",
+  ],
+  [
+    managementDialogShellOnly,
+    'width: "80vw"',
+    "管理配置弹框共享外壳默认宽度必须为 80vw。",
   ],
   [
     mainView,
@@ -741,8 +769,8 @@ assertNotIncludes(
  */
 const providerDialogBlock = extractRequiredBlock(
   workspacePageHost,
-  "<el-dialog",
-  "</el-dialog>",
+  "<ManagementDialogShell",
+  "</ManagementDialogShell>",
   "供应商页面必须存在配置弹框。",
 );
 const openEditProviderDialogBlock = extractRequiredBlock(
@@ -754,7 +782,7 @@ const openEditProviderDialogBlock = extractRequiredBlock(
 
 assertIncludes(
   providerDialogBlock,
-  "width=\"80vw\"",
+  "dialog-class=\"provider-config-dialog\"",
   "供应商新增和编辑弹框默认宽度必须为 80vw。",
 );
 assertIncludes(
@@ -820,16 +848,16 @@ for (const pagePath of [
   );
   assertIncludes(
     pageSource,
-    "<el-dialog",
+    "<ManagementDialogShell",
     `${pagePath} 必须把新增或编辑配置放入弹框。`,
   );
   assertIncludes(
     pageSource,
-    "width=\"80vw\"",
+    "dialog-class=",
     `${pagePath} 的配置弹框默认宽度必须为 80vw。`,
   );
   const pageScrollIndex = pageSource.indexOf("class=\"page-scroll\"");
-  const dialogIndex = pageSource.indexOf("<el-dialog");
+  const dialogIndex = pageSource.indexOf("<ManagementDialogShell");
   const formIndex = pageSource.indexOf("class=\"management-form\"");
   if (pageScrollIndex >= 0 && formIndex >= 0 && (dialogIndex < 0 || formIndex < dialogIndex)) {
     console.error(`${pagePath} 不能在页面滚动区常驻 management-form，新增或编辑表单必须进入弹框。`);
