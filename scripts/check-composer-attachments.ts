@@ -43,10 +43,17 @@ async function main(): Promise<void> {
     /attachments/u,
   ], "前端输入框状态层");
   assertFileContains("apps/frontend/src/stores/app-conversation-actions.ts", [
-    /createTemporaryAttachment/u,
-    /commitAttachment/u,
+    /attachment\.temporary\.create/u,
+    /attachment\.commit/u,
+    /requireRealtimeRequest/u,
     /addClipboardImageAttachment/u,
   ], "前端输入框附件动作层");
+  assertFileContains("services/center/src/api/sync-route.ts", [
+    /attachment\.temporary\.create/u,
+    /attachment\.commit/u,
+    /createTemporaryAttachmentFromRealtime/u,
+    /commitAttachmentFromRealtime/u,
+  ], "中心服务附件实时通道");
   assertFileContains("apps/frontend/src/views/Chat/RouterIndex.vue", [
     /@paste="appStore\.handleComposerPaste"/u,
   ], "前端移动输入框界面");

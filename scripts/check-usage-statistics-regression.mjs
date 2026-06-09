@@ -43,7 +43,7 @@ function assertMatches(text, pattern, message) {
 const sessionDomain = readText("services/center/src/session-domain.ts");
 const workflowDomain = readText("services/center/src/workflow-domain.ts");
 const usageDomain = readText("services/center/src/usage-domain.ts");
-const usageRoutes = readText("services/center/src/usage-routes.ts");
+const usageRoutes = readText("services/center/src/api/usage-routes.ts");
 const usageRepository = readText("services/center/src/data-access/usage-repository.ts");
 const usagePage = readText("apps/frontend/src/views/Usage/RouterIndex.vue");
 const appStore = readText("apps/frontend/src/stores/app.ts");

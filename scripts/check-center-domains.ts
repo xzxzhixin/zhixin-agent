@@ -211,6 +211,8 @@ async function waitForSessionEvent(
   turnId: string,
   eventType: string,
 ): Promise<void> {
+  let observedEventTypes: string[] = [];
+  let observedEventDetails: string[] = [];
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const response = await service.app.inject({
       method: "POST",
@@ -224,16 +226,22 @@ async function waitForSessionEvent(
     const result = response.json<ApiResponse<{
       events: Array<{
         eventType: string;
+        summary?: string | null;
+        payload?: unknown;
       }>;
     }>>();
-    if (result.data?.events.some((event) => event.eventType === eventType)) {
+    observedEventTypes = result.data?.events.map((event) => event.eventType) ?? [];
+    observedEventDetails = result.data?.events.map((event) => {
+      return `${event.eventType}:${event.summary ?? ""}:${JSON.stringify(event.payload ?? {})}`;
+    }) ?? [];
+    if (observedEventTypes.some((observedEventType) => observedEventType === eventType)) {
       return;
     }
     await new Promise((resolve) => {
       setTimeout(resolve, 25);
     });
   }
-  throw new Error(`等待事件超时：${eventType}`);
+  throw new Error(`等待事件超时：${eventType}；已观察事件：${observedEventTypes.join(", ")}；详情：${observedEventDetails.join(" | ")}`);
 }
 
 /**
@@ -314,7 +322,8 @@ async function main(): Promise<void> {
       payload: {
         agentId: "main",
         roleDescription: "主智能体检查角色说明",
-        defaultModel: "main-check-model",
+        defaultProviderId: "memory-fake-provider",
+        defaultModel: "memory-fake-model",
         reasoningEffort: "high",
       },
     });
@@ -528,7 +537,7 @@ async function main(): Promise<void> {
           source: "user-installed",
           scope: "global",
           permissions: [
-            "plugin.call",
+            "provider.call",
           ],
         },
       },
@@ -775,7 +784,9 @@ async function main(): Promise<void> {
     }>>();
     assert(workerContext.success, "Worker 上下文请求失败");
     assert(workerContext.data?.agents.length !== 0, "Worker 上下文缺少智能体索引");
-    assert(workerContext.data?.permissions.includes("plugin.call"), "Worker 上下文缺少插件权限");
+    assert(!workerContext.data?.permissions.includes("plugin.call"), "当前阶段 Worker 上下文不能继续暴露插件调用权限");
+    assert(workerContext.data?.permissions.includes("mcp.call"), "Worker 上下文缺少 MCP 权限");
+    assert(workerContext.data?.permissions.includes("skill.use"), "Worker 上下文缺少 skill 权限");
     const workerCancelResponse = await service.app.inject({
       method: "POST",
       url: "/api/worker/cancel",

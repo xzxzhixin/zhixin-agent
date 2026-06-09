@@ -18,10 +18,24 @@ export interface UseMessageListAutoScrollResult {
     messageListRef: Ref<HTMLElement | null>;
     /** isMessageListPinnedToBottom: 用户是否仍在底部。 */
     isMessageListPinnedToBottom: Ref<boolean>;
+    /** isAtTop: 消息列表是否贴顶。 */
+    isAtTop: Ref<boolean>;
+    /** isAtBottom: 消息列表是否贴底。 */
+    isAtBottom: Ref<boolean>;
+    /** lastScrollDirection: 用户最近滚动方向。 */
+    lastScrollDirection: Ref<"up" | "down">;
+    /** scrollShortcutVisible: 是否显示右下角滚动快捷箭头。 */
+    scrollShortcutVisible: Ref<boolean>;
+    /** scrollShortcutLabel: 滚动快捷箭头说明。 */
+    scrollShortcutLabel: Ref<string>;
     /** updateMessageListPinnedState: 根据滚动位置刷新底部状态。 */
     updateMessageListPinnedState: () => void;
     /** scrollMessageListToBottom: 立即滚动到消息列表底部。 */
     scrollMessageListToBottom: (behavior?: ScrollBehavior) => void;
+    /** scrollMessageListToTop: 立即滚动到消息列表顶部。 */
+    scrollMessageListToTop: (behavior?: ScrollBehavior) => void;
+    /** handleScrollShortcutClick: 点击右下角快捷箭头。 */
+    handleScrollShortcutClick: () => void;
     /** requestAutoScrollToBottom: DOM 更新后按底部状态决定是否贴底。 */
     requestAutoScrollToBottom: (force: boolean) => void;
     /** pauseAutoScrollForHistoryView: 用户定位历史消息时暂停自动贴底。 */
@@ -40,6 +54,20 @@ export function useMessageListAutoScroll(): UseMessageListAutoScrollResult {
     const messageListRef = ref<HTMLElement | null>(null);
     // isMessageListPinnedToBottom: true 时新消息和流式过程自动保持底部可见。
     const isMessageListPinnedToBottom = ref(true);
+    // isAtTop: 贴顶时隐藏回顶部箭头。
+    const isAtTop = ref(true);
+    // isAtBottom: 贴底时隐藏回底部箭头，并允许 token 流继续贴底。
+    const isAtBottom = ref(true);
+    // lastScrollDirection: 最近一次用户滚动方向，用于决定右下角箭头动作。
+    const lastScrollDirection = ref<"up" | "down">("down");
+    // scrollShortcutVisible: 离开顶部或底部超过阈值才显示快捷箭头。
+    const scrollShortcutVisible = ref(false);
+    // scrollShortcutLabel: 给按钮和 tooltip 共用的动作文案。
+    const scrollShortcutLabel = ref("回到底部");
+    // lastScrollTop: 上一次滚动位置，用于计算最近滚动方向。
+    let lastScrollTop = 0;
+    // scrollShortcutThreshold: 需求明确超过 100px 后显示右下角方向箭头。
+    const scrollShortcutThreshold = 100;
     // scrollGeneration: 每次请求自动贴底时递增，用于让旧的延迟滚动失效。
     let scrollGeneration = 0;
     // frameIds: 记录 requestAnimationFrame 任务，组件卸载时统一取消。
@@ -68,14 +96,32 @@ export function useMessageListAutoScroll(): UseMessageListAutoScrollResult {
         if (!container) {
             return;
         }
+        const currentScrollTop = container.scrollTop;
+        if (currentScrollTop < lastScrollTop) {
+            lastScrollDirection.value = "up";
+        } else if (currentScrollTop > lastScrollTop) {
+            lastScrollDirection.value = "down";
+        }
+        lastScrollTop = currentScrollTop;
+        const distanceToTop = currentScrollTop;
+        const distanceToBottom = container.scrollHeight - currentScrollTop - container.clientHeight;
+        isAtTop.value = distanceToTop <= 1;
+        isAtBottom.value = distanceToBottom <= 24;
         if (window.performance.now() <= ignoreScrollEventUntil) {
             isMessageListPinnedToBottom.value = true;
+            updateScrollShortcutVisibility(
+                distanceToTop,
+                distanceToBottom,
+            );
             return;
         }
         // bottomThreshold: 允许少量像素误差，避免高 DPI 或子像素布局导致用户已在底部仍被判定离底。
         const bottomThreshold = 24;
-        const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
         isMessageListPinnedToBottom.value = distanceToBottom <= bottomThreshold;
+        updateScrollShortcutVisibility(
+            distanceToTop,
+            distanceToBottom,
+        );
     }
 
     /**
@@ -96,6 +142,66 @@ export function useMessageListAutoScroll(): UseMessageListAutoScrollResult {
         });
         container.scrollTop = container.scrollHeight;
         isMessageListPinnedToBottom.value = true;
+        isAtBottom.value = true;
+        scrollShortcutVisible.value = false;
+    }
+
+    /**
+     * scrollMessageListToTop：把消息主滚动容器滚动到顶部。
+     *
+     * @param behavior 滚动行为。
+     * @returns 没有返回值。
+     */
+    function scrollMessageListToTop(behavior: ScrollBehavior = "smooth"): void {
+        const container = messageListRef.value;
+        if (!container) {
+            return;
+        }
+        markProgrammaticScroll();
+        container.scrollTo({
+            top: 0,
+            behavior,
+        });
+        isMessageListPinnedToBottom.value = false;
+        isAtTop.value = true;
+        scrollShortcutVisible.value = false;
+    }
+
+    /**
+     * handleScrollShortcutClick：按最近滚动方向执行回顶部或回底部。
+     *
+     * @returns 没有返回值。
+     */
+    function handleScrollShortcutClick(): void {
+        if (lastScrollDirection.value === "up") {
+            scrollMessageListToTop();
+            return;
+        }
+        scrollMessageListToBottom("smooth");
+    }
+
+    /**
+     * updateScrollShortcutVisibility：根据位置和最近方向刷新快捷箭头。
+     *
+     * @param distanceToTop 距离顶部像素。
+     * @param distanceToBottom 距离底部像素。
+     * @returns 没有返回值。
+     */
+    function updateScrollShortcutVisibility(
+        distanceToTop: number,
+        distanceToBottom: number,
+    ): void {
+        if (isAtTop.value || isAtBottom.value) {
+            scrollShortcutVisible.value = false;
+            return;
+        }
+        if (lastScrollDirection.value === "up") {
+            scrollShortcutVisible.value = distanceToTop > scrollShortcutThreshold;
+            scrollShortcutLabel.value = "回到顶部";
+            return;
+        }
+        scrollShortcutVisible.value = distanceToBottom > scrollShortcutThreshold;
+        scrollShortcutLabel.value = "回到底部";
     }
 
     /**
@@ -148,6 +254,7 @@ export function useMessageListAutoScroll(): UseMessageListAutoScrollResult {
      */
     function pauseAutoScrollForHistoryView(): void {
         isMessageListPinnedToBottom.value = false;
+        updateMessageListPinnedState();
     }
 
     /**
@@ -174,8 +281,15 @@ export function useMessageListAutoScroll(): UseMessageListAutoScrollResult {
     return {
         messageListRef,
         isMessageListPinnedToBottom,
+        isAtTop,
+        isAtBottom,
+        lastScrollDirection,
+        scrollShortcutVisible,
+        scrollShortcutLabel,
         updateMessageListPinnedState,
         scrollMessageListToBottom,
+        scrollMessageListToTop,
+        handleScrollShortcutClick,
         requestAutoScrollToBottom,
         pauseAutoScrollForHistoryView,
         disposeMessageListAutoScroll,

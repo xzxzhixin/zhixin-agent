@@ -21,6 +21,13 @@ import {
     runMcpTool,
 } from "./tool-runtime.js";
 import {
+    executeCreateLongTermAgentTool,
+} from "./tools/create-long-term-agent-tool.js";
+import {
+    executeCreateSubAgentTool,
+} from "./tools/create-sub-agent-tool.js";
+import type {SubAgentRuntimeRecord} from "./types.js";
+import {
     stepTaskFromGraphContext,
     type TurnGraphCheckpoint,
     type TurnGraphContext,
@@ -149,6 +156,7 @@ export async function executeModelRequestedTools(
 
         const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(toolCall);
         if (!unifiedToolIntent || ![
+            "agent",
             "command",
             "mcp",
         ].includes(unifiedToolIntent.toolKind)) {
@@ -174,10 +182,19 @@ export async function executeModelRequestedTools(
             database,
             events,
             stepTaskFromGraphContext(graphContext),
-            unifiedToolIntent.toolKind === "command" ? "命令工具执行" : "MCP 工具执行",
+            resolveToolStepTitle(unifiedToolIntent.toolKind),
             toolExecuteCheckpoint,
         );
-        const toolResult = unifiedToolIntent.toolKind === "command"
+        const toolResult = unifiedToolIntent.toolKind === "agent"
+            ? runAgentCreationTool(
+                database,
+                events,
+                sent,
+                unifiedToolIntent,
+                toolCall.toolCallId,
+                toolExecuteCheckpoint,
+            )
+            : unifiedToolIntent.toolKind === "command"
             ? await runCommandTool(
                 events,
                 sent.sessionId,
@@ -207,8 +224,8 @@ export async function executeModelRequestedTools(
             toolStep.stepId,
             toolResult.status,
             toolResult.status === "completed"
-                ? `${unifiedToolIntent.toolKind === "command" ? "命令" : "MCP"}工具执行完成：${toolResult.outputSummary || "工具没有输出。"}`
-                : `${unifiedToolIntent.toolKind === "command" ? "命令" : "MCP"}工具执行失败：${toolResult.failureReason ?? "未返回失败原因。"}`,
+                ? `${resolveToolKindLabel(unifiedToolIntent.toolKind)}工具执行完成：${toolResult.outputSummary || "工具没有输出。"}`
+                : `${resolveToolKindLabel(unifiedToolIntent.toolKind)}工具执行失败：${toolResult.failureReason ?? "未返回失败原因。"}`,
             toolExecuteCheckpoint,
         );
         toolResults.push({
@@ -221,6 +238,146 @@ export async function executeModelRequestedTools(
     }
 
     return toolResults;
+}
+
+/**
+ * runAgentCreationTool：执行智能体创建类模型工具。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param sent 当前轮次身份。
+ * @param intent 统一工具意图。
+ * @param toolCallId 模型工具调用 ID。
+ * @param graphCheckpoint 当前图检查点。
+ * @returns 可回填模型的工具结果。
+ */
+function runAgentCreationTool(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    sent: SendMessageResponse,
+    intent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>,
+    toolCallId: string,
+    graphCheckpoint: TurnGraphCheckpoint,
+): {
+    toolKind: "agent";
+    status: "completed" | "failed";
+    outputSummary: string;
+    failureReason: string | null;
+    traceId: string;
+} {
+    try {
+        const result = intent.toolId === "builtin.agent.createLongTerm"
+            ? executeCreateLongTermAgentTool(
+                database,
+                events,
+                extractCenterDirectoryForToolLoop(database),
+                {
+                    name: String(intent.arguments.name ?? "新长期智能体"),
+                    roleDescription: String(intent.arguments.roleDescription ?? "由主智能体按当前任务创建。"),
+                    capabilityBoundary: typeof intent.arguments.capabilityBoundary === "string"
+                        ? intent.arguments.capabilityBoundary
+                        : undefined,
+                },
+            )
+            : executeCreateSubAgentTool(
+                events,
+                new Map<string, SubAgentRuntimeRecord>(),
+                {
+                    parentAgentId: typeof intent.arguments.parentAgentId === "string"
+                        ? intent.arguments.parentAgentId
+                        : "main",
+                    parentAgentKind: intent.arguments.parentAgentKind === "long-term" || intent.arguments.parentAgentKind === "sub"
+                        ? intent.arguments.parentAgentKind
+                        : "main",
+                    taskId: sent.taskId,
+                    name: String(intent.arguments.name ?? "子智能体"),
+                },
+            );
+        const outputSummary = JSON.stringify(result);
+        events.append({
+            eventType: "tool.agent.completed",
+            scopeType: "tool",
+            scopeId: sent.taskId,
+            sessionId: sent.sessionId,
+            turnId: sent.turnId,
+            taskId: sent.taskId,
+            status: "completed",
+            title: "智能体工具完成",
+            summary: outputSummary,
+            payload: withTurnGraphCheckpoint({
+                toolId: intent.toolId,
+                toolKind: "agent",
+                toolCallId,
+                result,
+            }, graphCheckpoint),
+        });
+        return {
+            toolKind: "agent",
+            status: "completed",
+            outputSummary,
+            failureReason: null,
+            traceId: "",
+        };
+    } catch (error) {
+        const failureReason = error instanceof Error ? error.message : "AGENT_TOOL_FAILED";
+        events.append({
+            eventType: "tool.agent.failed",
+            scopeType: "tool",
+            scopeId: sent.taskId,
+            sessionId: sent.sessionId,
+            turnId: sent.turnId,
+            taskId: sent.taskId,
+            status: "failed",
+            title: "智能体工具失败",
+            summary: failureReason,
+            payload: withTurnGraphCheckpoint({
+                toolId: intent.toolId,
+                toolKind: "agent",
+                toolCallId,
+                failureReason,
+            }, graphCheckpoint),
+            errorCode: "AGENT_TOOL_FAILED",
+        });
+        return {
+            toolKind: "agent",
+            status: "failed",
+            outputSummary: "",
+            failureReason,
+            traceId: "",
+        };
+    }
+}
+
+/**
+ * resolveToolStepTitle：根据工具类型返回任务步骤标题。
+ *
+ * @param toolKind 统一工具类型。
+ * @returns 任务步骤标题。
+ */
+function resolveToolStepTitle(toolKind: string): string {
+    if (toolKind === "command") {
+        return "命令工具执行";
+    }
+    if (toolKind === "mcp") {
+        return "MCP 工具执行";
+    }
+    return "智能体工具执行";
+}
+
+/**
+ * resolveToolKindLabel：根据工具类型返回中文前缀。
+ *
+ * @param toolKind 统一工具类型。
+ * @returns 中文工具类型。
+ */
+function resolveToolKindLabel(toolKind: string): string {
+    if (toolKind === "command") {
+        return "命令";
+    }
+    if (toolKind === "mcp") {
+        return "MCP";
+    }
+    return "智能体";
 }
 
 /**

@@ -278,7 +278,7 @@ export interface ProviderProtocolModeView {
 /**
  * ProviderProtocolPluginView：协议适配器展示结构。
  *
- * 来源：中心服务固定 OpenAI 内置项和中心目录 `plugins/builtin-model-*`。
+ * 来源：中心服务内联 LangChain OpenAI / Anthropic 提供方。
  * 含义：供应商页协议适配器下拉的数据源。
  * 格式：JSON 对象。
  * 默认值：无。

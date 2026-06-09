@@ -5,8 +5,6 @@ import type {
     ConversationMessage,
     ConversationSession,
     ConversationTurn,
-    DeleteProjectResult,
-    EventRecord,
     ProjectRecord,
     SessionType,
     TaskRecord,
@@ -120,92 +118,6 @@ export function listSessions(
     },
 ): ConversationSession[] {
     return new SessionRepository(database).listSessions(filter);
-}
-
-/**
- * deleteSession：删除指定会话及其下属消息、轮次、任务和附件索引。
- *
- * @param database 中心服务数据库。
- * @param events 事件追加器。
- * @param session 会话事实记录。
- * @returns 删除结果，包含被删除会话 ID。
- */
-export function deleteSession(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    session: ConversationSession,
-): {
-    sessionId: string;
-    deleted: boolean;
-} {
-    // 仅删除当前会话事实表中的索引数据；事件日志作为审计来源保留，附件物理文件由后续清理策略统一处理。
-    new SessionRepository(database).deleteSessionFacts(session.sessionId);
-
-    events.append({
-        eventType: "session.deleted",
-        scopeType: "session",
-        scopeId: session.sessionId,
-        sessionId: session.sessionId,
-        turnId: null,
-        taskId: null,
-        projectId: session.projectId,
-        status: "completed",
-        title: "会话删除",
-        summary: session.title,
-        payload: {
-            sessionId: session.sessionId,
-            sessionType: session.sessionType,
-            projectId: session.projectId,
-        },
-    });
-
-    return {
-        sessionId: session.sessionId,
-        deleted: true,
-    };
-}
-
-/**
- * deleteProject：删除项目索引及该项目下属会话事实。
- *
- * @param database 中心服务数据库。
- * @param events 事件追加器。
- * @param project 项目事实记录。
- * @returns 删除结果，包含项目 ID 和清理的项目会话数量。
- */
-export function deleteProject(
-    database: CenterDatabase,
-    events: CenterEventStore,
-    project: ProjectRecord,
-): DeleteProjectResult {
-    // 只清理中心服务事实源；项目根目录和 致心项目ID.md 属于用户工程文件，不在项目删除接口中触碰。
-    const deletedSessionCount = new SessionRepository(database).deleteProjectFacts(project.projectId);
-
-    events.append({
-        eventType: "project.deleted",
-        scopeType: "project",
-        scopeId: project.projectId,
-        sessionId: null,
-        turnId: null,
-        taskId: null,
-        projectId: project.projectId,
-        status: "completed",
-        title: "项目删除",
-        summary: project.displayName,
-        payload: {
-            projectId: project.projectId,
-            displayName: project.displayName,
-            deletedSessionCount,
-            // keepProjectIdentityFile: 明确 UI 提示的边界，删除中心服务记录不删除磁盘身份文件。
-            keepProjectIdentityFile: true,
-        },
-    });
-
-    return {
-        projectId: project.projectId,
-        deletedSessionCount,
-        deleted: true,
-    };
 }
 
 /**
@@ -385,6 +297,58 @@ export function updateTaskStep(
 }
 
 /**
+ * recordTaskPlanRevised：记录用户中途修改需求后的任务重规划事件。
+ *
+ * @param events 事件追加器。
+ * @param input 重规划上下文。
+ * @returns 没有返回值。
+ */
+export function recordTaskPlanRevised(
+    events: CenterEventStore,
+    input: {
+        /** sessionId: 当前会话 ID。 */
+        sessionId: string;
+        /** turnId: 当前轮次 ID。 */
+        turnId: string;
+        /** taskId: 当前任务 ID。 */
+        taskId: string;
+        /** planVersion: 新计划版本号。 */
+        planVersion: number;
+        /** reason: 重规划原因。 */
+        reason: string;
+        /** supersededStepIds: 被替换的旧步骤 ID 列表。 */
+        supersededStepIds: string[];
+    },
+): void {
+    events.append({
+        eventType: "task.plan.revised",
+        scopeType: "task",
+        scopeId: input.taskId,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        taskId: input.taskId,
+        status: "running",
+        title: "任务计划重规划",
+        summary: input.reason,
+        payload: {
+            taskId: input.taskId,
+            planVersion: input.planVersion,
+            reason: input.reason,
+            supersededStepIds: input.supersededStepIds,
+            mergeRule: "保留仍有效步骤，将过期步骤标记为 superseded，并把新增需求追加到同一 taskId。",
+        },
+    });
+}
+
+/**
+ * submitGuidanceForActiveTask：把用户中途补充或修改需求合并到当前任务。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param input 用户补充引导上下文。
+ * @returns 合并后的任务和新增步骤身份。
+ */
+/**
  * updateTurnStatus：更新轮次状态，并同步默认任务终态。
  *
  * @param database 中心服务数据库。
@@ -462,7 +426,8 @@ export function updateTurnStatus(
 export function isFinalTaskStatus(status: TaskRecord["status"]): boolean {
     return status === "completed"
         || status === "failed"
-        || status === "cancelled";
+        || status === "cancelled"
+        || status === "superseded";
 }
 
 /**
@@ -733,10 +698,46 @@ function createTurnGraphNodeExecutors(
                     toolResults: [],
                 };
             }
-            if (state.toolRound >= 4) {
+            if (state.totalToolRound >= 16) {
                 return {
                     failed: true,
-                    errorMessage: "MODEL_TOOL_LOOP_LIMIT_EXCEEDED",
+                    errorMessage: "长任务已达到任务级工具总预算。已保留当前进度、工具结果和任务步骤，请根据已完成内容继续收敛或补充目标。",
+                };
+            }
+            if (state.toolRound >= 4) {
+                const checkpoint = createStateGraphCheckpoint(
+                    state,
+                    "agent.loop.batch_limit_reached",
+                    "tool",
+                    3 + state.totalToolRound * 2,
+                    "tool.result",
+                    [
+                        "tool.execute",
+                    ],
+                    "单批工具循环达到内部预算，自动续跑同一轮次同一任务。",
+                );
+                events.append({
+                    eventType: "agent.loop.batch_limit_reached",
+                    scopeType: "task",
+                    scopeId: state.taskId,
+                    sessionId: state.sessionId,
+                    turnId: state.turnId,
+                    taskId: state.taskId,
+                    status: "running",
+                    title: "工具批次自动续跑",
+                    summary: "单批工具循环达到内部上限，中心服务已自动进入下一批继续执行。",
+                    payload: withTurnGraphCheckpoint({
+                        turnId: state.turnId,
+                        taskId: state.taskId,
+                        toolBatchCount: state.toolBatchCount + 1,
+                        totalToolRound: state.totalToolRound,
+                        nextPlan: "沿用当前上下文、已完成工具结果和同一任务步骤继续执行。",
+                    }, checkpoint),
+                });
+                return {
+                    toolRound: 0,
+                    toolBatchCount: state.toolBatchCount + 1,
+                    batchContinuation: true,
                 };
             }
             const graphContext = createStateGraphContext(state);
@@ -798,6 +799,8 @@ function createTurnGraphNodeExecutors(
                     modelResult: state.modelResult,
                     finalModelResult: state.modelResult,
                     toolRound: state.toolRound + 1,
+                    totalToolRound: state.totalToolRound + 1,
+                    batchContinuation: false,
                 };
             }
             try {
@@ -823,6 +826,8 @@ function createTurnGraphNodeExecutors(
                         : state.finalModelResult,
                     toolResults: [],
                     toolRound: state.toolRound + 1,
+                    totalToolRound: state.totalToolRound + 1,
+                    batchContinuation: false,
                 };
             } catch (error) {
                 return {
@@ -862,13 +867,14 @@ function createTurnGraphNodeExecutors(
                 title: "工具计划",
                 summary: state.executedTool
                     ? "模型已基于 OpenAI 结构化工具定义请求工具调用。"
-                    : "当前模型回复未请求工具调用，已记录插件、MCP 和 skill 可用性。",
+                    : "当前模型回复未请求工具调用，已记录内联工具、MCP 和 skill 可用性。",
                 payload: withTurnGraphCheckpoint({
                     plannedToolId: state.executedTool?.toolId ?? null,
                     plannedToolKind: state.executedTool?.toolKind ?? null,
                     inputSummary: state.executedTool?.inputSummary ?? null,
                     fallbackToolKinds: [
-                        "plugin",
+                        "agent",
+                        "command",
                         "mcp",
                         "skill",
                     ],
@@ -1448,52 +1454,14 @@ export function updateSessionTitleAfterTurn(
     }
 }
 
-export function savePendingMessage(
-    database: CenterDatabase,
-    sessionId: string,
-    clientId: string | null,
-    contentMarkdown: string,
-): {
-    pendingMessageId: string;
-    status: string;
-} {
-    const pendingMessageId = randomUUID();
-    const now = new Date().toISOString();
-    new SessionRepository(database).savePendingMessage({
-        pendingMessageId,
-        sessionId,
-        clientId,
-        contentMarkdown,
-        now,
-    });
-    return {
-        pendingMessageId,
-        status: "waiting_user",
-    };
-}
-
-export function listPendingMessages(
-    database: CenterDatabase,
-    sessionId: string,
-): unknown[] {
-    return new SessionRepository(database).listPendingMessages(sessionId);
-}
-
-/**
- * listEvents：查询断线补齐事件。
- *
- * @param database 中心服务数据库。
- * @param filter 事件筛选条件。
- * @returns 事件记录数组。
- */
-export function listEvents(
-    database: CenterDatabase,
-    filter: {
-        sessionId: string | null;
-        turnId: string | null;
-        afterSequence: number;
-    },
-): EventRecord[] {
-    return new SessionRepository(database).listEvents(filter);
-}
+export {
+    deleteProject,
+    deleteSession,
+    listEvents,
+    listPendingMessages,
+    savePendingMessage,
+} from "./session-query-domain.js";
+export {
+    submitGuidanceForActiveTask,
+} from "./session-guidance-domain.js";
 

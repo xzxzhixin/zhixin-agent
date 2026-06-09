@@ -752,18 +752,8 @@ const expectations = [
   ],
   [
     appStore,
-    "fallbackProjectsFromSessions",
-    "项目列表接口失败时必须从项目会话 projectId 构造兜底项目节点。",
-  ],
-  [
-    appStore,
-    "catch (error)",
-    "项目列表接口失败必须被捕获，不能阻断会话列表加载。",
-  ],
-  [
-    appStore,
-    "项目列表接口失败，已使用项目会话构造兜底项目导航。",
-    "项目列表失败兜底必须记录中文排查信息。",
+    "navigation.snapshot",
+    "项目和会话导航必须通过 WebSocket navigation.snapshot 一次性加载，避免 REST 项目接口阻断对话页。",
   ],
   [
     appStore + appHelpers + chatHelpers,
@@ -957,15 +947,19 @@ if (appStore.includes("childAgentTree")) {
 }
 
 const loadNavigationIndex = appStore.indexOf("async loadNavigationData");
-const loadSessionsIndex = appStore.indexOf("await this.loadSessions()", loadNavigationIndex);
-const loadProjectsIndex = appStore.indexOf("await this.loadProjects()", loadNavigationIndex);
-if (loadNavigationIndex < 0 || loadSessionsIndex < 0 || loadProjectsIndex < 0 || loadSessionsIndex > loadProjectsIndex) {
-  console.error("工作台初始化必须先加载会话，再加载项目，避免 /api/project/list 失败阻断已有会话渲染。");
+const navigationSnapshotIndex = appStore.indexOf("navigation.snapshot", loadNavigationIndex);
+if (loadNavigationIndex < 0 || navigationSnapshotIndex < 0) {
+  console.error("工作台导航必须通过 WebSocket navigation.snapshot 同步加载会话和项目。");
   process.exitCode = 1;
 }
 
 if (appStore.includes("await this.loadProjects();\n            await this.loadSessions();")) {
   console.error("工作台初始化不能先等待项目列表再加载会话列表。");
+  process.exitCode = 1;
+}
+
+if (appStore.includes("this.api().listProjects(")) {
+  console.error("对话工作台不能继续通过 REST listProjects 加载项目列表，必须使用 WebSocket navigation.snapshot。");
   process.exitCode = 1;
 }
 
@@ -1256,8 +1250,21 @@ if (!appStore.includes("contextUsedTokens") || !appStore.includes("composerSelec
   process.exitCode = 1;
 }
 
-if (!(appStore + appManagementActions).includes("countComposerContextTokens") || !(appStore + appManagementActions).includes("updateComposerContextUsage")) {
-  console.error("当前窗口上下文用量必须通过中心服务 tokenizer 随会话和草稿更新。");
+const syncRouteSource = readFileSync(
+  join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "api",
+    "sync-route.ts",
+  ),
+  "utf-8",
+);
+if (!(appStore + appManagementActions).includes("tokenizer.count")
+    || !syncRouteSource.includes("countComposerContextTokens")
+    || !(appStore + appManagementActions).includes("updateComposerContextUsage")) {
+  console.error("当前窗口上下文用量必须通过 WebSocket 请求中心服务 tokenizer 随会话和草稿更新。");
   process.exitCode = 1;
 }
 

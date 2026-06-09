@@ -8,7 +8,6 @@ import { spawnSync } from "node:child_process";
 import {
   cpSync,
   mkdirSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -58,22 +57,6 @@ cpSync(
   },
 );
 
-for (const pluginName of readdirSync(join(repoRoot, "plugins"), {
-  withFileTypes: true,
-}).filter((entry) => {
-  // builtin-: 所有系统内置插件统一随桌面产物交付；协议适配器由 builtin-model-* 再细分。
-  return entry.isDirectory() && entry.name.startsWith("builtin-");
-}).map((entry) => entry.name)) {
-  // pluginName: 架构规定随桌面绿色版交付的系统内置插件目录，不再包含已移除的 OpenAI 兼容插件包。
-  cpSync(
-    join(repoRoot, "plugins", pluginName),
-    join(portableRoot, "resources", "plugins", pluginName),
-    {
-      recursive: true,
-    },
-  );
-}
-
 mkdirSync(centerResourceRoot, {
   recursive: true,
 });
@@ -106,7 +89,7 @@ writeFileSync(
   join(portableRoot, "README.txt"),
   [
     "致心智能体绿色版目录结构已生成。",
-    "当前目录包含前端资源、中心服务入口、内置插件、应用图标和界面图标。",
+    "当前目录包含前端资源、中心服务入口、内联能力代码、应用图标和界面图标。",
     "正式 Electron 二进制打包将在安装包阶段接入。",
     "默认中心目录为本目录下 center-data。",
     "",

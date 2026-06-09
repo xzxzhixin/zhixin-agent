@@ -11,7 +11,6 @@
     "build:center:new": "pnpm --filter @zhixin/center build",
     "build:frontend": "pnpm --filter @zhixin/frontend build",
     "build:desktop-shell": "pnpm build:packages && pnpm build:center:new && pnpm build:frontend && pnpm --filter @zhixin/desktop-shell build",
-    "build:builtin-plugins": "pnpm --filter \"./plugins/builtin-*\" build",
     "build:shared": "pnpm build:packages",
     "build:center": "pnpm build:center:new",
     "build:desktop": "pnpm build:desktop-shell",

@@ -63,7 +63,7 @@ function assertNotIncludes(
   }
 }
 
-const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
+const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const realtime = readProjectFile("services/center/src/realtime.ts");
 const appStore = readProjectFile("apps/frontend/src/stores/app.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
@@ -107,8 +107,8 @@ assertIncludes(
 );
 assertIncludes(
   appStore,
-  "await this.refreshEvents();",
-  "加载会话详情时必须补齐事件，历史重开才能恢复过程卡片。",
+  "this.events = snapshot.events;",
+  "加载会话详情时必须通过 WebSocket session.snapshot 同步补齐事件，历史重开才能恢复过程卡片。",
 );
 assertIncludes(
   appStore,

@@ -100,26 +100,10 @@ assertExists(join(resourcesRoot, "assets", "ui-icons", "file-read.svg"), "绿色
 assertExists(join(resourcesRoot, "assets", "ui-icons", "file-write.svg"), "绿色版缺少写入文件界面图标。");
 assertExists(join(resourcesRoot, "assets", "ui-icons", "file-delete.svg"), "绿色版缺少删除文件界面图标。");
 
-// builtinPluginsRoot: 内置插件随包目录。
-const builtinPluginsRoot = join(resourcesRoot, "plugins");
-assertExists(builtinPluginsRoot, "绿色版缺少内置插件目录。");
-
-// pluginNames: 架构规定必须随包交付的系统内置插件。
-const pluginNames = [
-  "builtin-model-anthropic-messages",
-  "builtin-automation",
-  "builtin-browser-collector",
-  "builtin-office-integration",
-  "builtin-file-organizer",
-];
-
-for (const pluginName of pluginNames) {
-  // pluginPath: 每个内置插件需要作为独立目录随绿色版交付。
-  const pluginPath = join(builtinPluginsRoot, pluginName);
-  assertExists(pluginPath, `绿色版缺少内置插件：${pluginName}。`);
-  if (!statSync(pluginPath).isDirectory()) {
-    throw new Error(`内置插件不是目录：${pluginName}。`);
-  }
+// pluginsRoot: 当前阶段插件全部内联，绿色版不再随包复制历史 builtin-* 插件目录。
+const pluginsRoot = join(resourcesRoot, "plugins");
+if (existsSync(pluginsRoot)) {
+  throw new Error("绿色版当前阶段不应再包含 resources/plugins 历史插件目录。");
 }
 
 assertDirectoryHasNoSignals(

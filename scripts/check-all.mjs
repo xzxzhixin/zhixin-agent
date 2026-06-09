@@ -111,11 +111,9 @@ const commands = [
     ],
   ],
   [
-    "pnpm",
+    "node",
     [
-      "exec",
-      "tsx",
-      "scripts/check-plugins-protocols.ts",
+      "scripts/check-current-long-task-websocket-agent-regression.mjs",
     ],
   ],
   [
@@ -242,12 +240,6 @@ const commands = [
     "pnpm",
     [
       "build:center:new",
-    ],
-  ],
-  [
-    "pnpm",
-    [
-      "build:builtin-plugins",
     ],
   ],
   [

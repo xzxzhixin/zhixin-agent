@@ -1,7 +1,9 @@
 import type {
+    AgentConfigView,
     McpConfigView,
     PluginConfigView,
     ProviderConfigView,
+    ProviderModelListView,
     ProviderProtocolPluginView,
     ProxyConfigView,
     RuntimeConfigView,
@@ -63,6 +65,34 @@ function sortModelContextWindowsByModels(
     } => {
         return item !== undefined;
     });
+}
+
+/**
+ * normalizeProviderModelOptionsSnapshot：整理对话页启动快照中的供应商模型列表。
+ *
+ * @param snapshot 中心服务按供应商 ID 返回的模型列表快照。
+ * @returns 排序和上下文窗口同步后的模型列表映射。
+ */
+function normalizeProviderModelOptionsSnapshot(
+    snapshot: Record<string, ProviderModelListView>,
+): Record<string, ProviderModelListView> {
+    return Object.fromEntries(Object.entries(snapshot).map(([
+        providerId,
+        modelList,
+    ]) => {
+        const sortedModels = sortProviderModelsByNumericVersion(modelList.models);
+        return [
+            providerId,
+            {
+                ...modelList,
+                models: sortedModels,
+                contextWindows: sortModelContextWindowsByModels(
+                    sortedModels,
+                    modelList.contextWindows,
+                ),
+            },
+        ];
+    }));
 }
 
 /**
@@ -157,14 +187,24 @@ export function createManagementActions() {
          */
         async loadProviders(): Promise<void> {
             try {
-                await this.loadProviderProtocolPlugins();
-                const result = await this.api().listProviders();
-                this.providers = result.providers;
-                await Promise.all(result.providers.map((provider) => {
-                    return this.loadProviderModelOptions(provider.providerId);
-                }));
+                const snapshot = await this.requireRealtimeRequest<{
+                    /** providers: 对话页输入区可用供应商列表。 */
+                    providers: ProviderConfigView[];
+                    /** providerProtocolPlugins: 内联 LangChain 协议能力列表。 */
+                    providerProtocolPlugins: ProviderProtocolPluginView[];
+                    /** providerModelOptions: 每个供应商已保存的模型列表。 */
+                    providerModelOptions: Record<string, ProviderModelListView>;
+                    /** agents: 主智能体和长期智能体索引。 */
+                    agents: AgentConfigView[];
+                }>("chat.bootstrap.snapshot", {});
+                this.providerProtocolPlugins = snapshot.providerProtocolPlugins;
+                this.syncProviderDraftWithProtocolPlugins(snapshot.providerProtocolPlugins);
+                this.providers = snapshot.providers;
+                this.providerModelOptions = normalizeProviderModelOptionsSnapshot(snapshot.providerModelOptions);
+                this.agents = snapshot.agents;
                 this.applyDefaultComposerModelSettings();
                 this.clearManagementError("providers");
+                this.clearManagementError("agents");
             } catch (error) {
                 this.recordManagementError("providers", error);
             }
@@ -176,9 +216,7 @@ export function createManagementActions() {
          * @returns 加载完成后没有返回值。
          */
         async loadProviderProtocolPlugins(): Promise<void> {
-            const result = await this.api().listProviderProtocolPlugins();
-            this.providerProtocolPlugins = result.plugins;
-            this.syncProviderDraftWithProtocolPlugins(result.plugins);
+            await this.loadProviders();
         },
 
         /**
@@ -230,18 +268,14 @@ export function createManagementActions() {
          */
         async loadProviderModelOptions(providerId: string): Promise<void> {
             try {
-                const result = await this.api().listProviderModels({
-                    providerId,
-                });
-                const sortedModels = sortProviderModelsByNumericVersion(result.models);
-                this.providerModelOptions[providerId] = {
-                    ...result,
-                    models: sortedModels,
-                    contextWindows: sortModelContextWindowsByModels(
-                        sortedModels,
-                        result.contextWindows,
-                    ),
-                };
+                const snapshot = await this.requireRealtimeRequest<{
+                    /** providerModelOptions: 每个供应商已保存的模型列表。 */
+                    providerModelOptions: Record<string, ProviderModelListView>;
+                }>("chat.bootstrap.snapshot", {});
+                const nextOptions = normalizeProviderModelOptionsSnapshot(snapshot.providerModelOptions);
+                if (nextOptions[providerId]) {
+                    this.providerModelOptions[providerId] = nextOptions[providerId];
+                }
             } catch (error) {
                 // 模型列表失败不阻断供应商主列表，页面会显示手动填写兜底说明。
                 console.error("供应商模型列表加载失败", {
@@ -460,7 +494,14 @@ export function createManagementActions() {
             this.composerContextUsageState.lastComposerContextUsageKey = usageKey;
             this.composerContextUsageState.composerContextUsageRequestSerial += 1;
             const requestSerial = this.composerContextUsageState.composerContextUsageRequestSerial;
-            const result = await this.api().countComposerContextTokens({
+            const result = await this.requireRealtimeRequest<{
+                /** usedTokens: 当前窗口已用 token 数。 */
+                usedTokens: number;
+                /** tokenizerName: 中心服务 tokenizer 名称。 */
+                tokenizerName: string;
+                /** source: token 统计来源。 */
+                source: "built-in" | "external" | "fallback";
+            }>("tokenizer.count", {
                 sessionId: this.activeSessionId,
                 draftText: "",
                 referenceSummaries: [],
@@ -814,8 +855,11 @@ export function createManagementActions() {
          */
         async loadAgents(): Promise<void> {
             try {
-                const result = await this.api().listAgents();
-                this.agents = result.agents;
+                const snapshot = await this.requireRealtimeRequest<{
+                    /** agents: 主智能体和长期智能体索引。 */
+                    agents: AgentConfigView[];
+                }>("chat.bootstrap.snapshot", {});
+                this.agents = snapshot.agents;
                 this.clearManagementError("agents");
             } catch (error) {
                 // 当前页面仍保留主智能体默认节点；中心服务接口失败时不伪造长期智能体，只记录排查信息。

@@ -9,14 +9,6 @@ import {
   spawnSync,
 } from "node:child_process";
 import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
-import {
-  join,
   resolve,
 } from "node:path";
 import {
@@ -25,12 +17,8 @@ import {
 
 // frontendDevUrl: 桌面壳开发期固定连接本机前端服务。
 const frontendDevUrl = "http://127.0.0.1:5173";
-// repoRoot: 当前脚本位于仓库 scripts 目录，内置插件和中心目录都以仓库根目录为事实源。
+// repoRoot: 当前脚本位于仓库 scripts 目录，桌面壳启动以仓库根目录为事实源。
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-// builtinPluginsSourceDirectory: 内置插件源码目录，开发启动时按 plugins/builtin-* 统一构建。
-const builtinPluginsSourceDirectory = join(repoRoot, "plugins");
-// centerPluginsDirectory: 架构规定的中心目录插件事实源，中心服务从这里扫描协议适配器。
-const centerPluginsDirectory = join(repoRoot, "center-data", "plugins");
 // children: 当前脚本拉起的子进程，退出时统一收尾。
 const children = [];
 // isShuttingDown: 防止多个退出信号重复收尾。
@@ -69,83 +57,6 @@ function startProcess(label, command, args, env = {}) {
 
   children.push(child);
   return child;
-}
-
-/**
- * listBuiltinPluginNames：列出所有内置插件目录。
- *
- * @returns `plugins/builtin-*` 目录名数组。
- */
-function listBuiltinPluginNames() {
-  return readdirSync(builtinPluginsSourceDirectory, {
-    withFileTypes: true,
-  }).filter((entry) => {
-    // builtin-: 内置插件统一命名前缀；模型协议适配器再通过 builtin-model-* 二级范围区分。
-    return entry.isDirectory() && entry.name.startsWith("builtin-");
-  }).map((entry) => entry.name);
-}
-
-/**
- * buildBuiltinPlugins：在启动桌面壳前构建所有内置插件。
- *
- * @returns 构建成功后没有返回值。
- */
-function buildBuiltinPlugins() {
-  const result = spawnSync(
-    "pnpm",
-    [
-      "build:builtin-plugins",
-    ],
-    {
-      cwd: repoRoot,
-      shell: process.platform === "win32",
-      stdio: "inherit",
-    },
-  );
-
-  if (result.status !== 0) {
-    throw new Error(`内置插件构建失败，退出码：${result.status ?? "未知"}`);
-  }
-}
-
-/**
- * syncBuiltinPluginsToCenterDirectory：把内置插件同步到中心目录 plugins。
- *
- * @returns 同步完成后没有返回值。
- */
-function syncBuiltinPluginsToCenterDirectory() {
-  mkdirSync(centerPluginsDirectory, {
-    recursive: true,
-  });
-
-  for (const pluginName of listBuiltinPluginNames()) {
-    const sourceDirectory = join(
-      builtinPluginsSourceDirectory,
-      pluginName,
-    );
-    const targetDirectory = join(
-      centerPluginsDirectory,
-      pluginName,
-    );
-    rmSync(targetDirectory, {
-      force: true,
-      recursive: true,
-    });
-    if (!existsSync(sourceDirectory)) {
-      continue;
-    }
-    cpSync(
-      sourceDirectory,
-      targetDirectory,
-      {
-        recursive: true,
-        filter: (sourcePath) => {
-          // node_modules: 中心目录只保存插件构建产物和源码清单，不复制依赖缓存，避免中心目录膨胀。
-          return !sourcePath.includes(`${pluginName}${process.platform === "win32" ? "\\" : "/"}node_modules`);
-        },
-      },
-    );
-  }
 }
 
 /**
@@ -258,8 +169,6 @@ try {
     throw new Error(`前端开发服务器未启动：请先运行 pnpm dev:frontend。目标地址：${frontendDevUrl}`);
   }
 
-  buildBuiltinPlugins();
-  syncBuiltinPluginsToCenterDirectory();
   await waitForFrontend();
   startProcess(
     "Electron 桌面壳",

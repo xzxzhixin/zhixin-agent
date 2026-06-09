@@ -156,7 +156,14 @@ export function createProjectActions() {
         async deleteProject(projectId: string): Promise<void> {
             let deletingActiveProject = false;
             try {
-                await this.api().deleteProject({
+                await this.requireRealtimeRequest<{
+                    /** projectId: 已删除项目 ID。 */
+                    projectId: string;
+                    /** deletedSessionCount: 被删除的项目会话数量。 */
+                    deletedSessionCount: number;
+                    /** deleted: 是否删除成功。 */
+                    deleted: boolean;
+                }>("project.delete", {
                     projectId,
                 });
                 deletingActiveProject = this.removeDeletedProjectFromLocalState(projectId);
@@ -228,7 +235,7 @@ export function createProjectActions() {
 
             // projectId: 来自项目根目录 致心项目ID.md；文件缺失时创建 UUID，禁止使用目录名伪造身份。
             const projectId = await ensureBrowserProjectIdentity(directoryHandle);
-            const project = await this.api().registerProject({
+            const project = await this.requireRealtimeRequest<ProjectRecord>("project.register", {
                 projectId,
                 displayName,
                 latestPath: displayName,
@@ -263,7 +270,7 @@ export function createProjectActions() {
                     if (!desktopProject) {
                         return;
                     }
-                    const project = await this.api().registerProject({
+                    const project = await this.requireRealtimeRequest<ProjectRecord>("project.register", {
                         projectId: assertProjectId(desktopProject.projectId),
                         displayName: desktopProject.displayName,
                         latestPath: desktopProject.latestPath,

@@ -101,9 +101,15 @@ const diffPreviewText = ref("");
 
 const {
   messageListRef,
+  isAtTop,
+  isAtBottom,
+  lastScrollDirection,
+  scrollShortcutVisible,
+  scrollShortcutLabel,
   updateMessageListPinnedState,
   requestAutoScrollToBottom,
   pauseAutoScrollForHistoryView,
+  handleScrollShortcutClick,
   disposeMessageListAutoScroll,
 } = useMessageListAutoScroll();
 const {
@@ -713,6 +719,16 @@ onBeforeUnmount(() => {
             v-if="conversationRenderRows.length === 0"
             description="暂无消息"
         />
+        <button
+            v-if="scrollShortcutVisible && !isAtTop && !isAtBottom"
+            class="scroll-shortcut"
+            type="button"
+            :aria-label="scrollShortcutLabel"
+            :title="scrollShortcutLabel"
+            @click="handleScrollShortcutClick"
+        >
+          {{ lastScrollDirection === "up" ? "↑" : "↓" }}
+        </button>
       </section>
     </section>
 
@@ -1026,11 +1042,36 @@ onBeforeUnmount(() => {
 }
 
 .message-list {
+  position: relative;
   min-width: 0;
   min-height: 40vh;
   flex: 1 1 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.scroll-shortcut {
+  position: sticky;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2;
+  display: flex;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--el-border-color);
+  border-radius: 999px;
+  background: var(--el-bg-color-overlay);
+  box-shadow: var(--el-box-shadow-light);
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+}
+
+.scroll-shortcut:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
 }
 
 .process-card {

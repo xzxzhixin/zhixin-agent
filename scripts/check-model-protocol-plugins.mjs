@@ -38,39 +38,39 @@ if (existsSync("plugins/builtin-model-openai-compatible")) {
 }
 
 assertIncludes(
-  "plugins/builtin-model-anthropic-messages/src/index.ts",
-  "Anthropic 适配器",
-  "Anthropic 模型适配器插件必须使用确认后的展示名",
+  "services/center/src/provider-domain.ts",
+  "OPENAI_LANGCHAIN_PROTOCOL_PROVIDER",
+  "中心服务必须提供 OpenAI LangChain 内联协议提供方",
 );
 assertIncludes(
   "services/center/src/provider-domain.ts",
-  "OPENAI_BUILTIN_PROTOCOL_ADAPTER",
-  "中心服务必须提供 OpenAI 内置固定协议适配器",
+  "ANTHROPIC_LANGCHAIN_PROTOCOL_PROVIDER",
+  "中心服务必须提供 Anthropic LangChain 内联协议提供方",
 );
-assertIncludes(
+assertNotIncludes(
   "services/center/src/provider-domain.ts",
-  "listModelProtocolAdapters",
-  "中心服务必须从内置固定项和模型插件来源生成协议适配器列表",
+  "listBuiltinModelAdapterPlugins",
+  "当前阶段不允许继续从 plugins/builtin-model-* 动态扫描协议适配器",
 );
-assertIncludes(
+assertNotIncludes(
   "services/center/src/provider-domain.ts",
-  "builtin-model-",
-  "协议适配器动态扫描范围必须限制为 plugins/builtin-model-*",
+  "model-adapter.json",
+  "当前阶段不允许继续读取模型适配器插件声明",
 );
-assertIncludes(
+assertNotIncludes(
   "scripts/dev-desktop-shell.mjs",
   "buildBuiltinPlugins",
-  "dev:desktop-shell 启动前必须构建内置插件",
+  "dev:desktop-shell 当前阶段不应构建内置插件",
 );
-assertIncludes(
+assertNotIncludes(
   "scripts/dev-desktop-shell.mjs",
   "syncBuiltinPluginsToCenterDirectory",
-  "dev:desktop-shell 启动前必须同步内置插件到中心目录 plugins",
+  "dev:desktop-shell 当前阶段不应同步内置插件到中心目录",
 );
 assertIncludes(
   "apps/frontend/src/views/Providers/RouterIndex.vue",
-  "协议适配器",
-  "供应商页面字段必须改名为协议适配器",
+  "LangChain",
+  "供应商页面必须说明 OpenAI 和 Anthropic 直接使用 LangChain",
 );
 assertNotIncludes(
   "apps/frontend/src/views/Providers/RouterIndex.vue",
@@ -79,8 +79,8 @@ assertNotIncludes(
 );
 assertIncludes(
   "apps/frontend/src/stores/app-helpers.ts",
-  "openai-builtin",
-  "前端新增供应商默认必须使用 OpenAI 内置固定项",
+  "openai-langchain",
+  "前端新增供应商默认必须使用 OpenAI LangChain 内联提供方",
 );
 
-console.log("模型协议适配器静态检查通过。");
+console.log("模型协议 LangChain 内联静态检查通过。");

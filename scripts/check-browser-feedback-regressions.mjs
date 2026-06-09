@@ -98,9 +98,9 @@ const taskDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/TaskDet
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
-const sessionMessageRoute = readProjectFile("services/center/src/session-message-route.ts");
+const sessionMessageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
-const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
+const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const toolRuntime = [
   readProjectFile("services/center/src/tool-runtime.ts"),
   readProjectFile("services/center/src/tool-runtime-command.ts"),

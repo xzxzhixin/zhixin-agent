@@ -67,8 +67,8 @@ function assertNotIncludes(
   }
 }
 
-const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
-const messageRoute = readProjectFile("services/center/src/session-message-route.ts");
+const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
+const messageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
 const eventsSource = readProjectFile("services/center/src/events.ts");
 
 for (const signal of [

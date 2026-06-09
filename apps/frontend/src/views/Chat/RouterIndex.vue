@@ -23,10 +23,12 @@ import {
   formatConnectionState,
   formatDisplayTime,
   flattenAgentTreeRows,
-  projectTooltipContent,
   resolveTaskStatusMeta,
   type NavigationStatusMeta,
 } from "@views/Chat/chat-view-helpers";
+import {
+  projectTooltipContent,
+} from "@views/Chat/chat-tooltip-helpers";
 import type {
   ConversationSession,
   ProjectRecord,

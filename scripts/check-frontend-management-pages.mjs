@@ -81,6 +81,7 @@ const centerApiRoutesPath = join(
   "services",
   "center",
   "src",
+  "api",
   "api-routes.ts",
 );
 // centerProviderRoutesPath: 供应商、代理、运行环境和模型网关路由拆分文件路径。
@@ -89,6 +90,7 @@ const centerProviderRoutesPath = join(
   "services",
   "center",
   "src",
+  "api",
   "provider-routes.ts",
 );
 // centerProviderDomainPath: 中心服务供应商和代理领域文件路径。

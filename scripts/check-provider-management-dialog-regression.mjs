@@ -75,6 +75,7 @@ const providerRoutes = readProjectFile(
   "services",
   "center",
   "src",
+  "api",
   "provider-routes.ts",
 );
 // managementActions: 前端删除后仍要刷新中心服务事实列表。

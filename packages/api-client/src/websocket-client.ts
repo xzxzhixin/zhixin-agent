@@ -16,6 +16,26 @@ export class ReconnectingWebSocketClient {
     /** retryCount: 已重试次数。 */
     private retryCount = 0;
 
+    /** openWaiters: 等待连接打开的回调列表。 */
+    private readonly openWaiters: Array<{
+        /** resolve: 连接打开时完成等待。 */
+        resolve: () => void;
+        /** reject: 连接关闭或超时时拒绝等待。 */
+        reject: (error: Error) => void;
+        /** timeoutId: 等待连接打开的超时定时器。 */
+        timeoutId: number;
+    }> = [];
+
+    /** pendingRequests: WebSocket 请求响应等待表，键为 requestId。 */
+    private readonly pendingRequests = new Map<string, {
+        /** resolve: 请求成功时回传业务载荷。 */
+        resolve: (payload: unknown) => void;
+        /** reject: 请求失败或超时时返回错误。 */
+        reject: (error: Error) => void;
+        /** timeoutId: 请求超时定时器 ID。 */
+        timeoutId: number;
+    }>();
+
     /**
      * constructor：保存连接配置。
      *
@@ -51,12 +71,19 @@ export class ReconnectingWebSocketClient {
         this.socket.addEventListener("open", () => {
             this.retryCount = 0;
             this.options.onStateChange("open");
+            this.resolveOpenWaiters();
             this.sendHello();
         });
         this.socket.addEventListener("message", (event) => {
-            this.options.onMessage(JSON.parse(String(event.data)) as WebSocketEnvelope);
+            const message = JSON.parse(String(event.data)) as WebSocketEnvelope;
+            if (this.resolvePendingRequest(message)) {
+                return;
+            }
+            this.options.onMessage(message);
         });
         this.socket.addEventListener("close", () => {
+            this.rejectOpenWaiters("WEBSOCKET_CLOSED");
+            this.rejectPendingRequests("WEBSOCKET_CLOSED");
             this.scheduleReconnect();
         });
     }
@@ -68,8 +95,68 @@ export class ReconnectingWebSocketClient {
      */
     close(): void {
         this.retryCount = this.options.maxRetries;
+        this.rejectPendingRequests("WEBSOCKET_CLOSED");
         this.socket?.close();
         this.options.onStateChange("stopped");
+    }
+
+    /**
+     * waitUntilOpen：等待当前 WebSocket 连接进入 open 状态。
+     *
+     * @param timeoutMs 等待超时时间，单位毫秒。
+     * @returns 连接打开后完成的 Promise。
+     */
+    waitUntilOpen(timeoutMs = 10000): Promise<void> {
+        const socket = this.socket;
+        if (socket?.readyState === WebSocket.OPEN) {
+            return Promise.resolve();
+        }
+        return new Promise<void>((resolve, reject) => {
+            // timeoutId: 对话页 WebSocket-only 初始化需要可失败边界，避免页面永久等待。
+            const timeoutId = window.setTimeout(() => {
+                this.removeOpenWaiter(timeoutId);
+                reject(new Error("WEBSOCKET_OPEN_TIMEOUT"));
+            }, timeoutMs);
+            this.openWaiters.push({
+                resolve,
+                reject,
+                timeoutId,
+            });
+        });
+    }
+
+    /**
+     * request：通过 WebSocket 发起请求并等待同 requestId 响应。
+     *
+     * @param type 请求类型，例如 session.snapshot。
+     * @param payload 请求载荷。
+     * @returns 服务端响应载荷。
+     */
+    request<TResponse>(type: string, payload: unknown): Promise<TResponse> {
+        const socket = this.socket;
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            return Promise.reject(new Error("WEBSOCKET_NOT_OPEN"));
+        }
+        const requestId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        return new Promise<TResponse>((resolve, reject) => {
+            // timeoutId: WebSocket 请求必须有上限，避免服务端无响应时页面永久卡住。
+            const timeoutId = window.setTimeout(() => {
+                this.pendingRequests.delete(requestId);
+                reject(new Error("WEBSOCKET_REQUEST_TIMEOUT"));
+            }, 30000);
+            this.pendingRequests.set(requestId, {
+                resolve: (responsePayload) => {
+                    resolve(responsePayload as TResponse);
+                },
+                reject,
+                timeoutId,
+            });
+            socket.send(JSON.stringify({
+                type,
+                requestId,
+                payload,
+            } satisfies WebSocketEnvelope));
+        });
     }
 
     /**
@@ -86,6 +173,93 @@ export class ReconnectingWebSocketClient {
                 projectId: this.options.projectId,
             },
         } satisfies WebSocketEnvelope));
+    }
+
+    /**
+     * resolvePendingRequest：处理服务端 WebSocket 请求响应。
+     *
+     * @param message 服务端消息包。
+     * @returns 当前消息属于请求响应时返回 true。
+     */
+    private resolvePendingRequest(message: WebSocketEnvelope): boolean {
+        if (!message.requestId) {
+            return false;
+        }
+        const pending = this.pendingRequests.get(message.requestId);
+        if (!pending) {
+            return false;
+        }
+        this.pendingRequests.delete(message.requestId);
+        window.clearTimeout(pending.timeoutId);
+        if (message.type === "request.error") {
+            const errorPayload = message.payload as {
+                /** code: 服务端错误码。 */
+                code?: string;
+                /** message: 服务端错误消息。 */
+                message?: string;
+            };
+            pending.reject(new Error(errorPayload.message ?? errorPayload.code ?? "WEBSOCKET_REQUEST_FAILED"));
+            return true;
+        }
+        pending.resolve(message.payload);
+        return true;
+    }
+
+    /**
+     * rejectPendingRequests：连接关闭时拒绝所有等待中的请求。
+     *
+     * @param message 错误消息。
+     * @returns 没有返回值。
+     */
+    private rejectPendingRequests(message: string): void {
+        for (const pending of this.pendingRequests.values()) {
+            window.clearTimeout(pending.timeoutId);
+            pending.reject(new Error(message));
+        }
+        this.pendingRequests.clear();
+    }
+
+    /**
+     * resolveOpenWaiters：连接打开后唤醒所有等待者。
+     *
+     * @returns 没有返回值。
+     */
+    private resolveOpenWaiters(): void {
+        const waiters = this.openWaiters.splice(0);
+        for (const waiter of waiters) {
+            window.clearTimeout(waiter.timeoutId);
+            waiter.resolve();
+        }
+    }
+
+    /**
+     * rejectOpenWaiters：连接失败时拒绝所有等待者。
+     *
+     * @param message 错误消息。
+     * @returns 没有返回值。
+     */
+    private rejectOpenWaiters(message: string): void {
+        const waiters = this.openWaiters.splice(0);
+        for (const waiter of waiters) {
+            window.clearTimeout(waiter.timeoutId);
+            waiter.reject(new Error(message));
+        }
+    }
+
+    /**
+     * removeOpenWaiter：等待超时时移除对应等待者。
+     *
+     * @param timeoutId 超时定时器 ID。
+     * @returns 没有返回值。
+     */
+    private removeOpenWaiter(timeoutId: number): void {
+        const waiterIndex = this.openWaiters.findIndex((waiter) => waiter.timeoutId === timeoutId);
+        if (waiterIndex >= 0) {
+            this.openWaiters.splice(
+                waiterIndex,
+                1,
+            );
+        }
     }
 
     /**

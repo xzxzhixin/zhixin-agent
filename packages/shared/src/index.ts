@@ -89,7 +89,8 @@ export type TaskStatus =
   | "waiting_user"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "superseded";
 
 /**
  * 智能体运行状态。
@@ -849,6 +850,7 @@ export interface DeleteProjectResult {
  */
 export type UnifiedToolKind =
   | "command"
+  | "agent"
   | "plugin"
   | "mcp"
   | "skill";
@@ -1283,6 +1285,17 @@ export interface WebSocketEnvelope<TPayload = unknown> {
    * type: WebSocket 消息类型。
    */
   type: string;
+
+  /**
+   * requestId: 请求/响应关联 ID。
+   *
+   * 来源：WebSocket-only 对话页协议。
+   * 含义：客户端发起动作请求时生成，服务端响应时原样带回。
+   * 格式：随机字符串；纯推送事件可以省略。
+   * 默认值：无。
+   * 约束：不能用 traceId 替代，traceId 只用于排查。
+   */
+  requestId?: string;
 
   /**
    * payload: 消息载荷。

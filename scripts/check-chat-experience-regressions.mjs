@@ -247,8 +247,8 @@ assertIncludes(
 );
 assertIncludes(
   managementActions,
-  "countComposerContextTokens",
-  "上下文 tooltip 数据必须来自中心服务 tokenizer 统计接口。",
+  "tokenizer.count",
+  "上下文 tooltip 数据必须来自中心服务 tokenizer WebSocket 统计接口。",
 );
 assertIncludes(
   chatStyle,

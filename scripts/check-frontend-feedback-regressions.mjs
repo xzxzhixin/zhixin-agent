@@ -33,6 +33,18 @@ function readProjectFile(pathInProject) {
 const mainViewOnlySource = readProjectFile("apps/frontend/src/views/MainView.vue");
 // chatPageSource: 对话页真实入口源码，承载对话导航、输入区和轮次时间。
 const chatPageSource = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
+// chatConversationPanelSource: 对话主体组件源码，页面拆分后承载输入区、轮次时间和执行控件。
+const chatConversationPanelSource = readProjectFile("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
+// chatOptionsSource: 对话页下拉选项源码，承载执行模式和推理深度中文说明。
+const chatOptionsSource = readProjectFile("apps/frontend/src/views/Chat/chat-view-options.ts");
+// chatStyleSource: 对话页专属样式源码，承载输入区上下文用量和选择器稳定样式。
+const chatStyleSource = readProjectFile("apps/frontend/src/views/Chat/style.css");
+// chatHelpersSource: 对话页展示工具函数源码，承载任务状态中文说明和轮次时间格式化。
+const chatHelpersSource = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
+// chatConversationSource: 对话组合逻辑源码，承载当前轮次和任务作用域说明。
+const chatConversationSource = readProjectFile("apps/frontend/src/views/Chat/useChatConversation.ts");
+// composerContextUsageSource: 输入区上下文用量组合函数源码，承载 tooltip 明细文案。
+const composerContextUsageSource = readProjectFile("apps/frontend/src/views/Chat/useComposerContextUsage.ts");
 // managementPageSources: 顶部管理页真实路由入口源码，入口文件直接承载供应商、插件、MCP、skill 等页面内容。
 const managementPageSources = [
   "apps/frontend/src/views/AgentManagement/RouterIndex.vue",
@@ -48,7 +60,18 @@ const managementPageSources = [
 // projectCapabilityDialogSource: 项目能力详情弹框源码，页面拆分后承载项目级能力说明和不可用原因。
 const projectCapabilityDialogSource = readProjectFile("apps/frontend/src/views/Chat/dialogs/ProjectCapabilityDialog.vue");
 // mainViewSource: 回归检查合并主页面、页面宿主和关键弹框，避免页面拆分后误判能力缺失。
-const mainViewSource = `${mainViewOnlySource}\n${chatPageSource}\n${managementPageSources}\n${projectCapabilityDialogSource}`;
+const mainViewSource = [
+  mainViewOnlySource,
+  chatPageSource,
+  chatConversationPanelSource,
+  chatOptionsSource,
+  chatStyleSource,
+  chatHelpersSource,
+  chatConversationSource,
+  composerContextUsageSource,
+  managementPageSources,
+  projectCapabilityDialogSource,
+].join("\n");
 // storeSource: 前端状态容器源码，覆盖连接状态和桌面壳状态同步。
 const storeSource = readProjectFile("apps/frontend/src/stores/app.ts");
 // managementActionsSource: 管理页动作拆分源码，覆盖供应商、插件、MCP 和 skill 的真实中心服务动作。
@@ -58,7 +81,7 @@ const storeHelpersSource = readProjectFile("apps/frontend/src/stores/app-helpers
 // apiClientSource: API 客户端源码，覆盖插件、MCP 和 skill 管理页是否接入中心服务。
 const apiClientSource = readProjectFile("packages/api-client/src/index.ts");
 // centerSource: 中心服务路由源码，覆盖扩展管理接口是否真实存在。
-const centerSource = readProjectFile("services/center/src/api-routes.ts");
+const centerSource = readProjectFile("services/center/src/api/api-routes.ts");
 // combinedStoreSource: store 主体和管理动作合并事实源，避免拆分文件后误判功能缺失。
 const combinedStoreSource = `${storeSource}\n${managementActionsSource}\n${storeHelpersSource}`;
 
@@ -176,7 +199,6 @@ const createNormalSessionBody = extractFunctionBody(storeSource, "createNormalSe
 const createProjectConversationBody = extractFunctionBody(storeSource, "createProjectConversationForProject");
 // ensureSessionForSendingBody: 发送前获取真实会话的动作体，不能在消息发送成功前插入左侧历史列表。
 const ensureSessionForSendingBody = extractFunctionBody(storeSource, "ensureSessionForSending");
-const chatHelpersSource = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // formatTurnTimeFooterBody: 轮次末尾时间文案，只允许已结束轮次显示。
 const formatTurnTimeFooterBody = extractFunctionBody(chatHelpersSource, "formatTurnTimeFooter");
 
@@ -277,7 +299,7 @@ assertIncludes(
 );
 assertIncludes(
   mainViewSource,
-  "composerContextUsageText",
+  "composerContextPercentText",
   "输入区必须展示当前窗口上下文用量。",
 );
 assertIncludes(
@@ -367,8 +389,8 @@ assertIncludes(
 );
 assertIncludes(
   combinedStoreSource,
-  "countComposerContextTokens",
-  "当前窗口上下文用量必须通过中心服务 tokenizer 读取。",
+  "tokenizer.count",
+  "当前窗口上下文用量必须通过中心服务 tokenizer WebSocket 请求读取。",
 );
 assertIncludes(
   storeSource,

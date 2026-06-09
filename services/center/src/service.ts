@@ -31,7 +31,7 @@ import type {
     RealtimeClientConnection,
     SubAgentRuntimeRecord,
 } from "./types.js";
-import {registerCenterApiRoutes} from "./api-routes.js";
+import {registerCenterApiRoutes} from "./api/api-routes.js";
 
 export interface CenterService {
     /**

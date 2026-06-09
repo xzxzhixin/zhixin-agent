@@ -20,9 +20,9 @@ import {
 /**
  * UNIFIED_TOOL_CAPABILITY_REGISTRY：中心服务统一工具能力注册表。
  *
- * 来源：架构中的命令、插件、MCP 和 skill 统一能力链路。
+ * 来源：架构中的命令、智能体创建、MCP 和 skill 统一能力链路。
  * 含义：所有智能体和子智能体先从该注册表发现工具，再进入权限、执行和审计。
- * 约束：插件和 skill 尚未绑定具体执行器时只登记不可用原因；MCP 已接入中心服务配置执行器。
+ * 约束：插件当前阶段已内联，不再作为模型可见工具占位；skill 尚未绑定具体执行器时只登记不可用原因；MCP 已接入中心服务配置执行器。
  */
 export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
     {
@@ -66,39 +66,76 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         displayText: "执行命令",
     },
     {
-        toolId: "builtin.plugin.call",
-        toolKind: "plugin",
-        displayName: "插件工具",
-        requiredPermission: "plugin.call",
-        availability: "unavailable",
-        unavailableReason: "PLUGIN_NOT_SELECTED",
-        description: "调用当前会话可用的中心服务插件能力。",
+        toolId: "builtin.agent.createLongTerm",
+        toolKind: "agent",
+        displayName: "创建长期智能体",
+        requiredPermission: "project.write",
+        availability: "available",
+        unavailableReason: null,
+        description: "由主智能体在任务需要且用户授权后创建可长期管理的智能体定义。",
         inputSchema: {
             type: "object",
             required: [
-                "pluginId",
-                "operation",
-                "arguments",
+                "name",
+                "roleDescription",
             ],
             properties: {
-                pluginId: {
+                name: {
                     type: "string",
-                    description: "要调用的插件 ID。",
+                    description: "长期智能体名称。",
                 },
-                operation: {
+                roleDescription: {
                     type: "string",
-                    description: "插件能力操作名。",
+                    description: "长期智能体角色说明。",
                 },
-                arguments: {
-                    type: "object",
-                    description: "插件操作参数。",
+                capabilityBoundary: {
+                    type: "string",
+                    description: "长期智能体能力边界。",
                 },
             },
         },
         riskLevel: "medium",
         scope: "session",
         approvalRequired: true,
-        displayText: "调用插件",
+        displayText: "创建长期智能体",
+    },
+    {
+        toolId: "builtin.agent.createSubAgent",
+        toolKind: "agent",
+        displayName: "创建子智能体",
+        requiredPermission: "project.read",
+        availability: "available",
+        unavailableReason: null,
+        description: "由主智能体或长期智能体创建当前任务内的一次性子智能体，子智能体不会固化为长期定义。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "name",
+            ],
+            properties: {
+                name: {
+                    type: "string",
+                    description: "子智能体展示名称。",
+                },
+                parentAgentId: {
+                    type: "string",
+                    description: "创建者智能体 ID，缺省时按主智能体 main 处理。",
+                },
+                parentAgentKind: {
+                    type: "string",
+                    enum: [
+                        "main",
+                        "long-term",
+                        "sub",
+                    ],
+                    description: "创建者类型，子智能体类型会被中心服务拒绝。",
+                },
+            },
+        },
+        riskLevel: "low",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "创建子智能体",
     },
     {
         toolId: "builtin.mcp.call",

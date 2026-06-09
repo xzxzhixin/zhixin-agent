@@ -542,7 +542,6 @@ export function buildWorkerContext(database: CenterDatabase, taskId: string): {
             "file.read",
             "file.write",
             "command.run",
-            "plugin.call",
             "mcp.call",
             "skill.use",
             "memory.write",
@@ -801,8 +800,8 @@ export function planToolCalls(events: CenterEventStore, taskId: string, agentId:
             toolPlanId,
             requiredPermissions: [
                 "file.read",
-                "plugin.call",
                 "mcp.call",
+                "skill.use",
             ],
         },
     });

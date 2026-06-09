@@ -246,11 +246,6 @@ for (const forbidden of [
 }
 assertNotIncludes(
   modelGateway + providerDomain,
-  'mode: "messages"',
-  "模型网关或供应商注册仍包含 Anthropic messages 协议模式。",
-);
-assertNotIncludes(
-  modelGateway + providerDomain,
   'protocolMode === "messages"',
   "模型网关仍按 Anthropic messages 协议模式分支。",
 );

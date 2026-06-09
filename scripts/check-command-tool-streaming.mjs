@@ -74,7 +74,7 @@ const toolRuntime = [
 const mcpToolRuntime = readProjectFile("services/center/src/tool-runtime-mcp.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
 const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
-const messageRoute = readProjectFile("services/center/src/session-message-route.ts");
+const messageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
 
 assertNotIncludes(
   toolRuntime,

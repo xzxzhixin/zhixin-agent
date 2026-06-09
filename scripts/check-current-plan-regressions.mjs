@@ -183,8 +183,13 @@ assertIncludes(
 );
 assertIncludes(
   "apps/frontend/src/stores/app-management-actions.ts",
+  "tokenizer.count",
+  "输入区上下文统计必须通过 WebSocket 请求中心服务 tokenizer。",
+);
+assertIncludes(
+  "services/center/src/api/sync-route.ts",
   "countComposerContextTokens",
-  "输入区上下文统计必须调用中心服务 tokenizer。",
+  "WebSocket tokenizer.count 必须调用中心服务 tokenizer。",
 );
 assertIncludes(
   "services/center/src/tool-runtime.ts",

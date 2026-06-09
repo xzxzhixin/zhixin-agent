@@ -68,6 +68,25 @@ function assertIncludes(
   }
 }
 
+/**
+ * assertNotIncludes：检查源码不能包含指定片段。
+ *
+ * @param {string} source 源码。
+ * @param {string} signal 禁止出现的片段。
+ * @param {string} message 错误消息。
+ * @returns {void}
+ */
+function assertNotIncludes(
+  source,
+  signal,
+  message,
+) {
+  if (source.includes(signal)) {
+    console.error(message);
+    process.exitCode = 1;
+  }
+}
+
 const globalStyles = readProjectFile("apps/frontend/src/styles.css");
 const chatPage = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
 const chatConversationPanel = readProjectFile("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
@@ -87,7 +106,7 @@ const appManagementActions = readProjectFile("apps/frontend/src/stores/app-manag
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const apiClient = readProjectFile("packages/api-client/src/index.ts");
 const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
-const apiRoutes = readProjectFile("services/center/src/api-routes.ts");
+const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
 const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
 const toolRuntime = [
@@ -172,7 +191,6 @@ for (const signal of [
   "tool.command.output",
   "tool.command.completed",
   "tool.${capability.toolKind}.unavailable",
-  "PLUGIN_NOT_SELECTED",
   "MCP_SERVER_NOT_CONFIGURED",
   "SKILL_NOT_SELECTED",
 ]) {
@@ -180,6 +198,17 @@ for (const signal of [
     chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime,
     signal,
     `自动工具可见闭环缺少：${signal}`,
+  );
+}
+
+for (const forbiddenSignal of [
+  "builtin.plugin.call",
+  "PLUGIN_NOT_SELECTED",
+]) {
+  assertNotIncludes(
+    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime,
+    forbiddenSignal,
+    `当前阶段插件已内联，自动工具可见闭环不能残留：${forbiddenSignal}`,
   );
 }
 

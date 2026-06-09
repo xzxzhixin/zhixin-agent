@@ -104,6 +104,12 @@ export interface LangGraphTurnState {
     toolResults: TurnGraphToolResult[];
     /** toolRound: OpenAI 工具调用循环轮次，避免模型无限请求工具。 */
     toolRound: number;
+    /** toolBatchCount: 已自动续跑的工具批次数。 */
+    toolBatchCount: number;
+    /** totalToolRound: 当前任务级累计工具循环轮次。 */
+    totalToolRound: number;
+    /** batchContinuation: 是否刚从单批预算触顶后进入自动续跑。 */
+    batchContinuation: boolean;
     /** assistantText: 待固化助手回复正文。 */
     assistantText: string | null;
     /** assistantMessageId: 已固化助手消息 ID。 */
@@ -210,6 +216,9 @@ export async function runLangGraphTurn(input: RunLangGraphTurnInput): Promise<vo
             executedTool: null,
             toolResults: null,
             toolRound: null,
+            toolBatchCount: null,
+            totalToolRound: null,
+            batchContinuation: null,
             assistantText: null,
             assistantMessageId: null,
             incompleteToolIntent: null,
@@ -323,6 +332,9 @@ export async function runLangGraphTurn(input: RunLangGraphTurnInput): Promise<vo
                 executedTool: null,
                 toolResults: [],
                 toolRound: 0,
+                toolBatchCount: 0,
+                totalToolRound: 0,
+                batchContinuation: false,
                 assistantText: null,
                 assistantMessageId: null,
                 incompleteToolIntent: false,

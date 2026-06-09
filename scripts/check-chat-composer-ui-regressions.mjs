@@ -137,8 +137,8 @@ const sharedTypes = readText("packages/shared/src/index.ts");
 const apiClient = readText("packages/api-client/src/index.ts");
 // centerRoutes: 中心服务路由必须注册智能体子对话和编辑记录接口，允许按职责拆到独立路由文件。
 const centerRoutes = [
-  readText("services/center/src/api-routes.ts"),
-  readText("services/center/src/agent-edit-routes.ts"),
+  readText("services/center/src/api/api-routes.ts"),
+  readText("services/center/src/api/agent-edit-routes.ts"),
 ].join("\n");
 // centerEditDomain: 中心服务编辑领域，必须负责真实文件编辑后的待确认记录落库。
 const centerEditDomain = fs.existsSync(path.join(process.cwd(), "services/center/src/agent-edit-domain.ts"))

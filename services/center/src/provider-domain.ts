@@ -23,7 +23,7 @@ const DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS = 200000;
 // UUID_PATTERN: 供应商、代理和运行环境 ID 均由中心服务 randomUUID 生成；删除文件前必须用该格式阻断路径穿越。
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
-export type ModelProtocolPluginDescriptor = {
+export type ModelProtocolProviderDescriptor = {
     /**
      * pluginId: 协议适配器 ID，OpenAI 内置固定为 openai-builtin。
      */
@@ -65,14 +65,14 @@ export type ModelProtocolPluginDescriptor = {
     defaultCapabilities: ProviderCapabilityDeclaration;
 };
 
-const OPENAI_BUILTIN_PROTOCOL_ADAPTER: ModelProtocolPluginDescriptor = {
-    pluginId: "openai-builtin",
-    pluginName: "OpenAI 内置",
+const OPENAI_LANGCHAIN_PROTOCOL_PROVIDER: ModelProtocolProviderDescriptor = {
+    pluginId: "openai-langchain",
+    pluginName: "OpenAI LangChain",
     protocolModes: [
         {
             mode: "chat-completions",
             label: "Chat Completions",
-            description: "中心服务内部固定使用 OpenAI Chat Completions，直接调用兼容接口。",
+            description: "中心服务直接使用 LangChain ChatOpenAI。",
         },
     ],
     defaultProtocolMode: "chat-completions",
@@ -83,6 +83,28 @@ const OPENAI_BUILTIN_PROTOCOL_ADAPTER: ModelProtocolPluginDescriptor = {
         supportsReasoningEffort: true,
         providesCacheUsage: true,
         supportsModelList: true,
+        supportsStreaming: true,
+    },
+};
+
+const ANTHROPIC_LANGCHAIN_PROTOCOL_PROVIDER: ModelProtocolProviderDescriptor = {
+    pluginId: "anthropic-langchain",
+    pluginName: "Anthropic LangChain",
+    protocolModes: [
+        {
+            mode: "messages",
+            label: "Messages",
+            description: "中心服务直接使用 LangChain ChatAnthropic。",
+        },
+    ],
+    defaultProtocolMode: "messages",
+    defaultCapabilities: {
+        supportsVision: true,
+        supportsToolCalling: true,
+        supportsJsonOutput: false,
+        supportsReasoningEffort: false,
+        providesCacheUsage: true,
+        supportsModelList: false,
         supportsStreaming: true,
     },
 };
@@ -102,15 +124,16 @@ type ProviderConfigRecord = {
 };
 
 /**
- * listModelProtocolAdapters：读取供应商页可用协议适配器。
+ * listModelProtocolAdapters：读取供应商页可用内联模型协议提供方。
  *
- * @param centerDirectory 中心目录绝对路径，动态适配器从 `plugins/builtin-model-*` 读取。
- * @returns 固定 OpenAI 内置项加已同步模型适配器插件清单。
+ * @param centerDirectory 中心目录绝对路径；当前阶段不再从插件目录扫描协议能力。
+ * @returns LangChain 内联 OpenAI 和 Anthropic 提供方清单。
  */
-export function listModelProtocolAdapters(centerDirectory: string): ModelProtocolPluginDescriptor[] {
+export function listModelProtocolAdapters(centerDirectory: string): ModelProtocolProviderDescriptor[] {
+    void centerDirectory;
     return [
-        OPENAI_BUILTIN_PROTOCOL_ADAPTER,
-        ...listBuiltinModelAdapterPlugins(centerDirectory),
+        OPENAI_LANGCHAIN_PROTOCOL_PROVIDER,
+        ANTHROPIC_LANGCHAIN_PROTOCOL_PROVIDER,
     ].map((plugin) => ({
         ...plugin,
         protocolModes: plugin.protocolModes.map((mode) => ({
@@ -123,63 +146,13 @@ export function listModelProtocolAdapters(centerDirectory: string): ModelProtoco
 }
 
 /**
- * listRegisteredModelProtocolPlugins：兼容旧接口名，返回供应商页协议适配器列表。
+ * listRegisteredModelProtocolPlugins：兼容旧接口名，返回供应商页内联协议提供方列表。
  *
  * @param centerDirectory 中心目录绝对路径。
  * @returns 协议适配器列表。
  */
-export function listRegisteredModelProtocolPlugins(centerDirectory: string): ModelProtocolPluginDescriptor[] {
+export function listRegisteredModelProtocolPlugins(centerDirectory: string): ModelProtocolProviderDescriptor[] {
     return listModelProtocolAdapters(centerDirectory);
-}
-
-/**
- * listBuiltinModelAdapterPlugins：扫描中心目录中的内置模型适配器插件。
- *
- * @param centerDirectory 中心目录绝对路径。
- * @returns `plugins/builtin-model-*` 下声明的模型协议适配器。
- */
-function listBuiltinModelAdapterPlugins(centerDirectory: string): ModelProtocolPluginDescriptor[] {
-    const pluginsDirectory = join(centerDirectory, "plugins");
-    if (!existsSync(pluginsDirectory)) {
-        return [];
-    }
-
-    return readdirSync(pluginsDirectory, {
-        withFileTypes: true,
-    }).filter((entry) => {
-        // builtin-model-: 只有模型协议适配器插件能进入供应商页下拉，其他 builtin-* 插件不参与。
-        return entry.isDirectory() && entry.name.startsWith("builtin-model-");
-    }).map((entry) => {
-        const adapterPath = join(
-            pluginsDirectory,
-            entry.name,
-            "model-adapter.json",
-        );
-        return readJsonFileIfExists<ModelProtocolPluginDescriptor>(adapterPath);
-    }).filter((plugin): plugin is ModelProtocolPluginDescriptor => {
-        return isValidModelProtocolPluginDescriptor(plugin);
-    });
-}
-
-/**
- * isValidModelProtocolPluginDescriptor：校验模型适配器插件声明是否完整。
- *
- * @param plugin 插件目录中的 model-adapter.json 内容。
- * @returns 满足供应商页下拉协议时返回 true。
- */
-function isValidModelProtocolPluginDescriptor(plugin: unknown): plugin is ModelProtocolPluginDescriptor {
-    if (!plugin || typeof plugin !== "object") {
-        return false;
-    }
-
-    const candidate = plugin as Partial<ModelProtocolPluginDescriptor>;
-    return typeof candidate.pluginId === "string"
-        && candidate.pluginId.startsWith("builtin-model-")
-        && typeof candidate.pluginName === "string"
-        && Array.isArray(candidate.protocolModes)
-        && typeof candidate.defaultProtocolMode === "string"
-        && typeof candidate.defaultCapabilities === "object"
-        && candidate.defaultCapabilities !== null;
 }
 
 /**
@@ -195,14 +168,12 @@ function resolveRegisteredModelProtocolPlugin(
     protocolPluginId: string | undefined,
     protocolMode: string | undefined,
 ): {
-    plugin: ModelProtocolPluginDescriptor;
+    plugin: ModelProtocolProviderDescriptor;
     protocolMode: string;
 } {
     const registeredPlugins = listModelProtocolAdapters(centerDirectory);
     // normalizedPluginId: 保存草稿允许暂缺协议适配器；中心服务保存时默认落到 OpenAI 内置，启用时再要求用户显式确认完整字段。
-    const normalizedPluginId = protocolPluginId && protocolPluginId.trim().length > 0
-        ? protocolPluginId.trim()
-        : OPENAI_BUILTIN_PROTOCOL_ADAPTER.pluginId;
+    const normalizedPluginId = normalizeLegacyProtocolProviderId(protocolPluginId);
     const plugin = registeredPlugins.find((item) => item.pluginId === normalizedPluginId);
     if (!plugin) {
         throw new Error("MODEL_PROTOCOL_PLUGIN_NOT_REGISTERED");
@@ -219,6 +190,25 @@ function resolveRegisteredModelProtocolPlugin(
         plugin,
         protocolMode: resolvedMode,
     };
+}
+
+/**
+ * normalizeLegacyProtocolProviderId：把历史协议适配器 ID 映射到当前内联 LangChain 提供方。
+ *
+ * @param protocolPluginId 历史兼容字段中的协议 ID。
+ * @returns 当前内联协议提供方 ID。
+ */
+function normalizeLegacyProtocolProviderId(protocolPluginId: string | undefined): string {
+    const normalized = protocolPluginId && protocolPluginId.trim().length > 0
+        ? protocolPluginId.trim()
+        : OPENAI_LANGCHAIN_PROTOCOL_PROVIDER.pluginId;
+    if (normalized === "openai-builtin") {
+        return OPENAI_LANGCHAIN_PROTOCOL_PROVIDER.pluginId;
+    }
+    if (normalized === "builtin-model-anthropic-messages") {
+        return ANTHROPIC_LANGCHAIN_PROTOCOL_PROVIDER.pluginId;
+    }
+    return normalized;
 }
 
 /**
@@ -951,7 +941,7 @@ export function fetchProviderModelsFromUpstream(
     if (!provider) {
         throw new Error("PROVIDER_NOT_FOUND");
     }
-    if (provider.protocolPluginId !== OPENAI_BUILTIN_PROTOCOL_ADAPTER.pluginId) {
+    if (provider.protocolPluginId !== OPENAI_LANGCHAIN_PROTOCOL_PROVIDER.pluginId) {
         throw new Error("PROVIDER_MODEL_FETCH_UNSUPPORTED");
     }
 
@@ -1364,7 +1354,14 @@ export function readProviderConfig(centerDirectory: string, providerId: string):
         return null;
     }
 
-    return JSON.parse(readFileSync(providerPath, "utf-8")) as ProviderConfigRecord;
+    const parsed = JSON.parse(readFileSync(providerPath, "utf-8")) as ProviderConfigRecord & {
+        /** displayName: 历史供应商配置字段，迁移期只在读取时规范化为 providerName。 */
+        displayName?: string;
+    };
+    return {
+        ...parsed,
+        providerName: parsed.providerName ?? parsed.displayName ?? providerId,
+    };
 }
 
 /**

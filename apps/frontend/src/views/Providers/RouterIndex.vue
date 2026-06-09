@@ -478,7 +478,7 @@ onMounted(() => {
                     :value="plugin.pluginId"
                 />
               </el-select>
-              <small class="field-helper">OpenAI 内置为固定项；其他适配器来自中心目录 plugins/builtin-model-*。</small>
+              <small class="field-helper">OpenAI 和 Anthropic 直接使用中心服务内联 LangChain 能力。</small>
             </el-form-item>
           </el-col>
           <el-col :span="6">

@@ -93,7 +93,16 @@ export function createConversationActions() {
                 return;
             }
 
-            const sent = await this.api().sendMessage({
+            const sent = await this.requireRealtimeRequest<{
+                /** sessionId: 中心服务确认的会话 ID。 */
+                sessionId: string;
+                /** messageId: 用户消息 ID。 */
+                messageId: string;
+                /** turnId: 本轮轮次 ID。 */
+                turnId: string;
+                /** taskId: 本轮任务 ID。 */
+                taskId: string;
+            }>("session.message.send", {
                 sessionId,
                 contentMarkdown,
             });
@@ -108,8 +117,7 @@ export function createConversationActions() {
                 attachments,
             );
             await this.loadNavigationData();
-            await this.loadActiveSessionDetail();
-            await this.refreshEvents();
+            await this.loadActiveSessionSnapshot();
             await this.updateComposerContextUsageFromExecution();
         },
 
@@ -170,18 +178,21 @@ export function createConversationActions() {
             }
             // 当前中心服务尚未提供独立 guidance API；这里绕过运行中入队判断，按单一引导文本协议直接提交到当前会话。
             const contentMarkdown = `针对当前对话当前轮次补充引导：${queuedMessage.contentMarkdown}`;
-            const sent = await this.api().sendMessage({
+            await this.requireRealtimeRequest<{
+                /** taskId: 被合并的当前任务 ID。 */
+                taskId: string;
+                /** turnId: 被合并的当前轮次 ID。 */
+                turnId: string;
+                /** stepId: 新增引导步骤 ID。 */
+                stepId: string;
+                /** status: 固定 merged。 */
+                status: "merged";
+            }>("session.guidance.submit", {
                 sessionId,
                 contentMarkdown,
             });
-            this.applySentMessageOptimisticState(
-                sessionId,
-                contentMarkdown,
-                sent,
-            );
             await this.loadNavigationData();
-            await this.loadActiveSessionDetail();
-            await this.refreshEvents();
+            await this.loadActiveSessionSnapshot();
             await this.updateComposerContextUsageFromExecution();
         },
 
@@ -260,12 +271,32 @@ export function createConversationActions() {
          * @returns 拉取完成后没有返回值。
          */
         async refreshEvents(): Promise<void> {
-            const result = await this.api().listEvents({
+            const result = await this.requireRealtimeRequest<{
+                /** events: 中心服务返回的事件列表。 */
+                events: EventRecord[];
+            }>("session.event.replay", {
                 sessionId: this.activeSessionId,
                 turnId: null,
                 afterSequence: 0,
             });
             this.events = result.events;
+        },
+
+        /**
+         * requireRealtimeRequest：对话页 WebSocket-only 请求入口。
+         *
+         * @param type WebSocket 请求类型。
+         * @param payload 请求载荷。
+         * @returns 服务端响应载荷。
+         */
+        async requireRealtimeRequest<TResponse>(type: string, payload: unknown): Promise<TResponse> {
+            if (!this.webSocketClient) {
+                throw new Error("对话页 WebSocket 尚未连接，不能使用 REST 兜底。");
+            }
+            return this.webSocketClient.request<TResponse>(
+                type,
+                payload,
+            );
         },
 
         /**
@@ -278,7 +309,10 @@ export function createConversationActions() {
                 this.composerEditFiles = [];
                 return;
             }
-            const result = await this.api().listPendingEdits({
+            const result = await this.requireRealtimeRequest<{
+                /** edits: 当前会话待确认编辑。 */
+                edits: PendingEditRecord[];
+            }>("edit.pending.list", {
                 sessionId: this.activeSessionId,
             });
             this.composerEditFiles = result.edits.map(mapPendingEditToComposerFile);
@@ -291,7 +325,10 @@ export function createConversationActions() {
          * @returns 没有返回值。
          */
         async saveComposerEditFile(editId: string): Promise<void> {
-            await this.api().savePendingEdit({
+            await this.requireRealtimeRequest<{
+                /** edit: 保存后的编辑记录。 */
+                edit: PendingEditRecord;
+            }>("edit.pending.save", {
                 editId,
             });
             await this.loadPendingEditsForActiveSession();
@@ -304,7 +341,10 @@ export function createConversationActions() {
          * @returns 没有返回值。
          */
         async revertComposerEditFile(editId: string): Promise<void> {
-            await this.api().revertPendingEdit({
+            await this.requireRealtimeRequest<{
+                /** edit: 撤回后的编辑记录。 */
+                edit: PendingEditRecord;
+            }>("edit.pending.revert", {
                 editId,
             });
             await this.loadPendingEditsForActiveSession();
@@ -319,7 +359,10 @@ export function createConversationActions() {
             if (!this.activeSessionId) {
                 return;
             }
-            await this.api().saveAllPendingEdits({
+            await this.requireRealtimeRequest<{
+                /** edits: 保存后的编辑列表。 */
+                edits: PendingEditRecord[];
+            }>("edit.pending.save_all", {
                 sessionId: this.activeSessionId,
             });
             await this.loadPendingEditsForActiveSession();
@@ -334,7 +377,10 @@ export function createConversationActions() {
             if (!this.activeSessionId) {
                 return;
             }
-            await this.api().revertAllPendingEdits({
+            await this.requireRealtimeRequest<{
+                /** edits: 撤回后的编辑列表。 */
+                edits: PendingEditRecord[];
+            }>("edit.pending.revert_all", {
                 sessionId: this.activeSessionId,
             });
             await this.loadPendingEditsForActiveSession();
@@ -347,7 +393,18 @@ export function createConversationActions() {
          * @returns 对比文本，Web 端可用于弹框展示。
          */
         async openComposerEditDiff(editId: string): Promise<string> {
-            const diff = await this.api().getPendingEditDiff({
+            const diff = await this.requireRealtimeRequest<{
+                /** editId: 编辑记录 ID。 */
+                editId: string;
+                /** filePath: 文件路径。 */
+                filePath: string;
+                /** beforeContent: 编辑前内容。 */
+                beforeContent: string;
+                /** afterContent: 编辑后内容。 */
+                afterContent: string;
+                /** diffText: 统一 diff 文本。 */
+                diffText: string;
+            }>("edit.pending.diff", {
                 editId,
             });
             const ideBridge = window.zhixinPlugin;
@@ -373,7 +430,10 @@ export function createConversationActions() {
             agentId: string;
             agentName: string;
         }): Promise<AgentSubConversationDetail> {
-            return this.api().getAgentSubConversation(payload);
+            return this.requireRealtimeRequest<AgentSubConversationDetail>(
+                "agent.sub_conversation.detail",
+                payload,
+            );
         },
 
         /**
@@ -388,15 +448,18 @@ export function createConversationActions() {
             agentName: string;
             contentMarkdown: string;
         }): Promise<AgentSubConversationDetail> {
-            return this.api().sendAgentSubConversationMessage(payload);
+            return this.requireRealtimeRequest<AgentSubConversationDetail>(
+                "agent.sub_conversation.message.send",
+                payload,
+            );
         },
 
         /**
          * connectRealtime：建立 WebSocket 实时同步连接。
          *
-         * @returns 没有返回值。
+         * @returns WebSocket 连接打开后完成；未授权时直接返回。
          */
-        connectRealtime(): void {
+        async connectRealtime(): Promise<void> {
             if (!this.authorization) {
                 return;
             }
@@ -423,7 +486,6 @@ export function createConversationActions() {
                         if (shouldRefreshComposerContextUsage(event)) {
                             void this.updateComposerContextUsageFromExecution();
                         }
-                        void this.refreshActiveConversationState();
                     }
                     if (message.type === "agent.state.changed") {
                         this.applyAgentRuntimeState(message.payload as {
@@ -446,6 +508,7 @@ export function createConversationActions() {
                 },
             });
             this.webSocketClient.connect();
+            await this.webSocketClient.waitUntilOpen();
         },
 
         /**
@@ -456,7 +519,14 @@ export function createConversationActions() {
          */
         async addClipboardImageAttachment(file: File): Promise<void> {
             const fileName = file.name || `clipboard-${Date.now()}.png`;
-            const temporary = await this.api().createTemporaryAttachment({
+            const temporary = await this.requireRealtimeRequest<{
+                /** temporaryAttachmentId: 临时附件 ID。 */
+                temporaryAttachmentId: string;
+                /** storageFileName: 临时存储文件名。 */
+                storageFileName: string;
+                /** relativePath: 临时附件相对中心目录路径。 */
+                relativePath: string;
+            }>("attachment.temporary.create", {
                 fileName,
                 mimeType: file.type,
                 sizeBytes: file.size,
@@ -484,7 +554,12 @@ export function createConversationActions() {
             attachments: ComposerAttachmentDraft[],
         ): Promise<void> {
             for (const attachment of attachments) {
-                await this.api().commitAttachment({
+                await this.requireRealtimeRequest<{
+                    /** attachmentId: 正式附件 ID。 */
+                    attachmentId: string;
+                    /** relativePath: 正式附件相对中心目录路径。 */
+                    relativePath: string;
+                }>("attachment.commit", {
                     sessionId,
                     messageId,
                     temporaryAttachmentId: attachment.temporaryAttachmentId,

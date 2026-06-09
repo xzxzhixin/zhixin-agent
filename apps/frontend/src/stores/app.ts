@@ -680,6 +680,7 @@ export const useAppStore = defineStore("app", {
             }
 
             await this.registerRuntimeProject();
+            await this.connectRealtime();
             await this.loadProviders();
             await this.loadNavigationData();
             await this.loadAgents();
@@ -687,7 +688,6 @@ export const useAppStore = defineStore("app", {
             await this.syncDesktopStatus();
             await this.requestBrowserNotificationPermission();
             this.registerIdeContextListener();
-            this.connectRealtime();
         },
 
         /**
@@ -757,7 +757,7 @@ export const useAppStore = defineStore("app", {
                 return;
             }
 
-            await this.api().registerProject({
+            await this.requireRealtimeRequest<ProjectRecord>("project.register", {
                 projectId: this.runtime.projectContext.projectId,
                 displayName: this.runtime.projectContext.displayName,
                 latestPath: this.runtime.projectContext.rootPath,
@@ -800,7 +800,7 @@ export const useAppStore = defineStore("app", {
         },
 
         /**
-         * loadProjects：加载中心服务项目列表。
+         * loadProjects：通过实时通道加载中心服务项目列表。
          *
          * @returns 加载完成后没有返回值。
          */
@@ -821,15 +821,16 @@ export const useAppStore = defineStore("app", {
                 return;
             }
 
-            try {
-                const result = await this.api().listProjects();
-                this.projects = result.projects;
-            } catch (error) {
-                // 旧中心服务可能尚未提供 /api/project/list；此处只记录错误，让已返回的普通会话和项目会话继续渲染。
-                this.projects = [];
-                this.lastError = "项目列表接口失败，已使用项目会话构造兜底项目导航。";
-                console.error(this.lastError, error);
-            }
+            const snapshot = await this.requireRealtimeRequest<{
+                /** sessions: 导航快照返回的会话列表；本函数只消费项目列表，避免项目刷新覆盖当前会话选择。 */
+                sessions: ConversationSession[];
+                /** projects: 中心服务项目列表，来源于 WebSocket navigation.snapshot。 */
+                projects: ProjectRecord[];
+            }>("navigation.snapshot", {
+                sessionType: undefined,
+                projectId: null,
+            });
+            this.projects = snapshot.projects;
         },
 
         /**
@@ -838,8 +839,38 @@ export const useAppStore = defineStore("app", {
          * @returns 加载完成后没有返回值。
          */
         async loadNavigationData(): Promise<void> {
-            await this.loadSessions();
-            await this.loadProjects();
+            const snapshot = await this.requireRealtimeRequest<{
+                /** sessions: 当前入口可见会话列表。 */
+                sessions: ConversationSession[];
+                /** projects: 中心服务项目列表。 */
+                projects: ProjectRecord[];
+            }>("navigation.snapshot", {
+                sessionType: this.runtime.entryMode === "plugin-compact" ? "project" : undefined,
+                projectId: this.runtime.entryMode === "plugin-compact"
+                    ? this.runtime.projectContext?.projectId ?? null
+                    : null,
+            });
+            this.sessions = snapshot.sessions;
+            this.projects = this.runtime.entryMode === "plugin-compact"
+                ? this.runtime.projectContext
+                    ? [
+                        {
+                            projectId: this.runtime.projectContext.projectId,
+                            displayName: this.runtime.projectContext.displayName,
+                            alias: null,
+                            latestPath: this.runtime.projectContext.rootPath,
+                            createdAt: "",
+                            updatedAt: "",
+                        },
+                    ]
+                    : []
+                : snapshot.projects;
+            const activeSessionStillVisible = this.sessions.some((session) => {
+                return session.sessionId === this.activeSessionId;
+            });
+            if (!activeSessionStillVisible) {
+                this.activeSessionId = this.sessions[0]?.sessionId ?? null;
+            }
             this.ensureProjectTreeExpandedState();
         },
 
@@ -991,7 +1022,7 @@ export const useAppStore = defineStore("app", {
         async createDefaultBrowserProjectConversation(): Promise<void> {
             // projectId: 默认浏览器项目固定绑定“项目对话测试”目录，保证本轮项目对话闭环使用同一测试项目。
             const projectId = "00000000-0000-4000-8000-000000000102";
-            const project = await this.api().registerProject({
+            const project = await this.requireRealtimeRequest<ProjectRecord>("project.register", {
                 projectId,
                 displayName: "项目对话测试",
                 latestPath: "项目对话测试",
@@ -1086,7 +1117,12 @@ export const useAppStore = defineStore("app", {
         async deleteConversation(sessionId: string): Promise<void> {
             try {
                 const deletingActiveSession = this.activeSessionId === sessionId;
-                await this.api().deleteSession({
+                await this.requireRealtimeRequest<{
+                    /** sessionId: 已删除会话 ID。 */
+                    sessionId: string;
+                    /** deleted: 是否删除成功。 */
+                    deleted: boolean;
+                }>("session.delete", {
                     sessionId,
                 });
                 if (deletingActiveSession) {
@@ -1159,10 +1195,16 @@ export const useAppStore = defineStore("app", {
                 return;
             }
 
-            this.sessionDetail = await this.api().getSessionDetail({
+            const snapshot = await this.requireRealtimeRequest<{
+                /** detail: 会话详情快照。 */
+                detail: SessionDetailResult;
+                /** events: 当前会话事件快照。 */
+                events: EventRecord[];
+            }>("session.snapshot", {
                 sessionId: this.activeSessionId,
             });
-            await this.refreshEvents();
+            this.sessionDetail = snapshot.detail;
+            this.events = snapshot.events;
             if (this.sessionDetail.session.sessionType === "project") {
                 await this.loadProjectCapabilitySources();
             }
@@ -1191,7 +1233,7 @@ export const useAppStore = defineStore("app", {
             }
 
             // pendingSessionDraft: 只在发送时消费，确保空草稿不会出现在历史会话列表中。
-            const session = await this.api().createSession({
+            const session = await this.requireRealtimeRequest<ConversationSession>("session.create", {
                 sessionType: this.pendingSessionDraft.sessionType,
                 projectId: this.pendingSessionDraft.projectId,
                 title: this.pendingSessionDraft.title,

@@ -259,30 +259,6 @@ const commandEvents: EventRecord[] = [
 ];
 const unavailableEvents: EventRecord[] = [
   {
-    eventId: "event-plugin-unavailable",
-    eventType: "tool.plugin.unavailable",
-    scopeType: "tool",
-    scopeId: "task-order",
-    sessionId: "session-order",
-    turnId: "turn-order",
-    taskId: "task-order",
-    stepId: null,
-    agentId: null,
-    projectId: null,
-    clientId: null,
-    sequence: 9,
-    status: "completed",
-    occurredAt: now,
-    title: "插件不可用",
-    summary: "当前会话未解析到可执行插件工具。",
-    payload: {
-      toolKind: "plugin",
-      unavailableReason: "当前会话未解析到可执行插件工具。",
-    },
-    errorCode: null,
-    traceId: "trace-plugin-unavailable",
-  },
-  {
     eventId: "event-mcp-unavailable",
     eventType: "tool.mcp.unavailable",
     scopeType: "tool",
