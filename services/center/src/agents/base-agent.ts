@@ -24,6 +24,16 @@ export interface BaseAgentInput {
 }
 
 /**
+ * TodoListCreationInput：判断是否需要创建任务拆解 todoList 的输入。
+ */
+export interface TodoListCreationInput {
+    /** taskSummary: 当前任务摘要，来源于用户输入或父级调度摘要。 */
+    taskSummary: string;
+    /** plannedStepCount: 已识别的计划步骤数量；简单任务通常不超过 1。 */
+    plannedStepCount: number;
+}
+
+/**
  * BaseAgent：智能体执行基类。
  *
  * 用途：承载共享上下文、工具权限、任务执行、事件写入和记忆边界。
@@ -67,5 +77,26 @@ export abstract class BaseAgent {
      */
     canUseCreationTool(toolName: AgentToolName): boolean {
         return this.getCreationTools().includes(toolName);
+    }
+
+    /**
+     * canCreateTodoList：判断当前智能体是否允许创建长任务 todoList。
+     *
+     * @returns 主智能体和长期智能体允许创建，子智能体禁止创建。
+     */
+    canCreateTodoList(): boolean {
+        return this.getAgentKind() !== "sub";
+    }
+
+    /**
+     * shouldCreateTodoListForTask：判断当前任务是否需要创建 todoList。
+     *
+     * @param input 当前任务摘要和计划步骤数量。
+     * @returns 只有非子智能体且任务被拆成多个步骤时返回 true。
+     */
+    shouldCreateTodoListForTask(input: TodoListCreationInput): boolean {
+        // 长任务拆解才需要 todoList；简单任务直接执行，避免无意义地膨胀任务状态。
+        return this.canCreateTodoList()
+            && input.plannedStepCount > 1;
     }
 }

@@ -43,6 +43,22 @@ function assertNotIncludes(source, needle, message) {
   }
 }
 
+/**
+ * assertNotMatches：检查源码不能匹配指定正则。
+ *
+ * @param {string} source 被检查文本。
+ * @param {RegExp} pattern 禁止匹配的正则。
+ * @param {string} message 失败说明。
+ * @returns {void}
+ */
+function assertNotMatches(source, pattern, message) {
+  if (pattern.test(source)) {
+    console.error(message);
+    console.error(`禁止正则：${pattern}`);
+    process.exit(1);
+  }
+}
+
 // requirementDoc: 产品需求事实源，必须记录本轮已确认的交互口径。
 const requirementDoc = readText("需求.md");
 // architectureDoc: 架构事实源，必须记录本轮前端状态与事件来源边界。
@@ -133,6 +149,16 @@ assertIncludes(
   chatView + chatPanel,
   "handleComposerEnterSend",
   "Enter 发送必须经过运行中入队判断，而不是直接调用 sendDraft。",
+);
+assertNotMatches(
+  chatPanel,
+  /function\s+handleComposerEnterSend\(\):\s*void\s*\{\s*void\s+handleComposerPrimaryAction\(\);\s*\}/u,
+  "输入框 Enter 不能复用发送/停止主按钮动作；运行中 Enter 必须进入排队，停止只能由停止按钮触发。",
+);
+assertIncludes(
+  chatPanel,
+  "chatConversation.sendDraftForConversation()",
+  "主对话输入框 Enter 必须调用发送动作，由 sendDraft 在运行中进入本地排队消息区。",
 );
 assertNotIncludes(
   chatView + chatPanel,

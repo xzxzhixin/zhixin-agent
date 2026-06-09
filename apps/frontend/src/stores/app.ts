@@ -139,10 +139,18 @@ export const useAppStore = defineStore("app", {
          */
         expandedProjectIds: [] as string[],
 
-        /**
+        /** 
          * activeSessionId: 当前打开会话 ID。
          */
         activeSessionId: null as string | null,
+
+        /**
+         * activeConversationAgentId: 当前输入框 token 统计所属智能体 ID。
+         *
+         * 来源：主对话默认为 main，智能体子对话打开后可由后续交互切换。
+         * 默认值：main，表示主智能体“致心”的上下文。
+         */
+        activeConversationAgentId: "main",
 
         /**
          * sessionDetail: 当前会话详情。

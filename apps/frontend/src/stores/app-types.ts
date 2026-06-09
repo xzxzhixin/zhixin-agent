@@ -626,6 +626,19 @@ export interface ComposerContextUsageState {
     composerContextUsageRequestSerial: number;
 }
 
+/**
+ * ActiveConversationAgentState：当前输入框对应的智能体上下文状态。
+ *
+ * 来源：主对话和智能体子对话输入区。
+ * 含义：让 token 统计、上下文展示和后续发送配置能按 agentId 隔离。
+ * 格式：智能体 ID 字符串。
+ * 默认值：main，表示主智能体上下文。
+ */
+export interface ActiveConversationAgentState {
+    /** activeConversationAgentId: 当前输入框上下文所属智能体 ID。 */
+    activeConversationAgentId: string;
+}
+
 import type {
     AgentConfigView,
     ProviderCapabilityDeclaration,

@@ -488,6 +488,7 @@ export function createManagementActions() {
             const contextUsageWindowKey = JSON.stringify({
                 sessionId: this.activeSessionId,
                 turnId: activeTurnId,
+                agentId: this.activeConversationAgentId,
                 draftTitle: this.pendingSessionDraft?.title ?? null,
                 modelId: this.composerSettings.selectedModel,
                 messageCount: this.sessionDetail?.messages.length ?? 0,
@@ -496,6 +497,7 @@ export function createManagementActions() {
             const usageKey = JSON.stringify({
                 sessionId: this.activeSessionId,
                 turnId: activeTurnId,
+                agentId: this.activeConversationAgentId,
                 modelId: this.composerSettings.selectedModel,
                 windowLimitTokens: this.composerSelectedModelContextWindowTokens,
                 messageCount: this.sessionDetail?.messages.length ?? 0,
@@ -522,6 +524,7 @@ export function createManagementActions() {
             }>("tokenizer.count", {
                 sessionId: this.activeSessionId,
                 turnId: activeTurnId,
+                agentId: this.activeConversationAgentId,
                 draftText: "",
                 referenceSummaries: [],
                 attachmentSummaries: [],

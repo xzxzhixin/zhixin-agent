@@ -376,6 +376,15 @@ function runAgentTool(
                         ? intent.arguments.parentAgentKind
                         : "main",
                     taskId: sent.taskId,
+                    parentProviderId: typeof intent.arguments.parentProviderId === "string"
+                        ? intent.arguments.parentProviderId
+                        : modelResult.providerId,
+                    parentModelId: typeof intent.arguments.parentModelId === "string"
+                        ? intent.arguments.parentModelId
+                        : modelResult.model,
+                    parentReasoningEffort: typeof intent.arguments.parentReasoningEffort === "string"
+                        ? intent.arguments.parentReasoningEffort
+                        : modelResult.reasoningEffort,
                     name: String(intent.arguments.name ?? "子智能体"),
                 },
             );

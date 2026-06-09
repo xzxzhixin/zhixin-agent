@@ -159,6 +159,9 @@ export function createNotification(database: CenterDatabase, events: CenterEvent
  * @param subAgents 运行期子智能体表。
  * @param parentAgentId 创建它的长期智能体 ID。
  * @param taskId 所属任务 ID。
+ * @param parentProviderId 父级智能体当前实际使用的供应商 ID。
+ * @param parentModelId 父级智能体当前实际使用的模型 ID 或模型名称。
+ * @param parentReasoningEffort 父级智能体决定传给子智能体的推理深度。
  * @param name 子智能体展示名称。
  * @returns 子智能体运行期身份。
  */
@@ -167,11 +170,17 @@ export function createSubAgentRuntime(
     subAgents: Map<string, SubAgentRuntimeRecord>,
     parentAgentId: string,
     taskId: string,
+    parentProviderId: string,
+    parentModelId: string,
+    parentReasoningEffort: string | null,
     name: string,
 ): {
     subAgentId: string;
     parentAgentId: string;
     taskId: string;
+    parentProviderId: string;
+    parentModelId: string;
+    parentReasoningEffort: string | null;
     persistent: false;
     createdAt: string;
 } {
@@ -183,6 +192,9 @@ export function createSubAgentRuntime(
         subAgentId,
         parentAgentId,
         taskId,
+        parentProviderId,
+        parentModelId,
+        parentReasoningEffort,
         name,
         createdAt,
     });
@@ -200,6 +212,9 @@ export function createSubAgentRuntime(
         payload: {
             subAgentId,
             parentAgentId,
+            parentProviderId,
+            parentModelId,
+            parentReasoningEffort,
             persistent: false,
         },
     });
@@ -208,6 +223,9 @@ export function createSubAgentRuntime(
         subAgentId,
         parentAgentId,
         taskId,
+        parentProviderId,
+        parentModelId,
+        parentReasoningEffort,
         persistent: false,
         createdAt,
     };

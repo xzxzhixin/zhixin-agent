@@ -247,6 +247,9 @@ export function registerAgentRoutes(context: CenterApiRouteContext): void {
                 parentAgentId?: string;
                 taskId?: string;
                 name?: string;
+                parentProviderId?: string;
+                parentModelId?: string;
+                parentReasoningEffort?: string | null;
             };
     
             if (!body.parentAgentId || !body.taskId || !body.name) {
@@ -266,7 +269,17 @@ export function registerAgentRoutes(context: CenterApiRouteContext): void {
                 );
             }
     
-            return createSuccessResponse(createSubAgentRuntime(events, subAgents, body.parentAgentId, body.taskId, body.name));
+            return createSuccessResponse(createSubAgentRuntime(
+                events,
+                subAgents,
+                body.parentAgentId,
+                body.taskId,
+                // API 管理入口没有模型调用上下文时使用显式占位；真实模型工具调用会传父级实际配置。
+                body.parentProviderId ?? "main-agent-provider",
+                body.parentModelId ?? "main-agent-model",
+                body.parentReasoningEffort ?? null,
+                body.name,
+            ));
         });
 
     app.post("/api/agent/collaboration/event", async (request) => {

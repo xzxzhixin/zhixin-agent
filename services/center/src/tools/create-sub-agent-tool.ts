@@ -12,6 +12,12 @@ export interface CreateSubAgentToolInput {
     parentAgentKind: "main" | "long-term" | "sub";
     /** taskId: 当前任务 ID，子智能体只绑定当前任务上下文。 */
     taskId: string;
+    /** parentProviderId: 父级智能体当前实际使用的供应商 ID。 */
+    parentProviderId: string;
+    /** parentModelId: 父级智能体当前实际使用的模型 ID 或模型名称。 */
+    parentModelId: string;
+    /** parentReasoningEffort: 父级智能体决定传给子智能体的推理深度。 */
+    parentReasoningEffort: string | null;
     /** name: 子智能体展示名称。 */
     name: string;
 }
@@ -35,6 +41,12 @@ export function executeCreateSubAgentTool(
     parentAgentId: string;
     /** taskId: 所属任务 ID。 */
     taskId: string;
+    /** parentProviderId: 父级智能体当前实际使用的供应商 ID。 */
+    parentProviderId: string;
+    /** parentModelId: 父级智能体当前实际使用的模型 ID 或模型名称。 */
+    parentModelId: string;
+    /** parentReasoningEffort: 父级智能体决定传给子智能体的推理深度。 */
+    parentReasoningEffort: string | null;
     /** persistent: 子智能体不固化为长期定义。 */
     persistent: false;
     /** createdAt: 创建时间。 */
@@ -48,6 +60,9 @@ export function executeCreateSubAgentTool(
         subAgents,
         input.parentAgentId,
         input.taskId,
+        input.parentProviderId,
+        input.parentModelId,
+        input.parentReasoningEffort,
         input.name,
     );
 }

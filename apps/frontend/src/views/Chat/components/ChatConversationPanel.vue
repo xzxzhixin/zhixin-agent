@@ -502,10 +502,16 @@ function shouldShowTurnTimeFooter(
 /**
  * handleComposerEnterSend：处理 Enter 发送。
  *
+ * 关键逻辑：Enter 永远表达“提交输入内容”，运行中时由 sendDraft 进入本地排队；
+ * 不能复用主按钮动作，否则运行中的“停止”按钮语义会污染键盘发送。
  * @returns 没有返回值。
  */
 function handleComposerEnterSend(): void {
-  void handleComposerPrimaryAction();
+  if (isAgentConversation.value) {
+    void sendAgentDraft();
+    return;
+  }
+  void chatConversation.sendDraftForConversation();
 }
 
 /**

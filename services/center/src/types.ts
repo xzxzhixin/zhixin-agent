@@ -768,6 +768,21 @@ export interface SubAgentRuntimeRecord {
     taskId: string;
 
     /**
+     * parentProviderId: 父级智能体创建子智能体时实际使用的供应商 ID。
+     */
+    parentProviderId: string;
+
+    /**
+     * parentModelId: 父级智能体创建子智能体时实际使用的模型 ID 或模型名称。
+     */
+    parentModelId: string;
+
+    /**
+     * parentReasoningEffort: 父级智能体决定传给子智能体的推理深度；null 表示供应商不支持或父级未启用推理深度。
+     */
+    parentReasoningEffort: string | null;
+
+    /**
      * name: 子智能体展示名称。
      */
     name: string;
