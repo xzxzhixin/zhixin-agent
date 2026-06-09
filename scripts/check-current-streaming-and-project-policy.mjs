@@ -60,7 +60,7 @@ function assertNotIncludes(
 
 const packageJson = readProjectFile("package.json");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
-const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const chatRouter = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
 const appStore = readProjectFile("apps/frontend/src/stores/app.ts");
 const appProjectActions = readProjectFile("apps/frontend/src/stores/app-project-actions.ts");
@@ -85,8 +85,8 @@ assertNotIncludes(
 );
 assertIncludes(
   modelGatewayRuntime,
-  "readProviderSseStream",
-  "模型网关必须实现供应商 SSE 读取函数。",
+  "for await",
+  "模型网关必须使用 LangChain 流式迭代读取供应商输出。",
 );
 assertIncludes(
   modelGatewayRuntime,

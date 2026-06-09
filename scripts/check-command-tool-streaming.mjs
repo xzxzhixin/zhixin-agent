@@ -68,12 +68,12 @@ function assertNotIncludes(
 }
 
 const toolRuntime = [
-  readProjectFile("services/center/src/tool-runtime.ts"),
-  readProjectFile("services/center/src/tool-runtime-command.ts"),
+  readProjectFile("services/center/src/tools/index.ts"),
+  readProjectFile("services/center/src/tools/command-tool.ts"),
 ].join("\n");
-const mcpToolRuntime = readProjectFile("services/center/src/tool-runtime-mcp.ts");
-const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
-const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
+const mcpToolRuntime = readProjectFile("services/center/src/tools/mcp-tool.ts");
+const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
+const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
 const messageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
 
 assertNotIncludes(

@@ -105,15 +105,18 @@ const appConversationActions = readProjectFile("apps/frontend/src/stores/app-con
 const appManagementActions = readProjectFile("apps/frontend/src/stores/app-management-actions.ts");
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const apiClient = readProjectFile("packages/api-client/src/index.ts");
-const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
+const workflowDomain = readProjectFile("services/center/src/domain/workflow-domain.ts");
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
-const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
-const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
+const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
+const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
 const toolRuntime = [
-  readProjectFile("services/center/src/tool-runtime.ts"),
-  readProjectFile("services/center/src/tool-runtime-command.ts"),
-  readProjectFile("services/center/src/tool-runtime-mcp.ts"),
+  readProjectFile("services/center/src/tools/index.ts"),
+  readProjectFile("services/center/src/tools/command-tool.ts"),
+  readProjectFile("services/center/src/tools/mcp-tool.ts"),
 ].join("\n");
+const toolCapabilityRegistry = readProjectFile("services/center/src/tools/tool-capability-registry.ts");
+const toolEvents = readProjectFile("services/center/src/tools/tool-events.ts");
+const capabilityApi = readProjectFile("services/center/src/api/capability.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const langgraphRunner = readProjectFile("services/center/src/langgraph-runner.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;
@@ -195,7 +198,7 @@ for (const signal of [
   "SKILL_NOT_SELECTED",
 ]) {
   assertIncludes(
-    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime,
+    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + capabilityApi + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents,
     signal,
     `自动工具可见闭环缺少：${signal}`,
   );
@@ -206,7 +209,7 @@ for (const forbiddenSignal of [
   "PLUGIN_NOT_SELECTED",
 ]) {
   assertNotIncludes(
-    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime,
+    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + capabilityApi + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents,
     forbiddenSignal,
     `当前阶段插件已内联，自动工具可见闭环不能残留：${forbiddenSignal}`,
   );
@@ -222,7 +225,7 @@ for (const signal of [
   "StateGraph",
 ]) {
   assertIncludes(
-    apiRoutes + sessionDomain + sessionTurnEffects + toolRuntime + modelGatewayRuntime + langgraphRunner,
+    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + modelGatewayRuntime + langgraphRunner,
     signal,
     `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
   );

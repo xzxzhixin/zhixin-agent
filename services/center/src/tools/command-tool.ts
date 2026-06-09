@@ -5,15 +5,17 @@ import type {
     UnifiedToolCapability,
 } from "@zhixin/shared";
 
-import type {CenterEventStore} from "./events.js";
+import type {CenterEventStore} from "../events.js";
 import {
     planUnifiedToolCallForUserText,
+} from "./tool-openai-adapter.js";
+import {
     resolveUnifiedToolCapability,
-} from "./tool-runtime.js";
+} from "./tool-capability-registry.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
-} from "./turn-graph-domain.js";
+} from "../domain/turn-graph-domain.js";
 
 /**
  * CommandToolRequest：通用命令工具请求。

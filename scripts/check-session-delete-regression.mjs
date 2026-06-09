@@ -46,10 +46,37 @@ const centerRoutes = readFileSync(
     "services",
     "center",
     "src",
+    "api",
     "api-routes.ts",
   ),
   "utf-8",
 );
+// sessionRoutes: 会话路由拆分文件，承载 /api/session/*。
+const sessionRoutes = readFileSync(
+  join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "api",
+    "session.ts",
+  ),
+  "utf-8",
+);
+// projectRoutes: 项目路由拆分文件，承载 /api/project/*。
+const projectRoutes = readFileSync(
+  join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "api",
+    "project.ts",
+  ),
+  "utf-8",
+);
+// routeSources: 聚合入口和资源路由合并文本，适配 API 按资源拆分后的检查范围。
+const routeSources = `${centerRoutes}\n${sessionRoutes}\n${projectRoutes}`;
 // sessionDomain: 会话领域源码，必须删除会话相关事实表。
 const sessionDomain = readFileSync(
   join(
@@ -57,10 +84,25 @@ const sessionDomain = readFileSync(
     "services",
     "center",
     "src",
+    "domain",
     "session-domain.ts",
   ),
   "utf-8",
 );
+// sessionQueryDomain: 删除会话和项目的真实领域实现已拆到查询领域文件。
+const sessionQueryDomain = readFileSync(
+  join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "domain",
+    "session-query-domain.ts",
+  ),
+  "utf-8",
+);
+// sessionDeleteDomainSource: 会话聚合出口和删除实现的合并文本。
+const sessionDeleteDomainSource = `${sessionDomain}\n${sessionQueryDomain}`;
 // sessionRepository: 会话事实表删除 SQL 位于数据访问层。
 const sessionRepository = readFileSync(
   join(
@@ -70,17 +112,6 @@ const sessionRepository = readFileSync(
     "src",
     "data-access",
     "session-repository.ts",
-  ),
-  "utf-8",
-);
-// apiClient: 前端 API 客户端源码，必须暴露正式删除方法。
-const apiClient = readFileSync(
-  join(
-    process.cwd(),
-    "packages",
-    "api-client",
-    "src",
-    "index.ts",
   ),
   "utf-8",
 );
@@ -148,17 +179,17 @@ const sharedTypes = readFileSync(
 );
 
 assertIncludes(
-  centerRoutes,
+  routeSources,
   'app.post("/api/session/delete"',
   "中心服务缺少 /api/session/delete 路由。",
 );
 assertIncludes(
-  centerRoutes,
+  routeSources,
   "SESSION_DELETE_INVALID",
   "会话删除接口缺少空 sessionId 错误处理。",
 );
 assertIncludes(
-  sessionDomain,
+  sessionDeleteDomainSource,
   "export function deleteSession",
   "会话领域缺少 deleteSession 函数。",
 );
@@ -172,43 +203,38 @@ assertIncludes(
   "DELETE FROM sessions WHERE id = ?",
 ].forEach((fragment) => {
   assertIncludes(
-    sessionDomain + sessionRepository,
+    sessionDeleteDomainSource + sessionRepository,
     fragment,
     `会话删除缺少相关事实表清理：${fragment}`,
   );
 });
 assertIncludes(
-  apiClient,
-  "deleteSession(payload:",
-  "API 客户端缺少 deleteSession 方法。",
-);
-assertIncludes(
-  apiClient,
-  'return this.post("/api/session/delete", payload);',
-  "API 客户端 deleteSession 没有调用中心服务删除接口。",
-);
-assertIncludes(
-  appStore,
+  frontendStoreSource,
   "async deleteConversation(sessionId: string): Promise<void>",
   "前端 store 缺少真实 deleteConversation 动作。",
 );
 assertIncludes(
-  appStore,
-  "await this.api().deleteSession",
-  "前端 store 删除会话没有调用 API 客户端。",
+  frontendStoreSource,
+  'await this.requireRealtimeRequest<',
+  "前端 store 删除会话没有调用实时请求入口。",
 );
 assertIncludes(
-  appStore,
+  frontendStoreSource,
+  '"session.delete"',
+  "前端 store 删除会话没有调用 /session.delete 实时接口。",
+);
+assertIncludes(
+  frontendStoreSource,
   "await this.loadNavigationData();",
   "前端 store 删除会话后没有刷新导航数据。",
 );
 assertIncludes(
-  appStore,
+  frontendStoreSource,
   "this.sessionDetail = null;",
   "前端 store 删除当前会话后没有清空会话详情。",
 );
 assertIncludes(
-  appStore,
+  frontendStoreSource,
   "this.lastError = error instanceof Error",
   "前端 store 删除失败没有写入可见错误状态。",
 );
@@ -233,22 +259,22 @@ assertNotIncludes(
   "对话页仍在调用删除占位函数。",
 );
 assertNotIncludes(
-  appStore,
+  frontendStoreSource,
   "deleteConversationPlaceholder",
   "前端 store 仍保留删除占位函数。",
 );
 assertIncludes(
-  centerRoutes,
+  routeSources,
   'app.post("/api/project/delete"',
   "中心服务缺少 /api/project/delete 路由。",
 );
 assertIncludes(
-  centerRoutes,
+  routeSources,
   "PROJECT_DELETE_INVALID",
   "项目删除接口缺少空 projectId 错误处理。",
 );
 assertIncludes(
-  sessionDomain,
+  sessionDeleteDomainSource,
   "export function deleteProject",
   "会话领域缺少 deleteProject 函数。",
 );
@@ -263,7 +289,7 @@ assertIncludes(
   "DELETE FROM projects WHERE id = ?",
 ].forEach((fragment) => {
   assertIncludes(
-    sessionDomain + sessionRepository,
+    sessionDeleteDomainSource + sessionRepository,
     fragment,
     `项目删除缺少相关事实表清理：${fragment}`,
   );
@@ -272,16 +298,6 @@ assertIncludes(
   sharedTypes,
   "export interface DeleteProjectResult",
   "共享协议缺少 DeleteProjectResult。",
-);
-assertIncludes(
-  apiClient,
-  "deleteProject(payload:",
-  "API 客户端缺少 deleteProject 方法。",
-);
-assertIncludes(
-  apiClient,
-  'return this.post("/api/project/delete", payload);',
-  "API 客户端 deleteProject 没有调用中心服务删除接口。",
 );
 assertIncludes(
   frontendStoreSource,
@@ -322,8 +338,8 @@ assertNotIncludes(
 );
 assertIncludes(
   frontendStoreSource,
-  "await this.api().deleteProject",
-  "前端 store 删除项目没有调用 API 客户端。",
+  '"project.delete"',
+  "前端 store 删除项目没有调用 /project.delete 实时接口。",
 );
 assertIncludes(
   frontendStoreSource,

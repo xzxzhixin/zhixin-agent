@@ -3,11 +3,11 @@ import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync}
 import {arch, platform, release, type} from "node:os";
 import {dirname, join} from "node:path";
 
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
-import type {MemoryQueueState} from "./types.js";
-import {writeFileSyncUtf8, writeFileSyncUtf8IfMissing, writeJsonFile} from "./helpers.js";
-import {AgentRepository} from "./data-access/agent-repository.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
+import type {MemoryQueueState} from "../types.js";
+import {writeFileSyncUtf8, writeFileSyncUtf8IfMissing, writeJsonFile} from "../helpers.js";
+import {AgentRepository} from "../data-access/agent-repository.js";
 
 // AGENT_DYNAMIC_CAPABILITY_BOUNDARY: 兼容旧 agents_index 字段；真实可用能力由当前会话窗口动态决定，不再由前端编辑。
 const AGENT_DYNAMIC_CAPABILITY_BOUNDARY = "可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。";

@@ -392,6 +392,21 @@ export class SessionRepository {
         const transaction = this.database.connection().transaction(() => {
             this.database.connection()
                 .prepare(`
+                    DELETE FROM agent_team_members
+                    WHERE team_id IN (
+                        SELECT id
+                        FROM agent_teams
+                        WHERE session_id = ?
+                    )
+                `)
+                .run(sessionId);
+
+            this.database.connection()
+                .prepare("DELETE FROM agent_teams WHERE session_id = ?")
+                .run(sessionId);
+
+            this.database.connection()
+                .prepare(`
                     DELETE FROM task_steps
                     WHERE task_id IN (
                         SELECT id
@@ -448,6 +463,21 @@ export class SessionRepository {
 
         const transaction = this.database.connection().transaction(() => {
             for (const sessionId of projectSessionIds) {
+                this.database.connection()
+                    .prepare(`
+                        DELETE FROM agent_team_members
+                        WHERE team_id IN (
+                            SELECT id
+                            FROM agent_teams
+                            WHERE session_id = ?
+                        )
+                    `)
+                    .run(sessionId);
+
+                this.database.connection()
+                    .prepare("DELETE FROM agent_teams WHERE session_id = ?")
+                    .run(sessionId);
+
                 // 复用会话删除顺序，避免任务步骤、轮次、附件索引残留。
                 this.database.connection()
                     .prepare(`

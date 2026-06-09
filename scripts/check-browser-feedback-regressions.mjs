@@ -97,13 +97,13 @@ const chatConversation = readProjectFile("apps/frontend/src/views/Chat/useChatCo
 const taskDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
 const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
-const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
+const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const sessionMessageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const toolRuntime = [
-  readProjectFile("services/center/src/tool-runtime.ts"),
-  readProjectFile("services/center/src/tool-runtime-command.ts"),
+  readProjectFile("services/center/src/tools/index.ts"),
+  readProjectFile("services/center/src/tools/command-tool.ts"),
 ].join("\n");
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 

@@ -25,7 +25,7 @@ import {
     saveRuntimeConfig,
     setGlobalDefaultProxy,
     updateProviderConfig,
-} from "../provider-domain.js";
+} from "../domain/provider-domain.js";
 import type {
     CenterServiceConfig,
     ProviderCapabilityDeclaration,

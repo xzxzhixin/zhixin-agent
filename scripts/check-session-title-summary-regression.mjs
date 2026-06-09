@@ -32,6 +32,7 @@ const sessionDomain = readFileSync(
     "services",
     "center",
     "src",
+    "domain",
     "session-domain.ts",
   ),
   "utf-8",

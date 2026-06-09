@@ -144,7 +144,7 @@ function assertPathExists(
   }
 }
 
-const sessionDomain = readText("services/center/src/session-domain.ts");
+const sessionDomain = readText("services/center/src/domain/session-domain.ts");
 const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
 const realtime = readText("services/center/src/realtime.ts");
 const syncRoute = readText("services/center/src/api/sync-route.ts");
@@ -154,7 +154,7 @@ const conversationActions = readText("apps/frontend/src/stores/app-conversation-
 const projectActions = readText("apps/frontend/src/stores/app-project-actions.ts");
 const chatPanel = readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
 const autoScroll = readText("apps/frontend/src/views/Chat/useMessageListAutoScroll.ts");
-const providerDomain = readText("services/center/src/provider-domain.ts");
+const providerDomain = readText("services/center/src/domain/provider-domain.ts");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const centerPackage = readText("services/center/package.json");
 const apiClient = readText("packages/api-client/src/index.ts");
@@ -397,7 +397,7 @@ const agentSources = existsSync(join(root, "services/center/src/agents"))
       .map((file) => readText(file))
       .join("\n")
   : "";
-const toolRuntime = readText("services/center/src/tool-runtime.ts");
+const toolRuntime = readText("services/center/src/tools/index.ts") + readText("services/center/src/tools/tool-capability-registry.ts");
 for (const className of [
   "class BaseAgent",
   "class MainAgent",
@@ -430,7 +430,7 @@ assertRegex(
   /SubAgent[\s\S]*(forbid|禁止|withoutCreation|creationTools:\s*\[\])/iu,
   "子智能体必须明确禁止创建任何智能体工具。",
 );
-const sessionTurnEffects = readText("services/center/src/session-turn-effects.ts");
+const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 assertIncludes(
   toolRuntime,
   "builtin.agent.createLongTerm",

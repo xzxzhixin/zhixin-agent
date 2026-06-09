@@ -35,18 +35,18 @@ import {
     listTasks,
     listTurns,
     submitGuidanceForActiveTask,
-} from "../session-domain.js";
+} from "../domain/session-domain.js";
 import {
     listProviderConfigs,
     listRegisteredModelProtocolPlugins,
     readProviderModelList,
-} from "../provider-domain.js";
+} from "../domain/provider-domain.js";
 import {
     listAgents,
-} from "../agent-domain.js";
+} from "../domain/agent-domain.js";
 import {
     countComposerContextTokens,
-} from "../tokenizer-domain.js";
+} from "../domain/tokenizer-domain.js";
 import {
     sendSessionMessageThroughCenter,
     type SessionMessageRouteContext,
@@ -65,7 +65,7 @@ import {
 import {
     commitAttachment,
     createTemporaryAttachment,
-} from "../usage-domain.js";
+} from "../domain/usage-domain.js";
 import type {
     MemoryQueueState,
     RealtimeClientConnection,

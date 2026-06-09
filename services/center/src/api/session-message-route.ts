@@ -14,7 +14,7 @@ import {
     createMessageTurnAndTask,
     findSession,
     listEvents,
-} from "../session-domain.js";
+} from "../domain/session-domain.js";
 import type {
     CenterDatabase,
 } from "../database.js";

@@ -38,22 +38,22 @@ if (existsSync("plugins/builtin-model-openai-compatible")) {
 }
 
 assertIncludes(
-  "services/center/src/provider-domain.ts",
+  "services/center/src/domain/provider-domain.ts",
   "OPENAI_LANGCHAIN_PROTOCOL_PROVIDER",
   "中心服务必须提供 OpenAI LangChain 内联协议提供方",
 );
 assertIncludes(
-  "services/center/src/provider-domain.ts",
+  "services/center/src/domain/provider-domain.ts",
   "ANTHROPIC_LANGCHAIN_PROTOCOL_PROVIDER",
   "中心服务必须提供 Anthropic LangChain 内联协议提供方",
 );
 assertNotIncludes(
-  "services/center/src/provider-domain.ts",
+  "services/center/src/domain/provider-domain.ts",
   "listBuiltinModelAdapterPlugins",
   "当前阶段不允许继续从 plugins/builtin-model-* 动态扫描协议适配器",
 );
 assertNotIncludes(
-  "services/center/src/provider-domain.ts",
+  "services/center/src/domain/provider-domain.ts",
   "model-adapter.json",
   "当前阶段不允许继续读取模型适配器插件声明",
 );

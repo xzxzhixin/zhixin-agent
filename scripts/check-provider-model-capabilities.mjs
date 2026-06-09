@@ -17,7 +17,7 @@ const providerPage = readSource("apps/frontend/src/views/Providers/RouterIndex.v
 const storeActions = readSource("apps/frontend/src/stores/app-management-actions.ts");
 const storeHelpers = readSource("apps/frontend/src/stores/app-helpers.ts");
 const apiClient = readSource("packages/api-client/src/index.ts");
-const providerDomain = readSource("services/center/src/provider-domain.ts");
+const providerDomain = readSource("services/center/src/domain/provider-domain.ts");
 
 /**
  * assertIncludes：检查源码中必须存在的协议片段。

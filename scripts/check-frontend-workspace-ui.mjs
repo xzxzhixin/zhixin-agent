@@ -36,6 +36,7 @@ const centerServicePath = join(
   "services",
   "center",
   "src",
+  "domain",
   "agent-domain.ts",
 );
 // viteConfigPath: Vite 配置源码，用于检查前端路径别名。

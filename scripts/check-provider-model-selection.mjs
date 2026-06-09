@@ -27,6 +27,7 @@ const sourcePath = join(
   "services",
   "center",
   "src",
+  "domain",
   "provider-domain.ts",
 );
 const source = readFileSync(sourcePath, "utf-8");

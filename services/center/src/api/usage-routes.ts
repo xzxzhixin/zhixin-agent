@@ -1,15 +1,20 @@
 import type {FastifyInstance} from "fastify";
 
 import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
-import {createSuccessResponse} from "../helpers.js";
+import {
+    createErrorResponse,
+    createSuccessResponse,
+} from "../helpers.js";
 import {
     aggregateUsageRecords,
     queryUsageRecords,
     refreshUsageDailyStats,
     type UsageQueryFilters,
-} from "../usage-domain.js";
-import {listProviderConfigs} from "../provider-domain.js";
+} from "../domain/usage-domain.js";
+import {listProviderConfigs} from "../domain/provider-domain.js";
+import {recordUsage} from "../domain/workflow-domain.js";
 
 /**
  * UsageQueryBody：用量查询筛选请求体。
@@ -93,6 +98,7 @@ export function registerUsageRoutes(
     app: FastifyInstance,
     database: CenterDatabase,
     centerDirectory?: string,
+    events?: CenterEventStore,
 ): void {
     app.post("/api/usage/query", async (request) => {
         const body = request.body as UsageQueryBody;
@@ -115,4 +121,28 @@ export function registerUsageRoutes(
     app.post("/api/audit/task-steps", async () => createSuccessResponse({
         taskSteps: createDataAccess(database).usage.listTaskStepsForAudit(),
     }));
+
+    app.post("/api/usage/record", async (request) => {
+        const body = request.body as {
+            providerId?: string;
+            sessionId?: string | null;
+            model?: string;
+            projectId?: string | null;
+            inputTokens?: number | null;
+            outputTokens?: number | null;
+            cacheHitTokens?: number | null;
+            cacheMissTokens?: number | null;
+            status?: string;
+        };
+
+        if (!body.providerId || !body.model || !body.status) {
+            return createErrorResponse("USAGE_RECORD_INVALID", "用量记录缺少必要字段", "用量记录信息不完整。");
+        }
+
+        if (!events) {
+            return createErrorResponse("USAGE_EVENTS_REQUIRED", "用量记录缺少事件事实源", "中心服务事件事实源不能为空。");
+        }
+
+        return createSuccessResponse(recordUsage(database, events, body));
+    });
 }

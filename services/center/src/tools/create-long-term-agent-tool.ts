@@ -1,6 +1,6 @@
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
-import {createAgent} from "../agent-domain.js";
+import {createAgent} from "../domain/agent-domain.js";
 
 /**
  * CreateLongTermAgentToolInput：创建长期智能体工具输入。

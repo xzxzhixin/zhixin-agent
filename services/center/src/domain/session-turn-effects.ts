@@ -1,14 +1,14 @@
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
-import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
-import type {SendMessageResponse} from "./types.js";
-import type {MemoryQueueState} from "./types.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
+import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
+import type {SendMessageResponse} from "../types.js";
+import type {MemoryQueueState} from "../types.js";
 import {
     writeAgentMemory,
     type MemoryWriteInput,
 } from "./agent-domain.js";
-import {createDataAccess} from "./data-access/index.js";
-import {syncTurnMemoryToMem0} from "./memory-engine.js";
+import {createDataAccess} from "../data-access/index.js";
+import {syncTurnMemoryToMem0} from "../memory-engine.js";
 import {
     createTaskStep,
     updateTaskStep,
@@ -19,14 +19,26 @@ import {
     mcpRequestFromUnifiedToolIntent,
     runCommandTool,
     runMcpTool,
-} from "./tool-runtime.js";
+} from "../tools/index.js";
 import {
     executeCreateLongTermAgentTool,
-} from "./tools/create-long-term-agent-tool.js";
+} from "../tools/create-long-term-agent-tool.js";
 import {
     executeCreateSubAgentTool,
-} from "./tools/create-sub-agent-tool.js";
-import type {SubAgentRuntimeRecord} from "./types.js";
+} from "../tools/create-sub-agent-tool.js";
+import {
+    executeAddAgentTeamMemberTool,
+} from "../tools/add-agent-team-member-tool.js";
+import {
+    executeCreateAgentTeamTool,
+} from "../tools/create-agent-team-tool.js";
+import {
+    executeDisbandAgentTeamTool,
+} from "../tools/disband-agent-team-tool.js";
+import {
+    executeRemoveAgentTeamMemberTool,
+} from "../tools/remove-agent-team-member-tool.js";
+import type {SubAgentRuntimeRecord} from "../types.js";
 import {
     stepTaskFromGraphContext,
     type TurnGraphCheckpoint,
@@ -186,7 +198,7 @@ export async function executeModelRequestedTools(
             toolExecuteCheckpoint,
         );
         const toolResult = unifiedToolIntent.toolKind === "agent"
-            ? runAgentCreationTool(
+            ? runAgentTool(
                 database,
                 events,
                 sent,
@@ -241,7 +253,7 @@ export async function executeModelRequestedTools(
 }
 
 /**
- * runAgentCreationTool：执行智能体创建类模型工具。
+ * runAgentTool：执行智能体与 team 类模型工具。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
@@ -251,7 +263,7 @@ export async function executeModelRequestedTools(
  * @param graphCheckpoint 当前图检查点。
  * @returns 可回填模型的工具结果。
  */
-function runAgentCreationTool(
+function runAgentTool(
     database: CenterDatabase,
     events: CenterEventStore,
     sent: SendMessageResponse,
@@ -266,6 +278,9 @@ function runAgentCreationTool(
     traceId: string;
 } {
     try {
+        const creatorAgentId = typeof intent.arguments.creatorAgentId === "string"
+            ? intent.arguments.creatorAgentId
+            : "main";
         const result = intent.toolId === "builtin.agent.createLongTerm"
             ? executeCreateLongTermAgentTool(
                 database,
@@ -277,6 +292,77 @@ function runAgentCreationTool(
                     capabilityBoundary: typeof intent.arguments.capabilityBoundary === "string"
                         ? intent.arguments.capabilityBoundary
                         : undefined,
+                },
+            )
+            : intent.toolId === "create-agent-team"
+            ? executeCreateAgentTeamTool(
+                {
+                    database,
+                    events,
+                    sessionId: sent.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    creatorAgentId,
+                    toolCallId,
+                },
+                {
+                    name: String(intent.arguments.name ?? "协作 team"),
+                    description: typeof intent.arguments.description === "string"
+                        ? intent.arguments.description
+                        : null,
+                    memberAgentIds: Array.isArray(intent.arguments.memberAgentIds)
+                        ? intent.arguments.memberAgentIds.map((agentId) => String(agentId))
+                        : [],
+                },
+            )
+            : intent.toolId === "disband-agent-team"
+            ? executeDisbandAgentTeamTool(
+                {
+                    database,
+                    events,
+                    sessionId: sent.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    creatorAgentId,
+                    toolCallId,
+                },
+                {
+                    teamId: String(intent.arguments.teamId ?? ""),
+                },
+            )
+            : intent.toolId === "add-agent-team-member"
+            ? executeAddAgentTeamMemberTool(
+                {
+                    database,
+                    events,
+                    sessionId: sent.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    creatorAgentId,
+                    toolCallId,
+                },
+                {
+                    teamId: String(intent.arguments.teamId ?? ""),
+                    agentId: String(intent.arguments.agentId ?? ""),
+                    role: typeof intent.arguments.role === "string"
+                        ? intent.arguments.role
+                        : undefined,
+                },
+            )
+            : intent.toolId === "remove-agent-team-member"
+            ? executeRemoveAgentTeamMemberTool(
+                {
+                    database,
+                    events,
+                    sessionId: sent.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    creatorAgentId,
+                    toolCallId,
+                },
+                {
+                    teamId: String(intent.arguments.teamId ?? ""),
+                    agentId: String(intent.arguments.agentId ?? ""),
                 },
             )
             : executeCreateSubAgentTool(

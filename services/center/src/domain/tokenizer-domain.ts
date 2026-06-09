@@ -4,8 +4,8 @@ import type {
     TokenizerCountResponse,
 } from "@zhixin/shared";
 
-import type {CenterDatabase} from "./database.js";
-import {createDataAccess} from "./data-access/index.js";
+import type {CenterDatabase} from "../database.js";
+import {createDataAccess} from "../data-access/index.js";
 
 /**
  * BuiltInTokenizerAdapter：中心服务内置自研 tokenizer 适配器。

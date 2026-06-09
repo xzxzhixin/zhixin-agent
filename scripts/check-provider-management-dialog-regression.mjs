@@ -68,6 +68,7 @@ const providerDomain = readProjectFile(
   "services",
   "center",
   "src",
+  "domain",
   "provider-domain.ts",
 );
 // providerRoutes: 删除接口必须调用真实删除函数，不能只停用。

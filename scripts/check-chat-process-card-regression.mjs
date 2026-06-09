@@ -73,7 +73,7 @@ const panel = readProjectFile("apps/frontend/src/views/Chat/components/ChatConve
 // helpers: 对话事件聚合逻辑，负责过程卡片类型和默认折叠状态。
 const helpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // commandRuntime: 中心服务命令运行器，负责 stdout 和 stderr 解码。
-const commandRuntime = readProjectFile("services/center/src/tool-runtime-command.ts");
+const commandRuntime = readProjectFile("services/center/src/tools/command-tool.ts");
 
 assertIncludes(
   helpers,

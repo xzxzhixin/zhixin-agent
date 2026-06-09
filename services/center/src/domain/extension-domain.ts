@@ -2,10 +2,10 @@ import {randomUUID} from "node:crypto";
 import {appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync} from "node:fs";
 import {dirname, join} from "node:path";
 
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
-import {createDataAccess} from "./data-access/index.js";
-import {writeJsonFile} from "./helpers.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
+import {createDataAccess} from "../data-access/index.js";
+import {writeJsonFile} from "../helpers.js";
 
 export function installPlugin(
     database: CenterDatabase,

@@ -177,7 +177,7 @@ assertIncludes(
   "必须定义 tokenizer 响应协议。",
 );
 assertIncludes(
-  "services/center/src/tokenizer-domain.ts",
+  "services/center/src/domain/tokenizer-domain.ts",
   "BuiltInTokenizerAdapter",
   "必须提供中心服务内置 tokenizer 适配器。",
 );
@@ -192,32 +192,32 @@ assertIncludes(
   "WebSocket tokenizer.count 必须调用中心服务 tokenizer。",
 );
 assertIncludes(
-  "services/center/src/tool-runtime.ts",
+  "services/center/src/tools/index.ts",
   "runCommandTool",
   "通用命令工具必须使用统一运行入口。",
 );
 assertIncludes(
-  "services/center/src/tool-runtime.ts",
+  "services/center/src/tools/index.ts",
   "UNIFIED_TOOL_CAPABILITY_REGISTRY",
   "必须建立统一工具能力注册表。",
 );
 assertIncludes(
-  "services/center/src/tool-runtime.ts",
+  "services/center/src/tools/index.ts",
   "listAvailableModelToolSpecs",
   "Agent 编排必须把统一工具能力转换为模型工具定义。",
 );
 assertIncludes(
-  "services/center/src/tool-runtime.ts",
+  "services/center/src/tools/index.ts",
   "buildUnifiedToolCallIntentFromModelCall",
   "Agent 编排必须从模型工具请求转换统一工具调用意图。",
 );
 assertIncludes(
-  "services/center/src/session-domain.ts",
+  "services/center/src/domain/session-domain.ts",
   "continueProviderModelGatewayWithToolResults",
   "命令工具真实执行结果必须回填模型后再生成助手最终回复。",
 );
 assertNotIncludes(
-  "services/center/src/session-domain.ts",
+  "services/center/src/domain/session-domain.ts",
   "export function planCommandToolForUserText",
   "session-domain 不得保留重复命令工具规划函数。",
 );

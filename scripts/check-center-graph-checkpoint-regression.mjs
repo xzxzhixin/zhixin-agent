@@ -51,21 +51,22 @@ const graphDomainPath = join(
   "services",
   "center",
   "src",
+  "domain",
   "turn-graph-domain.ts",
 );
 
 if (!existsSync(graphDomainPath)) {
-  throw new Error("中心服务缺少 turn-graph-domain.ts，无法沉淀每个对话框的图编排检查点。");
+  throw new Error("中心服务缺少 domain/turn-graph-domain.ts，无法沉淀每个对话框的图编排检查点。");
 }
 
-const graphDomain = readProjectFile("services/center/src/turn-graph-domain.ts");
-const sessionDomain = readProjectFile("services/center/src/session-domain.ts");
-const sessionTurnEffects = readProjectFile("services/center/src/session-turn-effects.ts");
-const workflowDomain = readProjectFile("services/center/src/workflow-domain.ts");
+const graphDomain = readProjectFile("services/center/src/domain/turn-graph-domain.ts");
+const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
+const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
+const workflowDomain = readProjectFile("services/center/src/domain/workflow-domain.ts");
 const toolRuntime = [
-  readProjectFile("services/center/src/tool-runtime.ts"),
-  readProjectFile("services/center/src/tool-runtime-command.ts"),
-  readProjectFile("services/center/src/tool-runtime-mcp.ts"),
+  readProjectFile("services/center/src/tools/index.ts"),
+  readProjectFile("services/center/src/tools/command-tool.ts"),
+  readProjectFile("services/center/src/tools/mcp-tool.ts"),
 ].join("\n");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const sharedTypes = readProjectFile("packages/shared/src/index.ts");

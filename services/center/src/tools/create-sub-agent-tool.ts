@@ -1,6 +1,6 @@
 import type {CenterEventStore} from "../events.js";
 import type {SubAgentRuntimeRecord} from "../types.js";
-import {createSubAgentRuntime} from "../workflow-domain.js";
+import {createSubAgentRuntime} from "../domain/workflow-domain.js";
 
 /**
  * CreateSubAgentToolInput：创建一次性子智能体工具输入。

@@ -1,5 +1,5 @@
 import type {CenterDatabase} from "../database.js";
-import type {UsageQueryFilters} from "../usage-domain.js";
+import type {UsageQueryFilters} from "../domain/usage-domain.js";
 
 /**
  * UsageRecordInput：模型用量原始记录写入参数。

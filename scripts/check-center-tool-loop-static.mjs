@@ -46,10 +46,14 @@ function assertNotIncludes(text, snippet, message) {
   }
 }
 
-const toolRuntime = readText("services/center/src/tool-runtime.ts");
+const toolRuntime = [
+  "services/center/src/tools/index.ts",
+  "services/center/src/tools/tool-capability-registry.ts",
+  "services/center/src/tools/tool-openai-adapter.ts",
+].map((path) => readText(path)).join("\n");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
-const sessionDomain = readText("services/center/src/session-domain.ts");
-const sessionTurnEffects = readText("services/center/src/session-turn-effects.ts");
+const sessionDomain = readText("services/center/src/domain/session-domain.ts");
+const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
 const sharedTypes = readText("packages/shared/src/index.ts");
 
@@ -58,7 +62,8 @@ assertIncludes(sharedTypes, "UnifiedToolInputSchema", "共享协议缺少工具�
 assertIncludes(toolRuntime, "inputSchema", "工具运行时缺少结构化输入 schema");
 assertIncludes(toolRuntime, "listAvailableModelToolSpecs", "工具运行时缺少模型工具定义转换函数");
 assertIncludes(toolRuntime, "buildUnifiedToolCallIntentFromModelCall", "工具运行时缺少模型工具调用转换函数");
-assertIncludes(modelGateway, "tools: request.tools.map(toChatCompletionToolSpec)", "OpenAI Chat Completions 请求未携带工具定义");
+assertIncludes(modelGateway, "const tools = await listAvailableModelToolSpecsForCenter", "模型网关必须读取中心服务工具定义");
+assertIncludes(modelGateway, "buildOpenAiChatPayload", "模型网关必须把工具定义传入 OpenAI Chat payload");
 assertIncludes(modelGateway, "tool_calls", "模型网关缺少 OpenAI tool_calls 解析");
 assertIncludes(modelGateway, "tool_call_id", "模型网关缺少 OpenAI tool_call_id 回填");
 assertIncludes(langGraphRunner, "tool.execute", "LangGraph 缺少工具执行节点");

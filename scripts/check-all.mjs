@@ -117,6 +117,12 @@ const commands = [
     ],
   ],
   [
+    "node",
+    [
+      "scripts/check-center-src-organization-and-team.mjs",
+    ],
+  ],
+  [
     "pnpm",
     [
       "exec",

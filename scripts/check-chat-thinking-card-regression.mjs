@@ -81,6 +81,7 @@ const workflowDomain = readFileSync(
     "services",
     "center",
     "src",
+    "domain",
     "workflow-domain.ts",
   ),
   "utf-8",

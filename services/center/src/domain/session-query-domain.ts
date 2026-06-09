@@ -7,9 +7,9 @@ import type {
     ProjectRecord,
 } from "@zhixin/shared";
 
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
-import {SessionRepository} from "./data-access/session-repository.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
+import {SessionRepository} from "../data-access/session-repository.js";
 
 /**
  * deleteSession：删除指定会话及其下属消息、轮次、任务和附件索引。

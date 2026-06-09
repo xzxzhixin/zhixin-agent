@@ -487,6 +487,60 @@ export class CenterDatabase {
                 NULL
             );
 
+            CREATE TABLE IF NOT EXISTS agent_teams
+            (
+                id
+                TEXT
+                PRIMARY
+                KEY,
+                session_id
+                TEXT
+                NOT
+                NULL,
+                name
+                TEXT
+                NOT
+                NULL,
+                description
+                TEXT,
+                created_by_agent_id
+                TEXT
+                NOT
+                NULL,
+                created_at
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_team_members
+            (
+                id
+                TEXT
+                PRIMARY
+                KEY,
+                team_id
+                TEXT
+                NOT
+                NULL,
+                agent_id
+                TEXT
+                NOT
+                NULL,
+                role
+                TEXT
+                NOT
+                NULL,
+                added_at
+                TEXT
+                NOT
+                NULL
+            );
+
             CREATE TABLE IF NOT EXISTS memory_index
             (
                 id

@@ -16,7 +16,7 @@ import {
 } from "../helpers.js";
 import {
     findSession,
-} from "../session-domain.js";
+} from "../domain/session-domain.js";
 import {AgentEditRepository} from "../data-access/agent-edit-repository.js";
 export {
     recordPendingFileEdit,

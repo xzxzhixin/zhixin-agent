@@ -152,15 +152,15 @@ if (existsSync(join(root, "services/center/src/langgraph-runner.ts"))) {
   }
 }
 
-if (existsSync(join(root, "services/center/src/session-domain.ts"))) {
-  const sessionDomain = readText("services/center/src/session-domain.ts");
+if (existsSync(join(root, "services/center/src/domain/session-domain.ts"))) {
+  const sessionDomain = readText("services/center/src/domain/session-domain.ts");
   for (const signal of [
     "export async function completeCreatedTurn",
     "runLangGraphTurn(",
     "payload: withTurnGraphCheckpoint",
   ]) {
     assertIncludes(
-      "services/center/src/session-domain.ts",
+      "services/center/src/domain/session-domain.ts",
       sessionDomain,
       signal,
       `会话域缺少 LangGraph 轮次闭环信号：${signal}`,

@@ -1,21 +1,6 @@
 import type {
-    UnifiedToolCallIntent,
     UnifiedToolCapability,
 } from "@zhixin/shared";
-
-import type {
-    OpenAiToolCall,
-    OpenAiToolSpec,
-} from "./openai-chat-protocol.js";
-import type {CenterEventStore} from "./events.js";
-import {
-    type TurnGraphCheckpoint,
-    withOptionalGraphCheckpoint,
-} from "./turn-graph-domain.js";
-import {
-    listConfiguredMcpModelToolSpecs,
-    readMcpDynamicToolName,
-} from "./tool-runtime-mcp.js";
 
 /**
  * UNIFIED_TOOL_CAPABILITY_REGISTRY：中心服务统一工具能力注册表。
@@ -138,6 +123,148 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         displayText: "创建子智能体",
     },
     {
+        toolId: "create-agent-team",
+        toolKind: "agent",
+        displayName: "创建 team",
+        requiredPermission: "project.write",
+        availability: "available",
+        unavailableReason: null,
+        description: "由主智能体在当前会话中创建跟随会话生命周期的协作 team。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "name",
+                "memberAgentIds",
+            ],
+            properties: {
+                name: {
+                    type: "string",
+                    description: "team 展示名称。",
+                },
+                description: {
+                    type: "string",
+                    description: "team 协作目标说明。",
+                },
+                memberAgentIds: {
+                    type: "array",
+                    description: "初始成员长期智能体 ID 列表；成员必须是启用状态的长期智能体。",
+                    items: {
+                        type: "string",
+                    },
+                },
+                creatorAgentId: {
+                    type: "string",
+                    description: "调用者智能体 ID；team 管理工具只允许 main。",
+                },
+            },
+        },
+        riskLevel: "medium",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "创建 team",
+    },
+    {
+        toolId: "disband-agent-team",
+        toolKind: "agent",
+        displayName: "解散 team",
+        requiredPermission: "project.write",
+        availability: "available",
+        unavailableReason: null,
+        description: "由主智能体物理删除当前会话中的 team 记录和成员关系，历史事件保留。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "teamId",
+            ],
+            properties: {
+                teamId: {
+                    type: "string",
+                    description: "要解散的 team ID。",
+                },
+                creatorAgentId: {
+                    type: "string",
+                    description: "调用者智能体 ID；team 管理工具只允许 main。",
+                },
+            },
+        },
+        riskLevel: "medium",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "解散 team",
+    },
+    {
+        toolId: "add-agent-team-member",
+        toolKind: "agent",
+        displayName: "添加 team 成员",
+        requiredPermission: "project.write",
+        availability: "available",
+        unavailableReason: null,
+        description: "由主智能体把启用状态的长期智能体加入当前会话 team。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "teamId",
+                "agentId",
+            ],
+            properties: {
+                teamId: {
+                    type: "string",
+                    description: "目标 team ID。",
+                },
+                agentId: {
+                    type: "string",
+                    description: "要加入的启用长期智能体 ID。",
+                },
+                role: {
+                    type: "string",
+                    description: "成员角色；缺省为 member。",
+                },
+                creatorAgentId: {
+                    type: "string",
+                    description: "调用者智能体 ID；team 管理工具只允许 main。",
+                },
+            },
+        },
+        riskLevel: "medium",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "添加 team 成员",
+    },
+    {
+        toolId: "remove-agent-team-member",
+        toolKind: "agent",
+        displayName: "移除 team 成员",
+        requiredPermission: "project.write",
+        availability: "available",
+        unavailableReason: null,
+        description: "由主智能体从当前会话 team 中移除长期智能体成员，不删除长期智能体和记忆。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "teamId",
+                "agentId",
+            ],
+            properties: {
+                teamId: {
+                    type: "string",
+                    description: "目标 team ID。",
+                },
+                agentId: {
+                    type: "string",
+                    description: "要移除的长期智能体 ID。",
+                },
+                creatorAgentId: {
+                    type: "string",
+                    description: "调用者智能体 ID；team 管理工具只允许 main。",
+                },
+            },
+        },
+        riskLevel: "medium",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "移除 team 成员",
+    },
+    {
         toolId: "builtin.mcp.call",
         toolKind: "mcp",
         displayName: "MCP 工具",
@@ -237,203 +364,3 @@ export function toModelSafeToolName(toolId: string): string {
     // safeName: OpenAI 兼容工具名不允许点号，统一替换成下划线并保留可读来源。
     return toolId.replace(/[^a-zA-Z0-9_-]/gu, "_");
 }
-
-/**
- * listAvailableModelToolSpecs：把中心服务工具能力转换为 OpenAI 工具定义。
- *
- * @returns OpenAI Chat Completions 请求可携带的工具定义列表。
- */
-export function listAvailableModelToolSpecs(): OpenAiToolSpec[] {
-    return listUnifiedToolCapabilities()
-        .filter((capability) => {
-            return capability.availability === "available";
-        })
-        .map((capability) => ({
-            name: toModelSafeToolName(capability.toolId),
-            sourceToolId: capability.toolId,
-            description: capability.description,
-            parametersJsonSchema: capability.inputSchema,
-        }));
-}
-
-/**
- * listAvailableModelToolSpecsForCenter：读取静态工具和中心目录中的 MCP 动态工具。
- *
- * @param centerDirectory 中心目录绝对路径。
- * @returns OpenAI Chat Completions 请求可携带的工具定义列表。
- */
-export async function listAvailableModelToolSpecsForCenter(centerDirectory: string | null | undefined): Promise<OpenAiToolSpec[]> {
-    const staticTools = listAvailableModelToolSpecs();
-    const dynamicMcpTools = centerDirectory
-        ? await listConfiguredMcpModelToolSpecs(centerDirectory)
-        : [];
-    return [
-        ...staticTools,
-        ...dynamicMcpTools,
-    ];
-}
-
-/**
- * appendToolVisibilityEvents：写入自动工具使用可见过程。
- *
- * @param events 事件日志仓储。
- * @param sessionId 会话 ID。
- * @param taskId 任务 ID。
- * @param turnId 轮次 ID。
- * @returns 没有返回值。
- */
-export function appendToolVisibilityEvents(
-    events: CenterEventStore,
-    sessionId: string,
-    taskId: string,
-    turnId: string,
-    graphCheckpoint?: TurnGraphCheckpoint,
-): void {
-    for (const capability of listUnifiedToolCapabilities()) {
-        if (capability.availability === "available") {
-            continue;
-        }
-        appendUnifiedToolUnavailableEvent(
-            events,
-            sessionId,
-            taskId,
-            turnId,
-            capability,
-            graphCheckpoint,
-        );
-    }
-}
-
-/**
- * appendUnifiedToolUnavailableEvent：用统一事件模型写入不可用工具状态。
- *
- * @param events 事件日志仓储。
- * @param sessionId 会话 ID。
- * @param taskId 任务 ID。
- * @param turnId 轮次 ID。
- * @param capability 工具能力。
- * @returns 没有返回值。
- */
-function appendUnifiedToolUnavailableEvent(
-    events: CenterEventStore,
-    sessionId: string,
-    taskId: string,
-    turnId: string,
-    capability: UnifiedToolCapability,
-    graphCheckpoint?: TurnGraphCheckpoint,
-): void {
-    events.append({
-        eventType: `tool.${capability.toolKind}.unavailable`,
-        scopeType: "tool",
-        scopeId: taskId,
-        sessionId,
-        turnId,
-        taskId,
-        status: "completed",
-        title: `${capability.displayName}状态`,
-        summary: `当前会话未解析到可执行${capability.displayName}，已记录为不可用状态。`,
-        payload: withOptionalGraphCheckpoint({
-            toolId: capability.toolId,
-            toolKind: capability.toolKind,
-            availability: capability.availability,
-            requiredPermission: capability.requiredPermission,
-            unavailableReason: capability.unavailableReason,
-        }, graphCheckpoint),
-    });
-}
-
-/**
- * planUnifiedToolCallForUserText：兼容旧调用方的临时入口。
- *
- * @param userText 用户输入。
- * @returns 固定返回 null，避免继续通过用户文本硬编码触发工具。
- */
-export function planUnifiedToolCallForUserText(userText: string): UnifiedToolCallIntent | null {
-    void userText;
-    return null;
-}
-
-/**
- * buildUnifiedToolCallIntentFromModelCall：把模型工具调用转换为中心服务工具意图。
- *
- * @param toolCall OpenAI 返回的结构化工具调用。
- * @returns 可执行工具意图；工具不存在或不可用时返回 null。
- */
-export function buildUnifiedToolCallIntentFromModelCall(toolCall: OpenAiToolCall): UnifiedToolCallIntent | null {
-    const dynamicMcpTool = readMcpDynamicToolName(toolCall.name);
-    if (dynamicMcpTool) {
-        return {
-            toolId: "builtin.mcp.call",
-            toolKind: "mcp",
-            inputSummary: readToolInputSummary(
-                toolCall.argumentsJson,
-                `调用 MCP ${dynamicMcpTool.serverId}.${dynamicMcpTool.toolName}`,
-            ),
-            arguments: {
-                serverId: dynamicMcpTool.serverId,
-                toolName: dynamicMcpTool.toolName,
-                arguments: toolCall.argumentsJson,
-            },
-        };
-    }
-
-    const capability = resolveUnifiedToolCapability(readInternalToolIdFromModelName(toolCall.name));
-    if (!capability || capability.availability !== "available") {
-        return null;
-    }
-
-    return {
-        toolId: capability.toolId,
-        toolKind: capability.toolKind,
-        inputSummary: readToolInputSummary(toolCall.argumentsJson, capability.displayText),
-        arguments: toolCall.argumentsJson,
-    };
-}
-
-/**
- * readInternalToolIdFromModelName：把模型返回的工具名映射回内部工具 ID。
- *
- * @param modelToolName 模型回复中的工具名。
- * @returns 中心服务内部工具 ID；无法映射时返回原值供拒绝事件记录。
- */
-function readInternalToolIdFromModelName(modelToolName: string): string {
-    const capability = listUnifiedToolCapabilities().find((item) => {
-        return toModelSafeToolName(item.toolId) === modelToolName || item.toolId === modelToolName;
-    });
-    return capability?.toolId ?? modelToolName;
-}
-
-/**
- * readToolInputSummary：从模型参数中读取工具用途摘要。
- *
- * @param argumentsJson 模型传入的工具参数。
- * @param fallbackSummary 工具默认展示文案。
- * @returns 工具用途摘要。
- */
-function readToolInputSummary(argumentsJson: Record<string, unknown>, fallbackSummary: string): string {
-    const inputSummary = argumentsJson.inputSummary;
-    return typeof inputSummary === "string" && inputSummary.trim().length > 0
-        ? inputSummary
-        : fallbackSummary;
-}
-
-export {
-    commandRequestFromUnifiedToolIntent,
-    planCommandToolForUserText,
-    runCommandTool,
-} from "./tool-runtime-command.js";
-export type {
-    CommandToolRequest,
-    CommandToolResult,
-} from "./tool-runtime-command.js";
-export {
-    listConfiguredMcpToolViews,
-    listConfiguredMcpToolViewsByServer,
-    listMcpToolViewsForServerConfig,
-    mcpRequestFromUnifiedToolIntent,
-    runMcpTool,
-} from "./tool-runtime-mcp.js";
-export type {
-    McpToolRequest,
-    McpToolResult,
-} from "./tool-runtime-mcp.js";

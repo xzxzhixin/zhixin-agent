@@ -6,16 +6,16 @@ import {
     resolve,
 } from "node:path";
 
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
 import type {
     NetworkProxyConfigFile,
     ProviderCapabilityDeclaration,
     ProviderModelContextWindow,
     ProviderProxyPolicy,
     RuntimeConfigRecord,
-} from "./types.js";
-import {writeJsonFile} from "./helpers.js";
+} from "../types.js";
+import {writeJsonFile} from "../helpers.js";
 
 // DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS: OpenAI 兼容 `/v1/models` 通常只返回模型 ID，不返回上下文窗口；需求中手填示例使用 200K，这里仅给新增模型写入可继续编辑的默认窗口。
 const DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS = 200000;

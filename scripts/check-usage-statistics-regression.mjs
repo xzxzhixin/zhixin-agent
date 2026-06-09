@@ -40,9 +40,9 @@ function assertMatches(text, pattern, message) {
   }
 }
 
-const sessionDomain = readText("services/center/src/session-domain.ts");
-const workflowDomain = readText("services/center/src/workflow-domain.ts");
-const usageDomain = readText("services/center/src/usage-domain.ts");
+const sessionDomain = readText("services/center/src/domain/session-domain.ts");
+const workflowDomain = readText("services/center/src/domain/workflow-domain.ts");
+const usageDomain = readText("services/center/src/domain/usage-domain.ts");
 const usageRoutes = readText("services/center/src/api/usage-routes.ts");
 const usageRepository = readText("services/center/src/data-access/usage-repository.ts");
 const usagePage = readText("apps/frontend/src/views/Usage/RouterIndex.vue");

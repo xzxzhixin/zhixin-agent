@@ -8,13 +8,13 @@ import type {
     UnifiedToolCapability,
 } from "@zhixin/shared";
 
-import type {CenterEventStore} from "./events.js";
-import type {OpenAiToolSpec} from "./openai-chat-protocol.js";
-import {resolveUnifiedToolCapability} from "./tool-runtime.js";
+import type {CenterEventStore} from "../events.js";
+import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
+import {resolveUnifiedToolCapability} from "./tool-capability-registry.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
-} from "./turn-graph-domain.js";
+} from "../domain/turn-graph-domain.js";
 
 /**
  * McpToolRequest：MCP 工具调用请求。

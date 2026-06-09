@@ -1,6 +1,6 @@
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
-import {SessionRepository} from "./data-access/session-repository.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
+import {SessionRepository} from "../data-access/session-repository.js";
 import {
     createTaskStep,
     recordTaskPlanRevised,

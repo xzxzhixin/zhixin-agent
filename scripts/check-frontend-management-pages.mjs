@@ -93,12 +93,22 @@ const centerProviderRoutesPath = join(
   "api",
   "provider-routes.ts",
 );
+// centerAgentRoutesPath: 智能体管理路由拆分文件路径。
+const centerAgentRoutesPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
+  "api",
+  "agent.ts",
+);
 // centerProviderDomainPath: 中心服务供应商和代理领域文件路径。
 const centerProviderDomainPath = join(
   process.cwd(),
   "services",
   "center",
   "src",
+  "domain",
   "provider-domain.ts",
 );
 // centerUsageDomainPath: 中心服务用量领域文件路径。
@@ -107,6 +117,7 @@ const centerUsageDomainPath = join(
   "services",
   "center",
   "src",
+  "domain",
   "usage-domain.ts",
 );
 // centerAgentDomainPath: 中心服务智能体领域文件路径，用于检查主智能体编辑和动态能力说明。
@@ -115,6 +126,7 @@ const centerAgentDomainPath = join(
   "services",
   "center",
   "src",
+  "domain",
   "agent-domain.ts",
 );
 // desktopShellMainPath: 桌面壳主进程源码路径，用于确认桌面壳启动新版中心服务。
@@ -252,6 +264,7 @@ const apiClient = readFileSync(
 const centerService = [
   centerServicePath,
   centerApiRoutesPath,
+  centerAgentRoutesPath,
   centerProviderRoutesPath,
   centerProviderDomainPath,
   centerUsageDomainPath,

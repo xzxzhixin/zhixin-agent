@@ -91,12 +91,14 @@ function assertRegex(source, pattern, message) {
 }
 
 const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
-const sessionDomain = readText("services/center/src/session-domain.ts");
-const sessionTurnEffects = readText("services/center/src/session-turn-effects.ts");
+const sessionDomain = readText("services/center/src/domain/session-domain.ts");
+const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
-const toolRuntime = readText("services/center/src/tool-runtime.ts");
-const providerDomain = readText("services/center/src/provider-domain.ts");
+const openAiChatProtocol = readText("services/center/src/openai-chat-protocol.ts");
+const providerRoutes = readText("services/center/src/api/provider-routes.ts");
+const toolRuntime = readText("services/center/src/tools/index.ts") + readText("services/center/src/tools/tool-capability-registry.ts");
+const providerDomain = readText("services/center/src/domain/provider-domain.ts");
 const providerPage = readText("apps/frontend/src/views/Providers/RouterIndex.vue");
 const rootPackage = readText("package.json");
 const workspace = readText("pnpm-workspace.yaml");
@@ -112,7 +114,7 @@ const protocolSearchSources = [
     modelGateway,
   ],
   [
-    "services/center/src/tool-runtime.ts",
+    "services/center/src/tools/index.ts",
     toolRuntime,
   ],
   [
@@ -261,7 +263,7 @@ assertIncludes(
   "模型网关必须使用 OpenAI tool_call_id 回填工具结果。",
 );
 assertIncludes(
-  modelGateway,
+  modelGateway + openAiChatProtocol + providerRoutes,
   "/v1/chat/completions",
   "模型网关必须以 OpenAI Chat Completions 为内部唯一规范。",
 );

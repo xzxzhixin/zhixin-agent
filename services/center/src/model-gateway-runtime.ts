@@ -28,12 +28,12 @@ import {
     readProviderConfig,
     readSecretValue,
     resolveProviderModelSelection,
-} from "./provider-domain.js";
-import {listAvailableModelToolSpecsForCenter} from "./tool-runtime.js";
+} from "./domain/provider-domain.js";
+import {listAvailableModelToolSpecsForCenter} from "./tools/index.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
-} from "./turn-graph-domain.js";
+} from "./domain/turn-graph-domain.js";
 
 /**
  * ProviderModelGatewayResult：中心服务模型网关统一返回。

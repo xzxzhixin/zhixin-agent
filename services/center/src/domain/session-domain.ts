@@ -10,17 +10,17 @@ import type {
     TaskRecord,
 } from "@zhixin/shared";
 
-import type {CenterDatabase} from "./database.js";
-import type {CenterEventStore} from "./events.js";
-import type {SendMessageResponse, TaskStepRecord} from "./types.js";
-import {SessionRepository} from "./data-access/session-repository.js";
+import type {CenterDatabase} from "../database.js";
+import type {CenterEventStore} from "../events.js";
+import type {SendMessageResponse, TaskStepRecord} from "../types.js";
+import {SessionRepository} from "../data-access/session-repository.js";
 import {
     runLangGraphTurn,
     type LangGraphTurnState,
     type TurnGraphNodeExecutors,
     type TurnGraphToolResult,
-} from "./langgraph-runner.js";
-import type {MemoryQueueState} from "./types.js";
+} from "../langgraph-runner.js";
+import type {MemoryQueueState} from "../types.js";
 import {
     appendThinkingEvents,
     handleWorkerMessage,
@@ -32,10 +32,10 @@ import {
     continueProviderModelGatewayWithToolResults,
     invokeProviderModelGateway,
     type ProviderModelGatewayResult,
-} from "./model-gateway-runtime.js";
+} from "../model-gateway-runtime.js";
 import {
     appendToolVisibilityEvents,
-} from "./tool-runtime.js";
+} from "../tools/index.js";
 import {
     commitMainAgentMemoryAfterTurn,
     executeModelRequestedTools,
