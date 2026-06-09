@@ -1027,9 +1027,13 @@ function createTurnGraphNodeExecutors(
                 database,
                 events,
                 state.sent,
-                state.userText,
-                state.assistantText,
-            );
+                    state.userText,
+                    state.assistantText,
+                );
+            const latestTurn = new SessionRepository(database).findTurn(state.turnId);
+            if (latestTurn?.status === "cancelled") {
+                return {};
+            }
             updateTurnStatus(
                 database,
                 events,

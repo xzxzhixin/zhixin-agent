@@ -9,7 +9,7 @@ import {broadcastGlobalEvent} from "../realtime.js";
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
-import {findProject, findSession, createMessageTurnAndTask} from "./session-domain.js";
+import {findProject, findSession, createMessageTurnAndTask, isFinalTaskStatus} from "./session-domain.js";
 import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "../types.js";
 import {writeJsonFile} from "../helpers.js";
@@ -829,19 +829,27 @@ export function handleWorkerMessage(
     accepted: boolean;
 } {
     if (type === "task.complete" && taskId) {
-        createDataAccess(database).sessions.updateTaskStatus(
-            taskId,
-            "completed",
-            new Date().toISOString(),
-        );
+        const task = createDataAccess(database).sessions.findTask(taskId);
+        // 任务已经被停止或失败时，后台图后续完成消息不能覆盖终态。
+        if (task && !isFinalTaskStatus(task.status)) {
+            createDataAccess(database).sessions.updateTaskStatus(
+                taskId,
+                "completed",
+                new Date().toISOString(),
+            );
+        }
     }
 
     if (type === "task.failed" && taskId) {
-        createDataAccess(database).sessions.updateTaskStatus(
-            taskId,
-            "failed",
-            new Date().toISOString(),
-        );
+        const task = createDataAccess(database).sessions.findTask(taskId);
+        // 任务已经被停止或完成时，不允许迟到失败消息覆盖事实终态。
+        if (task && !isFinalTaskStatus(task.status)) {
+            createDataAccess(database).sessions.updateTaskStatus(
+                taskId,
+                "failed",
+                new Date().toISOString(),
+            );
+        }
     }
 
     events.append({

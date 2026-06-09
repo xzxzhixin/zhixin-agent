@@ -119,6 +119,12 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-chat-stop-websocket-token-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-center-src-organization-and-team.mjs",
     ],
   ],

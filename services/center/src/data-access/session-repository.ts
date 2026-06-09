@@ -619,6 +619,39 @@ export class SessionRepository {
     }
 
     /**
+     * updateRunningTaskStepsByTurn：取消当前轮次仍在运行的任务步骤。
+     *
+     * @param input 轮次 ID、取消时间和摘要。
+     * @returns 被更新的步骤数量。
+     */
+    updateRunningTaskStepsByTurn(input: {
+        turnId: string;
+        endedAt: string;
+        summary: string;
+    }): number {
+        const result = this.database.connection()
+            .prepare(`
+                UPDATE task_steps
+                SET status = ?,
+                    ended_at = ?,
+                    summary = ?
+                WHERE task_id IN (
+                    SELECT id
+                    FROM tasks
+                    WHERE turn_id = ?
+                )
+                  AND status IN ('queued', 'running', 'waiting_user')
+            `)
+            .run(
+                "cancelled",
+                input.endedAt,
+                input.summary,
+                input.turnId,
+            );
+        return Number(result.changes);
+    }
+
+    /**
      * updateTaskStatus：更新任务状态。
      *
      * @param taskId 任务 ID。

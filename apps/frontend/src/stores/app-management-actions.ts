@@ -480,8 +480,22 @@ export function createManagementActions() {
          * @returns 没有返回值。
          */
         async updateComposerContextUsage(): Promise<void> {
+            const activeTurnId = this.sessionDetail?.turns.findLast((turn) => {
+                return turn.endedAt === null
+                    || turn.status === "running"
+                    || turn.status === "waiting_user";
+            })?.turnId ?? this.sessionDetail?.turns.at(-1)?.turnId ?? null;
+            const contextUsageWindowKey = JSON.stringify({
+                sessionId: this.activeSessionId,
+                turnId: activeTurnId,
+                draftTitle: this.pendingSessionDraft?.title ?? null,
+                modelId: this.composerSettings.selectedModel,
+                messageCount: this.sessionDetail?.messages.length ?? 0,
+                eventCount: this.events.length,
+            });
             const usageKey = JSON.stringify({
                 sessionId: this.activeSessionId,
+                turnId: activeTurnId,
                 modelId: this.composerSettings.selectedModel,
                 windowLimitTokens: this.composerSelectedModelContextWindowTokens,
                 messageCount: this.sessionDetail?.messages.length ?? 0,
@@ -492,8 +506,10 @@ export function createManagementActions() {
             }
 
             this.composerContextUsageState.lastComposerContextUsageKey = usageKey;
+            this.composerContextUsageState.contextUsageWindowKey = contextUsageWindowKey;
             this.composerContextUsageState.composerContextUsageRequestSerial += 1;
             const requestSerial = this.composerContextUsageState.composerContextUsageRequestSerial;
+            const requestWindowKey = contextUsageWindowKey;
             const result = await this.requireRealtimeRequest<{
                 /** usedTokens: 当前窗口已用 token 数。 */
                 usedTokens: number;
@@ -501,15 +517,23 @@ export function createManagementActions() {
                 tokenizerName: string;
                 /** source: token 统计来源。 */
                 source: "built-in" | "external" | "fallback";
+                /** windowKey: 中心服务回显的当前窗口统计键。 */
+                windowKey: string;
             }>("tokenizer.count", {
                 sessionId: this.activeSessionId,
+                turnId: activeTurnId,
                 draftText: "",
                 referenceSummaries: [],
                 attachmentSummaries: [],
                 modelId: this.composerSettings.selectedModel,
                 windowLimitTokens: this.composerSelectedModelContextWindowTokens,
+                windowKey: requestWindowKey,
             });
             if (requestSerial !== this.composerContextUsageState.composerContextUsageRequestSerial) {
+                return;
+            }
+            if (requestWindowKey !== this.composerContextUsageState.contextUsageWindowKey
+                || result.windowKey !== requestWindowKey) {
                 return;
             }
             this.composerSettings.contextUsedTokens = result.usedTokens;

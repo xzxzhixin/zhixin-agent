@@ -620,6 +620,8 @@ export interface ComposerContextUsageState {
     composerContextUsageTimer: number | null;
     /** lastComposerContextUsageKey: 最近一次已经发送到中心服务的统计请求签名。 */
     lastComposerContextUsageKey: string;
+    /** contextUsageWindowKey: 当前 token 统计所属窗口键，组合会话、轮次、草稿和模型信息。 */
+    contextUsageWindowKey: string;
     /** composerContextUsageRequestSerial: 统计请求递增序号，用于忽略较早返回的旧响应。 */
     composerContextUsageRequestSerial: number;
 }

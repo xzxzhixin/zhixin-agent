@@ -37,6 +37,9 @@ import {
     submitGuidanceForActiveTask,
 } from "../domain/session-domain.js";
 import {
+    cancelActiveConversationTurn,
+} from "../domain/session-cancel-domain.js";
+import {
     listProviderConfigs,
     listRegisteredModelProtocolPlugins,
     readProviderModelList,
@@ -243,13 +246,21 @@ function handleRealtimeRequest(input: {
             return;
         }
         if (input.envelope.type === "tokenizer.count") {
+            const payload = input.envelope.payload as {
+                /** windowKey: 前端当前对话窗口统计键，用于响应归属校验。 */
+                windowKey?: string;
+            };
+            const tokenizerResult = countTokenizerFromRealtime(
+                input.database,
+                input.envelope.payload,
+            );
             sendSocketEnvelope(input.socket, {
                 type: "tokenizer.count",
                 requestId: input.envelope.requestId,
-                payload: countTokenizerFromRealtime(
-                    input.database,
-                    input.envelope.payload,
-                ),
+                payload: {
+                    ...tokenizerResult,
+                    windowKey: payload.windowKey ?? "",
+                },
             });
             return;
         }
@@ -348,6 +359,63 @@ function handleRealtimeRequest(input: {
                         contentMarkdown?: string;
                     },
                 ),
+            });
+            return;
+        }
+        if (input.envelope.type === "session.turn.cancel") {
+            const payload = input.envelope.payload as {
+                /** sessionId: 当前会话 ID。 */
+                sessionId?: string;
+                /** reason: 用户点击停止时的可审计原因。 */
+                reason?: string;
+            };
+            const sessionId = payload.sessionId ?? "";
+            const session = findSession(
+                input.database,
+                sessionId,
+            );
+            if (!session) {
+                sendRealtimeError(
+                    input.socket,
+                    input.envelope.requestId,
+                    "SESSION_NOT_FOUND",
+                    "未找到要停止的会话。",
+                );
+                return;
+            }
+            const beforeSequence = listEvents(input.database, {
+                sessionId,
+                turnId: null,
+                afterSequence: 0,
+            }).at(-1)?.sequence ?? 0;
+            const cancelled = cancelActiveConversationTurn(
+                input.database,
+                input.events,
+                {
+                    sessionId,
+                    reason: payload.reason ?? "用户点击停止当前执行。",
+                },
+            );
+            const appendedEvents = listEvents(input.database, {
+                sessionId,
+                turnId: cancelled?.turnId ?? null,
+                afterSequence: beforeSequence,
+            });
+            broadcastEvents(
+                input.realtimeClients,
+                session,
+                appendedEvents,
+            );
+            sendSocketEnvelope(input.socket, {
+                type: "session.turn.cancelled",
+                requestId: input.envelope.requestId,
+                payload: cancelled ?? {
+                    sessionId,
+                    turnId: null,
+                    taskId: null,
+                    status: "idle",
+                    cancelledStepCount: 0,
+                },
             });
             return;
         }

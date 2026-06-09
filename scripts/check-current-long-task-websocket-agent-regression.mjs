@@ -206,6 +206,7 @@ assertIncludes(
 );
 for (const forbiddenRest of [
   "this.api().getSessionDetail(",
+  "this.api().listSessions(",
   "this.api().listSessionEvents(",
   "this.api().sendSessionMessage(",
   "this.api().commitSessionAttachment(",

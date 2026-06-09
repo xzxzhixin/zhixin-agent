@@ -318,6 +318,7 @@ export const useAppStore = defineStore("app", {
         composerContextUsageState: {
             composerContextUsageTimer: null,
             lastComposerContextUsageKey: "",
+            contextUsageWindowKey: "",
             composerContextUsageRequestSerial: 0,
         } as ComposerContextUsageState,
 
@@ -783,7 +784,12 @@ export const useAppStore = defineStore("app", {
          * @returns 加载完成后没有返回值。
          */
         async loadSessions(): Promise<void> {
-            const result = await this.api().listSessions({
+            const result = await this.requireRealtimeRequest<{
+                /** sessions: 当前入口可见会话列表。 */
+                sessions: ConversationSession[];
+                /** projects: 导航快照中的项目列表；本函数不消费该字段。 */
+                projects: ProjectRecord[];
+            }>("navigation.snapshot", {
                 sessionType: this.runtime.entryMode === "plugin-compact" ? "project" : undefined,
                 projectId: this.runtime.entryMode === "plugin-compact"
                     ? this.runtime.projectContext?.projectId ?? null
@@ -970,6 +976,7 @@ export const useAppStore = defineStore("app", {
             this.activeSessionId = null;
             this.sessionDetail = null;
             this.events = [];
+            this.resetComposerContextUsageForWindow();
         },
 
         /**
@@ -1002,6 +1009,7 @@ export const useAppStore = defineStore("app", {
             this.activeSessionId = null;
             this.sessionDetail = null;
             this.events = [];
+            this.resetComposerContextUsageForWindow();
         },
 
         /**
@@ -1131,6 +1139,7 @@ export const useAppStore = defineStore("app", {
                     this.sessionDetail = null;
                     this.events = [];
                     this.pendingSessionDraft = null;
+                    this.resetComposerContextUsageForWindow();
                 }
                 await this.loadNavigationData();
                 if (this.activeSessionId) {
@@ -1172,6 +1181,20 @@ export const useAppStore = defineStore("app", {
             } catch {
                 // 用户取消删除时不写错误，避免取消路径被误判为删除失败。
             }
+        },
+
+        /**
+         * resetComposerContextUsageForWindow：重置当前对话窗口 token 展示并作废旧响应。
+         *
+         * @returns 没有返回值。
+         */
+        resetComposerContextUsageForWindow(): void {
+            this.composerSettings.contextUsedTokens = 0;
+            this.composerSettings.contextTokenizerName = "";
+            this.composerSettings.contextTokenizerSource = "";
+            this.composerContextUsageState.lastComposerContextUsageKey = "";
+            this.composerContextUsageState.contextUsageWindowKey = "";
+            this.composerContextUsageState.composerContextUsageRequestSerial += 1;
         },
 
         /**
@@ -1241,6 +1264,7 @@ export const useAppStore = defineStore("app", {
             // session: 发送成功前只作为本次 sendMessage 的目标 ID；可见历史列表必须等消息落库后由 loadNavigationData 刷新。
             this.pendingSessionDraft = null;
             this.activeSessionId = session.sessionId;
+            this.resetComposerContextUsageForWindow();
             this.ensureProjectTreeExpandedState();
             return session.sessionId;
         },

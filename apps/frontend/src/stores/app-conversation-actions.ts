@@ -59,6 +59,7 @@ export function createConversationActions() {
             this.events = [];
             this.pendingSessionDraft = null;
             this.composerEditFiles = [];
+            this.resetComposerContextUsageForWindow();
         },
 
         /**
@@ -202,8 +203,26 @@ export function createConversationActions() {
          * @returns 没有返回值。
          */
         async stopActiveConversationTurn(): Promise<void> {
-            // 当前中心服务取消接口只暴露 Worker task 级入口；会话轮次取消协议接入前，前端必须给出明确可见反馈。
-            this.lastError = "停止当前执行的中心服务接口待接入。";
+            if (!this.activeSessionId) {
+                return;
+            }
+            await this.requireRealtimeRequest<{
+                /** sessionId: 被停止的当前会话 ID。 */
+                sessionId: string;
+                /** turnId: 被停止的当前运行轮次 ID；没有运行轮次时为 null。 */
+                turnId: string | null;
+                /** taskId: 被停止的当前任务 ID；没有运行任务时为 null。 */
+                taskId: string | null;
+                /** status: 停止后的状态。 */
+                status: "cancelled" | "idle";
+                /** cancelledStepCount: 本次同步取消的运行中步骤数量。 */
+                cancelledStepCount: number;
+            }>("session.turn.cancel", {
+                sessionId: this.activeSessionId,
+                reason: "用户点击停止当前执行。",
+            });
+            await this.loadActiveSessionSnapshot();
+            await this.updateComposerContextUsageFromExecution();
         },
 
         /**
@@ -479,6 +498,9 @@ export function createConversationActions() {
                 onMessage: (message) => {
                     if (message.type === "event.appended") {
                         const event = message.payload as EventRecord;
+                        if (event.sessionId !== this.activeSessionId) {
+                            return;
+                        }
                         this.events.push(event);
                         this.events.sort((left: EventRecord, right: EventRecord) => {
                             return left.sequence - right.sequence;

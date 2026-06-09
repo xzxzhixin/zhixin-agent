@@ -182,6 +182,7 @@ function stopNavigationAction(event: MouseEvent): void {
  */
 function selectSession(sessionId: string): void {
   appStore.activeSessionId = sessionId;
+  appStore.resetComposerContextUsageForWindow();
   void appStore.loadActiveSessionDetail();
 }
 

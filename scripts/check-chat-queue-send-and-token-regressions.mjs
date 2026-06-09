@@ -51,6 +51,10 @@ const architectureDoc = readText("架构.md");
 const planDoc = readText("计划.md");
 // chatView: 对话页源码，承载输入区、排队提示和按钮状态。
 const chatView = readText("apps/frontend/src/views/Chat/RouterIndex.vue");
+// chatPanel: 对话内容组件，承载拆分后的输入区、排队提示和按钮状态。
+const chatPanel = readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
+// composerContextUsage: 输入区 token 展示组合逻辑。
+const composerContextUsage = readText("apps/frontend/src/views/Chat/useComposerContextUsage.ts");
 // conversationActions: 对话发送 action，承载运行中发送排队逻辑。
 const conversationActions = readText("apps/frontend/src/stores/app-conversation-actions.ts");
 // managementActions: 管理 action，包含上下文 token 统计调度。
@@ -116,52 +120,62 @@ assertIncludes(
   "对话 action 必须提供排队消息转引导并移除的方法。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel,
   "pending-guidance-queue",
   "对话页输入区顶部必须渲染排队消息区域。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel,
   "submitQueuedMessageAsGuidance(message.queuedMessageId)",
   "排队消息引导按钮必须调用移除并引导发送方法。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel,
   "handleComposerEnterSend",
   "Enter 发送必须经过运行中入队判断，而不是直接调用 sendDraft。",
 );
 assertNotIncludes(
-  chatView,
+  chatView + chatPanel,
   "@keyup.enter.exact.prevent=\"chatConversation.sendDraftForConversation\"",
   "输入框 Enter 不能直接调用发送，应在运行中进入排队消息。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel,
   "composerPrimaryButtonText",
   "发送按钮必须由运行状态计算为发送或停止。",
 );
 assertIncludes(
-  chatView,
-  "turn.status === \"queued\" || turn.status === \"running\" || turn.status === \"waiting_user\"",
-  "停止态必须覆盖 queued、running 和 waiting_user 三类未结束轮次。",
+  chatView + chatPanel,
+  "turn.status === \"queued\"",
+  "停止态必须覆盖 queued 未结束轮次。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel,
+  "turn.status === \"running\"",
+  "停止态必须覆盖 running 未结束轮次。",
+);
+assertIncludes(
+  chatView + chatPanel,
+  "turn.status === \"waiting_user\"",
+  "停止态必须覆盖 waiting_user 未结束轮次。",
+);
+assertIncludes(
+  chatView + chatPanel,
   "停止",
   "发送按钮执行中必须显示停止。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel,
   "composerContextPercentText",
   "token 外显必须使用独立百分比文本，不能继续展示长明细。",
 );
 assertIncludes(
-  chatView,
-  "composer-context-ring",
+  chatView + chatPanel,
+  "composer-context-progress",
   "token 外显必须提供进度圈节点。",
 );
 assertIncludes(
-  chatView,
+  chatView + chatPanel + composerContextUsage,
   "usedTokens > 0",
   "0 token 必须显示为 0，不能被格式化成未配置窗口。",
 );
@@ -182,7 +196,12 @@ assertIncludes(
 );
 assertIncludes(
   managementActions,
-  "scheduleComposerContextUsageUpdate(): void {\n            // 用户输入阶段不进行 token 统计",
+  "scheduleComposerContextUsageUpdate(): void",
+  "输入阶段 token 调度必须保留兼容方法。",
+);
+assertIncludes(
+  managementActions,
+  "用户输入阶段不进行 token 统计",
   "输入阶段 token 调度必须直接跳过并写明原因。",
 );
 assertNotIncludes(

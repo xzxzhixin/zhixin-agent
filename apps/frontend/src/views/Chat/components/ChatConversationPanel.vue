@@ -253,7 +253,8 @@ const activeRunningTurn = computed(() => {
   }
   return [...turns.value].reverse().find((turn) => {
     return turn.endedAt === null && (
-      turn.status === "running"
+      turn.status === "queued"
+      || turn.status === "running"
       || turn.status === "waiting_user"
     );
   }) ?? null;
