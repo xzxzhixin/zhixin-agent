@@ -156,6 +156,7 @@ export function listEvents(
     filter: {
         sessionId: string | null;
         turnId: string | null;
+        agentId?: string | null;
         afterSequence: number;
     },
 ): EventRecord[] {

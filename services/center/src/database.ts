@@ -405,6 +405,12 @@ export class CenterDatabase {
                 TEXT
                 NOT
                 NULL,
+                agent_id
+                TEXT
+                NOT
+                NULL
+                DEFAULT
+                'main',
                 status
                 TEXT
                 NOT
@@ -725,6 +731,53 @@ export class CenterDatabase {
                 NULL
             );
 
+            CREATE TABLE IF NOT EXISTS conversation_token_usage
+            (
+                session_id
+                TEXT
+                NOT
+                NULL,
+                agent_id
+                TEXT
+                NOT
+                NULL,
+                turn_id
+                TEXT,
+                used_tokens
+                INTEGER
+                NOT
+                NULL,
+                window_limit_tokens
+                INTEGER
+                NOT
+                NULL,
+                usage_percent
+                REAL
+                NOT
+                NULL,
+                tokenizer_name
+                TEXT
+                NOT
+                NULL,
+                tokenizer_source
+                TEXT
+                NOT
+                NULL,
+                model_id
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL,
+                PRIMARY KEY
+                (
+                    session_id,
+                    agent_id
+                )
+            );
+
             CREATE TABLE IF NOT EXISTS todos
             (
                 id
@@ -979,6 +1032,17 @@ export class CenterDatabase {
         });
         if (!hasUsageSessionId) {
             db.exec("ALTER TABLE usage_records ADD COLUMN session_id TEXT");
+        }
+
+        // tasks.agent_id: 智能体 todoList 需要按会话和智能体恢复；旧开发库没有该列时补为主智能体 main，避免历史主对话任务丢失。
+        const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as Array<{
+            name: string;
+        }>;
+        const hasTaskAgentId = taskColumns.some((column) => {
+            return column.name === "agent_id";
+        });
+        if (!hasTaskAgentId) {
+            db.exec("ALTER TABLE tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'main'");
         }
 
         // meta.centerDirectory: 模型网关需要从 SQLite 侧读取中心目录以访问 providers 和 secrets；每次初始化都按启动配置刷新，支持用户切换中心目录后继续使用同一数据库文件。

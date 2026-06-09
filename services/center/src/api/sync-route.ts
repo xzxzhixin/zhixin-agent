@@ -32,7 +32,9 @@ import {
     listEvents,
     listMessages,
     listTaskSteps,
+    listTaskStepsByAgent,
     listTasks,
+    listTasksByAgent,
     listTurns,
     submitGuidanceForActiveTask,
 } from "../domain/session-domain.js";
@@ -626,6 +628,10 @@ function countTokenizerFromRealtime(
     const body = payload as {
         /** sessionId: 当前会话 ID；草稿未绑定会话时为 null。 */
         sessionId?: string | null;
+        /** turnId: 当前统计关联轮次；没有轮次时为 null。 */
+        turnId?: string | null;
+        /** agentId: 当前统计所属智能体；主智能体固定为 main。 */
+        agentId?: string;
         /** draftText: 当前草稿文本；执行期统计通常为空字符串。 */
         draftText?: string;
         /** referenceSummaries: 当前引用摘要。 */
@@ -642,6 +648,8 @@ function countTokenizerFromRealtime(
         database,
         {
             sessionId: body.sessionId ?? null,
+            turnId: body.turnId ?? null,
+            agentId: body.agentId ?? "main",
             draftText: body.draftText ?? "",
             referenceSummaries: Array.isArray(body.referenceSummaries)
                 ? body.referenceSummaries
@@ -712,13 +720,22 @@ function buildSessionSnapshot(
     if (!session) {
         throw new Error("SESSION_NOT_FOUND");
     }
+    const messages = listMessages(database, session.sessionId);
+    const lastAssistantMessage = [...messages].reverse().find((message) => {
+        return message.role === "assistant";
+    });
     return {
         detail: {
             session,
-            messages: listMessages(database, session.sessionId),
+            messages,
             turns: listTurns(database, session.sessionId),
             tasks: listTasks(database, session.sessionId),
             taskSteps: listTaskSteps(database, session.sessionId),
+            tokenUsage: createDataAccess(database).tokenizer.findConversationTokenUsage(
+                session.sessionId,
+                "main",
+            ),
+            lastAssistantMessageCreatedAt: lastAssistantMessage?.createdAt ?? null,
         },
         events: listEvents(database, {
             sessionId: session.sessionId,
@@ -1135,14 +1152,39 @@ function readAgentSubConversationFromRealtime(
     if (validation) {
         throw new Error("AGENT_SUB_CONVERSATION_INVALID");
     }
+    const parentSessionId = body.parentSessionId ?? "";
+    const agentId = body.agentId ?? "";
     return {
-        parentSessionId: body.parentSessionId ?? "",
-        agentId: body.agentId ?? "",
-        agentName: body.agentName ?? body.agentId ?? "",
+        parentSessionId,
+        agentId,
+        agentName: body.agentName ?? agentId,
         messages: listAgentSubConversationMessages(
             new AgentEditRepository(database),
-            body.parentSessionId ?? "",
-            body.agentId ?? "",
+            parentSessionId,
+            agentId,
+        ),
+        tasks: listTasksByAgent(
+            database,
+            parentSessionId,
+            agentId,
+        ),
+        taskSteps: listTaskStepsByAgent(
+            database,
+            parentSessionId,
+            agentId,
+        ),
+        events: listEvents(
+            database,
+            {
+                sessionId: parentSessionId,
+                turnId: null,
+                agentId,
+                afterSequence: 0,
+            },
+        ),
+        tokenUsage: createDataAccess(database).tokenizer.findConversationTokenUsage(
+            parentSessionId,
+            agentId,
         ),
     };
 }
@@ -1212,16 +1254,14 @@ function sendAgentSubConversationFromRealtime(
             agentId: message.agentId,
         },
     });
-    return {
-        parentSessionId: message.parentSessionId,
-        agentId: message.agentId,
-        agentName: body.agentName ?? message.agentId,
-        messages: listAgentSubConversationMessages(
-            repository,
-            message.parentSessionId,
-            message.agentId,
-        ),
-    };
+    return readAgentSubConversationFromRealtime(
+        database,
+        {
+            parentSessionId: message.parentSessionId,
+            agentId: message.agentId,
+            agentName: body.agentName ?? message.agentId,
+        },
+    );
 }
 
 /**

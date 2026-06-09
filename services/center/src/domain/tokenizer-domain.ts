@@ -6,6 +6,7 @@ import type {
 
 import type {CenterDatabase} from "../database.js";
 import {createDataAccess} from "../data-access/index.js";
+import type {ConversationTokenUsageSnapshot} from "../types.js";
 
 /**
  * BuiltInTokenizerAdapter：中心服务内置自研 tokenizer 适配器。
@@ -107,15 +108,29 @@ export function countComposerContextTokens(
     database: CenterDatabase,
     request: {
         sessionId: string | null;
+        turnId: string | null;
+        agentId: string;
         draftText: string;
         referenceSummaries: string[];
         attachmentSummaries: string[];
         modelId: string;
         windowLimitTokens: number;
     },
-): TokenizerCountResponse {
+): TokenizerCountResponse & {
+    /** tokenUsage: 保存后的当前窗口 token 用量快照；草稿无会话时为 null。 */
+    tokenUsage: ConversationTokenUsageSnapshot | null;
+} {
+    const dataAccess = createDataAccess(database);
+    const normalizedAgentId = request.agentId.trim().length > 0
+        ? request.agentId
+        : "main";
     const messages = request.sessionId
-        ? createDataAccess(database).tokenizer.listMessagesForContext(request.sessionId)
+        ? normalizedAgentId === "main"
+            ? dataAccess.tokenizer.listMessagesForContext(request.sessionId)
+            : dataAccess.tokenizer.listAgentMessagesForContext(
+                request.sessionId,
+                normalizedAgentId,
+            )
         : [];
     const adapter = new BuiltInTokenizerAdapter();
     // currentMessageSegments: 当前窗口总量只在调用方显式传入草稿时统计；输入框展示的响应期总览传空草稿，因此不把未发送文本计入。
@@ -129,7 +144,7 @@ export function countComposerContextTokens(
         ]
         : [];
 
-    return adapter.count({
+    const result = adapter.count({
         modelId: request.modelId || "未选择模型",
         inputRange: "composer-window",
         windowLimitTokens: request.windowLimitTokens,
@@ -168,4 +183,25 @@ export function countComposerContextTokens(
             },
         ],
     });
+    const tokenUsage = request.sessionId
+        ? dataAccess.tokenizer.saveConversationTokenUsage({
+            sessionId: request.sessionId,
+            turnId: request.turnId,
+            agentId: normalizedAgentId,
+            usedTokens: result.usedTokens,
+            windowLimitTokens: result.windowLimitTokens,
+            usagePercent: result.windowLimitTokens > 0
+                ? (result.usedTokens / result.windowLimitTokens) * 100
+                : 0,
+            tokenizerName: result.tokenizerName,
+            tokenizerSource: result.source,
+            modelId: result.modelId,
+            updatedAt: new Date().toISOString(),
+        })
+        : null;
+
+    return {
+        ...result,
+        tokenUsage,
+    };
 }

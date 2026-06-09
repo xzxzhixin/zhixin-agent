@@ -3,7 +3,8 @@
  */
 export type AgentToolName =
     | "create-long-term-agent"
-    | "create-sub-agent";
+    | "create-sub-agent"
+    | "todo-list";
 
 /**
  * AgentKind：智能体执行类类型。
@@ -80,23 +81,23 @@ export abstract class BaseAgent {
     }
 
     /**
-     * canCreateTodoList：判断当前智能体是否允许创建长任务 todoList。
+     * canUseTodoListTool：判断当前智能体是否允许使用 todoList 工具。
      *
-     * @returns 主智能体和长期智能体允许创建，子智能体禁止创建。
+     * @returns 智能体具备 todo-list 工具权限时返回 true。
      */
-    canCreateTodoList(): boolean {
-        return this.getAgentKind() !== "sub";
+    canUseTodoListTool(): boolean {
+        return this.getCreationTools().includes("todo-list");
     }
 
     /**
      * shouldCreateTodoListForTask：判断当前任务是否需要创建 todoList。
      *
      * @param input 当前任务摘要和计划步骤数量。
-     * @returns 只有非子智能体且任务被拆成多个步骤时返回 true。
+     * @returns 具备 todoList 工具权限且任务被拆成多个步骤时返回 true。
      */
     shouldCreateTodoListForTask(input: TodoListCreationInput): boolean {
         // 长任务拆解才需要 todoList；简单任务直接执行，避免无意义地膨胀任务状态。
-        return this.canCreateTodoList()
+        return this.canUseTodoListTool()
             && input.plannedStepCount > 1;
     }
 }

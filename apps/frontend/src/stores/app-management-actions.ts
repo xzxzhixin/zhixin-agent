@@ -1,5 +1,6 @@
 import type {
     AgentConfigView,
+    ConversationTokenUsageView,
     McpConfigView,
     PluginConfigView,
     ProviderConfigView,
@@ -522,6 +523,8 @@ export function createManagementActions() {
                 source: "built-in" | "external" | "fallback";
                 /** windowKey: 中心服务回显的当前窗口统计键。 */
                 windowKey: string;
+                /** tokenUsage: 中心服务数据库保存后的当前窗口 token 快照。 */
+                tokenUsage: ConversationTokenUsageView | null;
             }>("tokenizer.count", {
                 sessionId: this.activeSessionId,
                 turnId: activeTurnId,
@@ -543,6 +546,7 @@ export function createManagementActions() {
             this.composerSettings.contextUsedTokens = result.usedTokens;
             this.composerSettings.contextTokenizerName = result.tokenizerName;
             this.composerSettings.contextTokenizerSource = result.source;
+            this.applyPersistedTokenUsage(result.tokenUsage);
         },
 
         /**

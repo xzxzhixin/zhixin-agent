@@ -187,12 +187,21 @@ export function registerSessionRoutes(context: CenterApiRouteContext): void {
                 );
             }
     
+            const messages = listMessages(database, session.sessionId);
+            const lastAssistantMessage = [...messages].reverse().find((message) => {
+                return message.role === "assistant";
+            });
             return createSuccessResponse<SessionDetailResponse>({
                 session,
-                messages: listMessages(database, session.sessionId),
+                messages,
                 turns: listTurns(database, session.sessionId),
                 tasks: listTasks(database, session.sessionId),
                 taskSteps: listTaskSteps(database, session.sessionId),
+                tokenUsage: createDataAccess(database).tokenizer.findConversationTokenUsage(
+                    session.sessionId,
+                    "main",
+                ),
+                lastAssistantMessageCreatedAt: lastAssistantMessage?.createdAt ?? null,
             });
         });
 

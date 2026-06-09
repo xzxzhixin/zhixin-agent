@@ -54,6 +54,8 @@ export const tasksTable = sqliteTable("tasks", {
     turnId: text("turn_id").notNull(),
     /** sessionId: 所属会话 ID。 */
     sessionId: text("session_id").notNull(),
+    /** agentId: 所属智能体 ID，主智能体固定为 main。 */
+    agentId: text("agent_id").notNull().default("main"),
     /** status: 任务状态。 */
     status: text("status").notNull(),
     /** title: 任务标题。 */

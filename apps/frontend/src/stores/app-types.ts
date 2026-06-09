@@ -601,7 +601,7 @@ export interface ComposerSettings {
     /** contextTokenizerName: 当前上下文统计使用的 tokenizer 名称。 */
     contextTokenizerName: string;
     /** contextTokenizerSource: tokenizer 来源，来自中心服务统计响应。 */
-    contextTokenizerSource: "built-in" | "external" | "";
+    contextTokenizerSource: "built-in" | "external" | "fallback" | "";
     /** reasoningEffort: 推理深度协议值。 */
     reasoningEffort: "low" | "medium" | "high" | "xhigh";
 }
@@ -624,6 +624,26 @@ export interface ComposerContextUsageState {
     contextUsageWindowKey: string;
     /** composerContextUsageRequestSerial: 统计请求递增序号，用于忽略较早返回的旧响应。 */
     composerContextUsageRequestSerial: number;
+}
+
+/**
+ * RunningTurnSnapshotRecoveryState：运行中轮次快照恢复状态。
+ *
+ * 来源：前端本地实时同步兜底。
+ * 含义：当 WebSocket 后半段事件漏收或快照刷新竞态时，按当前会话短轮询数据库快照恢复最终回复。
+ * 格式：定时器 ID、会话 ID、轮次 ID 和尝试次数。
+ * 默认值：timer 为 null，其余身份为空。
+ * 约束：只在当前会话存在运行中轮次时启用，中心服务数据库仍是事实源。
+ */
+export interface RunningTurnSnapshotRecoveryState {
+    /** recoveryTimer: 浏览器 setTimeout 返回的定时器 ID；没有轮询时为 null。 */
+    recoveryTimer: number | null;
+    /** sessionId: 当前恢复目标会话 ID。 */
+    sessionId: string | null;
+    /** turnId: 当前恢复目标轮次 ID。 */
+    turnId: string | null;
+    /** attempts: 已轮询次数，用于限制兜底轮询生命周期。 */
+    attempts: number;
 }
 
 /**

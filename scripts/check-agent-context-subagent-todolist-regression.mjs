@@ -94,8 +94,8 @@ assertIncludes(
 );
 assertIncludes(
   requirementDoc,
-  "子智能体不能创建 todoList",
-  "需求.md 必须明确子智能体不能创建 todoList。",
+  "所有智能体都可以在长任务拆解或任务执行需要时维护自己的 todoList",
+  "需求.md 必须明确所有智能体按权限维护自己的 todoList。",
 );
 assertIncludes(
   architectureDoc,
@@ -167,8 +167,8 @@ assertIncludes(
 
 assertIncludes(
   baseAgent,
-  "canCreateTodoList",
-  "智能体基类必须暴露 todoList 创建权限边界。",
+  "canUseTodoListTool",
+  "智能体基类必须按工具权限暴露 todoList 使用边界。",
 );
 assertIncludes(
   baseAgent,

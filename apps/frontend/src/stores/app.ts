@@ -98,6 +98,7 @@ import type {
     RuntimeDraft,
     SkillDraft,
     ComposerContextUsageState,
+    RunningTurnSnapshotRecoveryState,
     QueuedComposerMessage,
 } from "./app-types";
 
@@ -329,6 +330,19 @@ export const useAppStore = defineStore("app", {
             contextUsageWindowKey: "",
             composerContextUsageRequestSerial: 0,
         } as ComposerContextUsageState,
+
+        /**
+         * runningTurnSnapshotRecovery: 运行中轮次快照恢复兜底状态。
+         *
+         * 来源：当前会话发送后本地调度。
+         * 默认值：无恢复目标，避免空闲会话产生轮询。
+         */
+        runningTurnSnapshotRecovery: {
+            recoveryTimer: null,
+            sessionId: null,
+            turnId: null,
+            attempts: 0,
+        } as RunningTurnSnapshotRecoveryState,
 
         /**
          * projectReferenceQuery: 输入框内 @ 后面的检索词。
@@ -1197,12 +1211,29 @@ export const useAppStore = defineStore("app", {
          * @returns 没有返回值。
          */
         resetComposerContextUsageForWindow(): void {
-            this.composerSettings.contextUsedTokens = 0;
-            this.composerSettings.contextTokenizerName = "";
-            this.composerSettings.contextTokenizerSource = "";
             this.composerContextUsageState.lastComposerContextUsageKey = "";
             this.composerContextUsageState.contextUsageWindowKey = "";
             this.composerContextUsageState.composerContextUsageRequestSerial += 1;
+        },
+
+        /**
+         * applyPersistedTokenUsage：应用中心服务数据库返回的 token 用量快照。
+         *
+         * @param tokenUsage 当前会话当前智能体 token 用量快照。
+         * @returns 没有返回值。
+         */
+        applyPersistedTokenUsage(tokenUsage: SessionDetailResult["tokenUsage"]): void {
+            if (!tokenUsage) {
+                return;
+            }
+            // tokenUsage: 只恢复当前窗口对应智能体的数据库事实，避免旧会话快照覆盖当前 UI。
+            if (tokenUsage.sessionId !== this.activeSessionId) {
+                return;
+            }
+            this.activeConversationAgentId = tokenUsage.agentId;
+            this.composerSettings.contextUsedTokens = tokenUsage.usedTokens;
+            this.composerSettings.contextTokenizerName = tokenUsage.tokenizerName;
+            this.composerSettings.contextTokenizerSource = tokenUsage.tokenizerSource;
         },
 
         /**
@@ -1235,6 +1266,8 @@ export const useAppStore = defineStore("app", {
                 sessionId: this.activeSessionId,
             });
             this.sessionDetail = snapshot.detail;
+            this.activeConversationAgentId = "main";
+            this.applyPersistedTokenUsage(snapshot.detail.tokenUsage);
             this.events = [
                 ...snapshot.events,
             ].sort((left: EventRecord, right: EventRecord) => {

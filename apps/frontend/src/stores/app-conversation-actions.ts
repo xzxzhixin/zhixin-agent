@@ -15,6 +15,82 @@ import type {
     EventRecord,
     PendingEditRecord,
 } from "@zhixin/shared";
+
+/**
+ * TaskUpdatedPayload：中心服务 task.updated 事件和专项 WebSocket 包的载荷。
+ *
+ * 来源：中心服务 `task.updated` 事件 payload。
+ * 含义：描述任务所属会话、任务和最新状态。
+ * 格式：JSON 对象。
+ * 默认值：无；字段缺失时只能按无归属处理，不能猜测其他候选字段。
+ * 约束：`status` 是任务完成判断的事实字段，不能读取 EventRecord 上不存在的 `status`。
+ */
+interface TaskUpdatedPayload {
+    /** sessionId：任务所属会话 ID，专项包可能缺失时只用于辅助归属判断。 */
+    sessionId?: string;
+    /** taskId：任务 ID，来自中心服务任务表。 */
+    taskId?: string;
+    /** status：任务最新状态，completed 表示任务已完成。 */
+    status?: string;
+}
+
+/**
+ * isCompletedTaskUpdate：判断任务更新是否表示当前任务完成。
+ *
+ * 关键逻辑：中心服务把任务状态放在事件 payload 中，并会额外发送 `task.updated` 专项包；
+ * 前端必须读取明确的 payload.status，避免数据库已完成但 UI 仍停留在执行中的状态。
+ *
+ * @param payload 任务更新事件载荷。
+ * @returns 为 completed 时返回 true。
+ */
+function isCompletedTaskUpdate(payload: unknown): payload is TaskUpdatedPayload {
+    const taskUpdate = payload as TaskUpdatedPayload;
+    return taskUpdate.status === "completed";
+}
+
+/**
+ * isCompletedEvent：判断中心服务事件是否已经完成。
+ *
+ * 关键逻辑：历史事件和不同仓储映射同时存在顶层 `status` 与 `payload.status` 两种明确形态；
+ * 兼容这两个固定字段可以避免轮次已完成但前端仍停在执行中。
+ *
+ * @param event 中心服务实时事件。
+ * @returns 任一明确状态为 completed 时返回 true。
+ */
+function isCompletedEvent(event: EventRecord): boolean {
+    const payload = event.payload as {status?: string};
+    return event.status === "completed"
+        || payload.status === "completed";
+}
+
+/**
+ * isTaskUpdateForActiveSession：判断专项任务更新是否属于当前展示窗口。
+ *
+ * 关键逻辑：专项包可能只携带 taskId；当缺少 sessionId 时，使用当前任务列表做单一明确归属校验，
+ * 避免刷新无关会话，也避免因为专项包缺少会话字段而漏掉当前任务完成刷新。
+ *
+ * @param payload 任务更新事件载荷。
+ * @param activeSessionId 当前会话 ID。
+ * @param activeTaskIds 当前会话详情中的任务 ID 集合。
+ * @returns 属于当前会话或当前任务集合时返回 true。
+ */
+function isTaskUpdateForActiveSession(
+    payload: TaskUpdatedPayload,
+    activeSessionId: string | null,
+    activeTaskIds: Set<string>,
+): boolean {
+    if (!activeSessionId) {
+        return false;
+    }
+    if (payload.sessionId === activeSessionId) {
+        return true;
+    }
+    if (payload.taskId && activeTaskIds.has(payload.taskId)) {
+        return true;
+    }
+    return false;
+}
+
 /**
  * createConversationActions：创建对话发送、附件和实时同步相关 Pinia actions。
  *
@@ -130,6 +206,10 @@ export function createConversationActions() {
                 sessionId,
                 contentMarkdown,
                 sent,
+            );
+            this.startRunningTurnSnapshotRecovery(
+                sessionId,
+                sent.turnId,
             );
             await this.commitDraftAttachments(
                 sessionId,
@@ -301,6 +381,84 @@ export function createConversationActions() {
                 });
             }
             // 过程事件只能来自中心服务 sequence 事实源；浏览器不再插入负 sequence 占位，避免命令开始、输出和完成顺序被本地假事件打乱。
+        },
+
+        /**
+         * startRunningTurnSnapshotRecovery：启动运行中轮次快照恢复兜底。
+         *
+         * @param sessionId 当前发送会话 ID。
+         * @param turnId 当前发送轮次 ID。
+         * @returns 没有返回值。
+         */
+        startRunningTurnSnapshotRecovery(
+            sessionId: string,
+            turnId: string,
+        ): void {
+            this.stopRunningTurnSnapshotRecovery();
+            this.runningTurnSnapshotRecovery.sessionId = sessionId;
+            this.runningTurnSnapshotRecovery.turnId = turnId;
+            this.runningTurnSnapshotRecovery.attempts = 0;
+            this.scheduleRunningTurnSnapshotRecovery();
+        },
+
+        /**
+         * stopRunningTurnSnapshotRecovery：停止运行中轮次快照恢复兜底。
+         *
+         * @returns 没有返回值。
+         */
+        stopRunningTurnSnapshotRecovery(): void {
+            if (this.runningTurnSnapshotRecovery.recoveryTimer !== null) {
+                window.clearTimeout(this.runningTurnSnapshotRecovery.recoveryTimer);
+            }
+            this.runningTurnSnapshotRecovery.recoveryTimer = null;
+            this.runningTurnSnapshotRecovery.sessionId = null;
+            this.runningTurnSnapshotRecovery.turnId = null;
+            this.runningTurnSnapshotRecovery.attempts = 0;
+        },
+
+        /**
+         * scheduleRunningTurnSnapshotRecovery：按短间隔拉取当前会话数据库快照。
+         *
+         * @returns 没有返回值。
+         */
+        scheduleRunningTurnSnapshotRecovery(): void {
+            const recovery = this.runningTurnSnapshotRecovery;
+            if (!recovery.sessionId || !recovery.turnId) {
+                return;
+            }
+            if (recovery.attempts >= 40) {
+                this.stopRunningTurnSnapshotRecovery();
+                return;
+            }
+            recovery.recoveryTimer = window.setTimeout(async () => {
+                const currentSessionId = this.runningTurnSnapshotRecovery.sessionId;
+                const currentTurnId = this.runningTurnSnapshotRecovery.turnId;
+                if (!currentSessionId || !currentTurnId || currentSessionId !== this.activeSessionId) {
+                    this.stopRunningTurnSnapshotRecovery();
+                    return;
+                }
+                this.runningTurnSnapshotRecovery.attempts += 1;
+                try {
+                    // 运行中轮次最终事实在中心服务数据库；短轮询只把已完成快照恢复到当前 UI。
+                    await this.loadActiveSessionSnapshot();
+                } catch {
+                    // WebSocket 请求可能与重连竞态冲突；下一轮继续尝试，避免单次失败让 UI 永久卡住。
+                }
+                const stillRunning = this.sessionDetail?.turns.some((turn) => {
+                    return turn.turnId === currentTurnId
+                        && turn.endedAt === null
+                        && (
+                            turn.status === "queued"
+                            || turn.status === "running"
+                            || turn.status === "waiting_user"
+                        );
+                }) ?? false;
+                if (!stillRunning) {
+                    this.stopRunningTurnSnapshotRecovery();
+                    return;
+                }
+                this.scheduleRunningTurnSnapshotRecovery();
+            }, 1500);
         },
 
         /**
@@ -523,6 +681,40 @@ export function createConversationActions() {
                         this.replaceRealtimeEvent(event);
                         if (shouldRefreshComposerContextUsage(event)) {
                             void this.updateComposerContextUsageFromExecution();
+                        }
+                        if (event.eventType === "message.created"
+                            && (event.payload as {role?: string}).role === "assistant") {
+                            // 助手消息固化后必须刷新当前会话快照，否则漏掉流式片段时只能靠停止按钮触发刷新。
+                            void this.loadActiveSessionSnapshot();
+                        }
+                        if (event.eventType === "model.stream.completed") {
+                            // 模型流完成后先做一次快照兜底；如果后续消息固化或轮次完成事件漏收，UI 也不会长期停在流式运行态。
+                            void this.loadActiveSessionSnapshot();
+                        }
+                        if (event.eventType === "turn.updated"
+                            && isCompletedEvent(event)) {
+                            // 轮次完成状态来自事件载荷；读取 payload 能避免 UI 因字段位置不一致停在执行中。
+                            void this.loadActiveSessionSnapshot();
+                        }
+                        if (event.eventType === "task.updated"
+                            && isCompletedEvent(event)) {
+                            // 轮次或任务完成时也刷新快照，避免完成事件晚于消息事件或消息事件被漏收时 UI 仍停在执行中。
+                            void this.loadActiveSessionSnapshot();
+                        }
+                    }
+                    if (message.type === "task.updated") {
+                        const taskUpdate = message.payload as TaskUpdatedPayload;
+                        const activeTaskIds = new Set(
+                            this.sessionDetail?.tasks.map((task) => task.taskId) ?? [],
+                        );
+                        if (isCompletedTaskUpdate(taskUpdate)
+                            && isTaskUpdateForActiveSession(
+                                taskUpdate,
+                                this.activeSessionId,
+                                activeTaskIds,
+                            )) {
+                            // 专项 task.updated 包不进入 event.appended 分支，必须单独刷新快照才能恢复最终回复和任务终态。
+                            void this.loadActiveSessionSnapshot();
                         }
                     }
                     if (message.type === "agent.state.changed") {

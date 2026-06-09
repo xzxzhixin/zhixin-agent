@@ -251,7 +251,7 @@ function resolveCurrentTurnTaskScope(
  * @param currentTurnNotice 当前轮次提示。
  * @returns 任务详情展示行。
  */
-function createTaskPanelRows(
+export function createTaskPanelRows(
     tasks: TaskRecord[],
     taskSteps: Array<{
         stepId: string;

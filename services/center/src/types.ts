@@ -14,6 +14,7 @@ import {
     type ProjectRecord,
     type SessionType,
     type TaskRecord,
+    type TokenizerCountResponse,
     type WebSocketEnvelope,
 } from "@zhixin/shared";
 
@@ -567,6 +568,38 @@ export interface AccessConfigFile {
 }
 
 /**
+ * ConversationTokenUsageSnapshot：当前会话窗口上下文 token 用量快照。
+ *
+ * 来源：SQLite `conversation_token_usage` 表。
+ * 含义：保存某个会话内某个智能体当前窗口最新 token 总览。
+ * 格式：JSON 对象，字段名映射为前端可直接消费的驼峰格式。
+ * 默认值：无记录时会话快照返回 null。
+ * 约束：同一个 `sessionId + agentId` 只保留最新快照，不能替代模型调用 `usage_records`。
+ */
+export interface ConversationTokenUsageSnapshot {
+    /** sessionId: 所属会话 ID，来源于 tokenizer.count 请求。 */
+    sessionId: string;
+    /** turnId: 最近一次统计关联的轮次 ID；草稿或无轮次时为 null。 */
+    turnId: string | null;
+    /** agentId: 所属智能体 ID，主智能体固定为 main。 */
+    agentId: string;
+    /** usedTokens: 当前窗口已用 token 数。 */
+    usedTokens: number;
+    /** windowLimitTokens: 当前模型窗口上限 token 数。 */
+    windowLimitTokens: number;
+    /** usagePercent: 已用比例，允许超过 100。 */
+    usagePercent: number;
+    /** tokenizerName: 本次统计使用的 tokenizer 名称。 */
+    tokenizerName: string;
+    /** tokenizerSource: tokenizer 来源，沿用中心服务统计响应。 */
+    tokenizerSource: TokenizerCountResponse["source"];
+    /** modelId: 本次统计使用的模型 ID 或模型名称。 */
+    modelId: string;
+    /** updatedAt: 快照更新时间，ISO 8601 字符串。 */
+    updatedAt: string;
+}
+
+/**
  * 会话详情响应。
  *
  * 来源：阶段 6 会话详情接口。
@@ -600,6 +633,16 @@ export interface SessionDetailResponse {
      * taskSteps: 会话内任务步骤列表。
      */
     taskSteps: TaskStepRecord[];
+
+    /**
+     * tokenUsage: 当前主智能体窗口 token 用量快照，来源于 `conversation_token_usage`。
+     */
+    tokenUsage: ConversationTokenUsageSnapshot | null;
+
+    /**
+     * lastAssistantMessageCreatedAt: 最近助手回复创建时间，用于对比轮次完成时间和最后回复时间。
+     */
+    lastAssistantMessageCreatedAt: string | null;
 }
 
 /**

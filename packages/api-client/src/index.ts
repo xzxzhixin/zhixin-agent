@@ -140,6 +140,48 @@ export interface SessionDetailResult {
    * taskSteps: 会话任务步骤列表，来源于中心服务 `task_steps` 表。
    */
   taskSteps: TaskStepRecordView[];
+
+  /**
+   * tokenUsage: 当前主智能体窗口 token 用量快照，来源于中心服务数据库；无记录时为 null。
+   */
+  tokenUsage: ConversationTokenUsageView | null;
+
+  /**
+   * lastAssistantMessageCreatedAt: 最近助手回复创建时间，用于对比轮次时间和最后回复时间。
+   */
+  lastAssistantMessageCreatedAt: string | null;
+}
+
+/**
+ * ConversationTokenUsageView：当前会话窗口 token 用量展示快照。
+ *
+ * 来源：中心服务 `conversation_token_usage` 表。
+ * 含义：用于打开会话后恢复输入区上下文 token 用量。
+ * 格式：JSON 对象。
+ * 默认值：无快照时为 null。
+ * 约束：只表示当前窗口总览，不替代模型调用 usage_records。
+ */
+export interface ConversationTokenUsageView {
+  /** sessionId: 所属会话 ID。 */
+  sessionId: string;
+  /** turnId: 最近一次统计关联的轮次 ID；没有轮次时为 null。 */
+  turnId: string | null;
+  /** agentId: 所属智能体 ID，主智能体固定为 main。 */
+  agentId: string;
+  /** usedTokens: 当前窗口已用 token 数。 */
+  usedTokens: number;
+  /** windowLimitTokens: 当前模型窗口上限 token 数。 */
+  windowLimitTokens: number;
+  /** usagePercent: 已用比例，允许超过 100。 */
+  usagePercent: number;
+  /** tokenizerName: tokenizer 展示名称。 */
+  tokenizerName: string;
+  /** tokenizerSource: tokenizer 来源。 */
+  tokenizerSource: "built-in" | "external" | "fallback";
+  /** modelId: 本次统计使用的模型 ID 或名称。 */
+  modelId: string;
+  /** updatedAt: 快照更新时间，ISO 8601 字符串。 */
+  updatedAt: string;
 }
 
 /**

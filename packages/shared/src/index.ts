@@ -471,6 +471,11 @@ export interface ConversationMessage {
   sessionId: string;
 
   /**
+   * agentId: 所属智能体 ID，主智能体固定为 main。
+   */
+  agentId: string;
+
+  /**
    * turnId: 所属轮次 ID；系统初始化消息可为空。
    */
   turnId: string | null;
@@ -602,6 +607,32 @@ export interface TaskRecord {
    * updatedAt: 更新时间，ISO 8601 字符串。
    */
   updatedAt: string;
+}
+
+/**
+ * TaskStepRecord：任务步骤记录。
+ *
+ * 来源：SQLite `task_steps` 表。
+ * 含义：保存任务执行过程中的单步状态。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：只能通过所属任务的 `agentId` 间接归属到智能体 todoList。
+ */
+export interface TaskStepRecord {
+  /** stepId: 任务步骤 ID。 */
+  stepId: string;
+  /** taskId: 所属任务 ID。 */
+  taskId: string;
+  /** status: 步骤状态。 */
+  status: TaskStatus;
+  /** title: 步骤标题。 */
+  title: string;
+  /** startedAt: 步骤开始时间，ISO 字符串或 null。 */
+  startedAt: string | null;
+  /** endedAt: 步骤结束时间，ISO 字符串或 null。 */
+  endedAt: string | null;
+  /** summary: 步骤摘要、失败原因或排查信息。 */
+  summary: string | null;
 }
 
 /**
@@ -738,6 +769,35 @@ export interface AgentSubConversationDetail {
   agentName: string;
   /** messages: 当前智能体在当前主会话内的子对话消息。 */
   messages: AgentSubConversationMessage[];
+  /** tasks: 当前智能体自己的 todoList 任务，来源于中心服务按 sessionId + agentId 查询。 */
+  tasks: TaskRecord[];
+  /** taskSteps: 当前智能体 todoList 任务步骤，只包含 tasks 内任务的步骤。 */
+  taskSteps: TaskStepRecord[];
+  /** events: 当前智能体 todoList 相关事件，只包含当前 agentId 范围。 */
+  events: EventRecord[];
+  /** tokenUsage: 当前智能体窗口 token 用量快照，来源于中心服务数据库；无记录时为 null。 */
+  tokenUsage: {
+    /** sessionId: 所属主会话 ID。 */
+    sessionId: string;
+    /** turnId: 最近一次统计关联的轮次 ID；没有轮次时为 null。 */
+    turnId: string | null;
+    /** agentId: 所属智能体 ID。 */
+    agentId: string;
+    /** usedTokens: 当前窗口已用 token 数。 */
+    usedTokens: number;
+    /** windowLimitTokens: 当前模型窗口上限 token 数。 */
+    windowLimitTokens: number;
+    /** usagePercent: 已用比例，允许超过 100。 */
+    usagePercent: number;
+    /** tokenizerName: tokenizer 展示名称。 */
+    tokenizerName: string;
+    /** tokenizerSource: tokenizer 来源。 */
+    tokenizerSource: "built-in" | "external" | "fallback";
+    /** modelId: 本次统计使用的模型 ID 或名称。 */
+    modelId: string;
+    /** updatedAt: 快照更新时间，ISO 8601 字符串。 */
+    updatedAt: string;
+  } | null;
 }
 
 /**

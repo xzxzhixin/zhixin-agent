@@ -30,13 +30,14 @@ export class LongTermAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：长期智能体只能创建子智能体。
+     * getCreationTools：长期智能体只能创建子智能体，并维护自己的 todoList。
      *
      * @returns 创建工具列表。
      */
     getCreationTools(): AgentToolName[] {
         return [
             "create-sub-agent",
+            "todo-list",
         ];
     }
 }

@@ -154,6 +154,25 @@ export function listTasks(database: CenterDatabase, sessionId: string): TaskReco
 }
 
 /**
+ * listTasksByAgent：按智能体查询当前会话 todoList。
+ *
+ * @param database 中心服务数据库。
+ * @param sessionId 主会话 ID。
+ * @param agentId 智能体 ID。
+ * @returns 当前智能体任务记录数组。
+ */
+export function listTasksByAgent(
+    database: CenterDatabase,
+    sessionId: string,
+    agentId: string,
+): TaskRecord[] {
+    return new SessionRepository(database).listTasksByAgent(
+        sessionId,
+        agentId,
+    );
+}
+
+/**
  * listTaskSteps：查询会话下所有任务步骤。
  *
  * @param database 中心服务数据库。
@@ -162,6 +181,25 @@ export function listTasks(database: CenterDatabase, sessionId: string): TaskReco
  */
 export function listTaskSteps(database: CenterDatabase, sessionId: string): TaskStepRecord[] {
     return new SessionRepository(database).listTaskSteps(sessionId);
+}
+
+/**
+ * listTaskStepsByAgent：按智能体查询当前会话 todoList 步骤。
+ *
+ * @param database 中心服务数据库。
+ * @param sessionId 主会话 ID。
+ * @param agentId 智能体 ID。
+ * @returns 当前智能体任务步骤数组。
+ */
+export function listTaskStepsByAgent(
+    database: CenterDatabase,
+    sessionId: string,
+    agentId: string,
+): TaskStepRecord[] {
+    return new SessionRepository(database).listTaskStepsByAgent(
+        sessionId,
+        agentId,
+    );
 }
 
 /**

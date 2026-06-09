@@ -41,6 +41,7 @@ import AgentStatusDialog from "@views/Chat/dialogs/AgentStatusDialog.vue";
 import EditDetailDialog from "@views/Chat/dialogs/EditDetailDialog.vue";
 import TaskDetailDialog from "@views/Chat/dialogs/TaskDetailDialog.vue";
 import {
+  createTaskPanelRows,
   useChatConversation,
 } from "@views/Chat/useChatConversation";
 import {
@@ -189,7 +190,16 @@ const agentStatusTreeRows = computed<AgentStatusTreeRow[]>(() => {
 });
 // activeTaskPanelRows: 当前轮次任务列表。
 const activeTaskPanelRows = computed(() => {
-  return chatConversation.taskPanelRows.value;
+  if (!isAgentConversation.value || isMainAgentConversation.value) {
+    const mainConversationRows = chatConversation.taskPanelRows.value;
+    return mainConversationRows;
+  }
+  return createTaskPanelRows(
+    agentDetail.value?.tasks ?? [],
+    agentDetail.value?.taskSteps ?? [],
+    agentDetail.value?.events ?? [],
+    "智能体弹框展示当前智能体自己的 todoList，不混入主对话任务。",
+  );
 });
 // activeComposerEditFile: 当前编辑浮层选中文件。
 const activeComposerEditFile = computed(() => {
@@ -203,11 +213,14 @@ const activeComposerEditFile = computed(() => {
 });
 // taskProgressText: 任务入口数字。
 const taskProgressText = computed(() => {
-  const total = chatConversation.currentTurnTasks.value.length;
+  const tasks = isAgentConversation.value && !isMainAgentConversation.value
+    ? (agentDetail.value?.tasks ?? [])
+    : chatConversation.currentTurnTasks.value;
+  const total = tasks.length;
   if (total === 0) {
     return "0/0";
   }
-  const completed = chatConversation.currentTurnTasks.value.filter((task) => {
+  const completed = tasks.filter((task) => {
     return task.status === "completed";
   }).length;
   return `${completed}/${total}`;
@@ -425,7 +438,7 @@ async function openComposerEditDiff(file: ComposerEditFile): Promise<void> {
  * @returns 没有返回值。
  */
 function scrollToMessageAnchor(messageId: string): void {
-  const anchor = document.querySelector(`[data-message-anchor="${messageId}"]`);
+  const anchor = messageListRef.value?.querySelector(`[data-message-anchor="${messageId}"]`);
   if (!anchor) {
     return;
   }
@@ -578,6 +591,7 @@ async function loadAgentDetail(): Promise<void> {
     agentId: props.agentNode.agentId,
     agentName: props.agentNode.name,
   });
+  appStore.applyPersistedTokenUsage(agentDetail.value.tokenUsage);
 }
 
 watch(
@@ -644,7 +658,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="chat-conversation-panel">
+  <section
+      class="chat-conversation-panel"
+      :data-agent-conversation="isAgentConversation ? 'true' : 'false'"
+  >
     <section class="conversation-body">
       <aside
           v-if="messageTimelineNodes.length > 0"

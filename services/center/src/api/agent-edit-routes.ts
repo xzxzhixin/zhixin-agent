@@ -16,6 +16,9 @@ import {
 } from "../helpers.js";
 import {
     findSession,
+    listEvents,
+    listTaskStepsByAgent,
+    listTasksByAgent,
 } from "../domain/session-domain.js";
 import {AgentEditRepository} from "../data-access/agent-edit-repository.js";
 export {
@@ -68,14 +71,35 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             return validation;
         }
 
+        const parentSessionId = body.parentSessionId ?? "";
+        const agentId = body.agentId ?? "";
         return createSuccessResponse<AgentSubConversationDetail>({
-            parentSessionId: body.parentSessionId ?? "",
-            agentId: body.agentId ?? "",
-            agentName: body.agentName ?? body.agentId ?? "",
+            parentSessionId,
+            agentId,
+            agentName: body.agentName ?? agentId,
             messages: listAgentSubConversationMessages(
                 agentEditRepository,
-                body.parentSessionId ?? "",
-                body.agentId ?? "",
+                parentSessionId,
+                agentId,
+            ),
+            tasks: listTasksByAgent(
+                database,
+                parentSessionId,
+                agentId,
+            ),
+            taskSteps: listTaskStepsByAgent(
+                database,
+                parentSessionId,
+                agentId,
+            ),
+            events: listEvents(
+                database,
+                {
+                    sessionId: parentSessionId,
+                    turnId: null,
+                    agentId,
+                    afterSequence: 0,
+                },
             ),
         });
     });
@@ -142,6 +166,25 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
                 agentEditRepository,
                 message.parentSessionId,
                 message.agentId,
+            ),
+            tasks: listTasksByAgent(
+                database,
+                message.parentSessionId,
+                message.agentId,
+            ),
+            taskSteps: listTaskStepsByAgent(
+                database,
+                message.parentSessionId,
+                message.agentId,
+            ),
+            events: listEvents(
+                database,
+                {
+                    sessionId: message.parentSessionId,
+                    turnId: null,
+                    agentId: message.agentId,
+                    afterSequence: 0,
+                },
             ),
         });
     });

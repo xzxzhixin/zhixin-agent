@@ -30,12 +30,14 @@ export class SubAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：子智能体禁止注入创建工具。
+     * getCreationTools：子智能体只允许维护自己的 todoList，禁止注入创建智能体工具。
      *
-     * @returns 空工具列表。
+     * @returns todoList 工具列表。
      */
     getCreationTools(): AgentToolName[] {
-        // 禁止：子智能体不能创建长期智能体，也不能继续创建子智能体。
-        return [];
+        // 禁止：子智能体不能创建长期智能体，也不能继续创建子智能体；只保留自身 todoList 工具。
+        return [
+            "todo-list",
+        ];
     }
 }

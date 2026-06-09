@@ -33,7 +33,7 @@ export class MainAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：主智能体可创建长期智能体和子智能体。
+     * getCreationTools：主智能体可创建长期智能体、子智能体，并维护自己的 todoList。
      *
      * @returns 创建工具列表。
      */
@@ -41,6 +41,7 @@ export class MainAgent extends BaseAgent {
         return [
             "create-long-term-agent",
             "create-sub-agent",
+            "todo-list",
         ];
     }
 }

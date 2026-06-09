@@ -323,6 +323,7 @@ export class SessionRepository {
                 SELECT id         AS taskId,
                        turn_id    AS turnId,
                        session_id AS sessionId,
+                       agent_id   AS agentId,
                        status,
                        title,
                        created_at AS createdAt,
@@ -335,6 +336,38 @@ export class SessionRepository {
     }
 
     /**
+     * listTasksByAgent：查询某个智能体自己的 todoList 任务。
+     *
+     * @param sessionId 主会话 ID。
+     * @param agentId 智能体 ID，主智能体固定为 main。
+     * @returns 当前智能体任务列表。
+     */
+    listTasksByAgent(
+        sessionId: string,
+        agentId: string,
+    ): TaskRecord[] {
+        return this.database.connection()
+            .prepare(`
+                SELECT id         AS taskId,
+                       turn_id    AS turnId,
+                       session_id AS sessionId,
+                       agent_id   AS agentId,
+                       status,
+                       title,
+                       created_at AS createdAt,
+                       updated_at AS updatedAt
+                FROM tasks
+                WHERE session_id = ?
+                  AND agent_id = ?
+                ORDER BY created_at ASC
+            `)
+            .all(
+                sessionId,
+                agentId,
+            ) as TaskRecord[];
+    }
+
+    /**
      * listTaskSteps：查询会话任务步骤。
      *
      * @param sessionId 会话 ID。
@@ -343,8 +376,8 @@ export class SessionRepository {
     listTaskSteps(sessionId: string): TaskStepRecord[] {
         return this.database.connection()
             .prepare(`
-                SELECT task_steps.id         AS stepId,
-                       task_steps.task_id    AS taskId,
+                 SELECT task_steps.id         AS stepId,
+                        task_steps.task_id    AS taskId,
                        task_steps.status,
                        task_steps.title,
                        task_steps.started_at AS startedAt,
@@ -359,6 +392,38 @@ export class SessionRepository {
     }
 
     /**
+     * listTaskStepsByAgent：查询某个智能体 todoList 的任务步骤。
+     *
+     * @param sessionId 主会话 ID。
+     * @param agentId 智能体 ID。
+     * @returns 当前智能体任务步骤列表。
+     */
+    listTaskStepsByAgent(
+        sessionId: string,
+        agentId: string,
+    ): TaskStepRecord[] {
+        return this.database.connection()
+            .prepare(`
+                SELECT task_steps.id         AS stepId,
+                       task_steps.task_id    AS taskId,
+                       task_steps.status,
+                       task_steps.title,
+                       task_steps.started_at AS startedAt,
+                       task_steps.ended_at   AS endedAt,
+                       task_steps.summary
+                FROM task_steps
+                         INNER JOIN tasks ON tasks.id = task_steps.task_id
+                WHERE tasks.session_id = ?
+                  AND tasks.agent_id = ?
+                ORDER BY task_steps.started_at ASC
+            `)
+            .all(
+                sessionId,
+                agentId,
+            ) as TaskStepRecord[];
+    }
+
+    /**
      * findTask：按任务 ID 查询任务。
      *
      * @param taskId 任务 ID。
@@ -370,6 +435,7 @@ export class SessionRepository {
                 SELECT id         AS taskId,
                        turn_id    AS turnId,
                        session_id AS sessionId,
+                       agent_id   AS agentId,
                        status,
                        title,
                        created_at AS createdAt,
@@ -814,19 +880,21 @@ export class SessionRepository {
 
             this.database.connection()
                 .prepare(`
-                    INSERT INTO tasks (id,
-                                       turn_id,
-                                       session_id,
-                                       status,
-                                       title,
-                                       created_at,
-                                       updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                     INSERT INTO tasks (id,
+                                        turn_id,
+                                        session_id,
+                                        agent_id,
+                                        status,
+                                        title,
+                                        created_at,
+                                        updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 `)
                 .run(
                     input.taskId,
                     input.turnId,
                     input.sessionId,
+                    "main",
                     "queued",
                     "本轮对话任务",
                     input.now,
@@ -983,6 +1051,7 @@ export class SessionRepository {
     listEvents(filter: {
         sessionId: string | null;
         turnId: string | null;
+        agentId?: string | null;
         afterSequence: number;
     }): EventRecord[] {
         const rows = this.database.connection()
@@ -999,6 +1068,7 @@ export class SessionRepository {
                 FROM events
                 WHERE (? IS NULL OR session_id = ?)
                   AND (? IS NULL OR turn_id = ?)
+                  AND (? IS NULL OR agent_id = ?)
                   AND sequence > ?
                 ORDER BY occurred_at ASC, sequence ASC
             `)
@@ -1007,6 +1077,8 @@ export class SessionRepository {
                 filter.sessionId,
                 filter.turnId,
                 filter.turnId,
+                filter.agentId ?? null,
+                filter.agentId ?? null,
                 filter.afterSequence,
             ) as Array<{
             eventId: string;
