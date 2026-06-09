@@ -1235,7 +1235,11 @@ export const useAppStore = defineStore("app", {
                 sessionId: this.activeSessionId,
             });
             this.sessionDetail = snapshot.detail;
-            this.events = snapshot.events;
+            this.events = [
+                ...snapshot.events,
+            ].sort((left: EventRecord, right: EventRecord) => {
+                return left.sequence - right.sequence;
+            });
             if (this.sessionDetail.session.sessionType === "project") {
                 await this.loadProjectCapabilitySources();
             }

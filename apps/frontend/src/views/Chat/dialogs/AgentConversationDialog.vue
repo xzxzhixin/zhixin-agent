@@ -29,7 +29,6 @@ const emit = defineEmits<{
   >
     <section class="agent-conversation-panel-shell">
       <ChatConversationPanel
-          class="agent-dialog-entry-strip"
           v-if="props.node"
           variant="agent"
           :agent-node="props.node"

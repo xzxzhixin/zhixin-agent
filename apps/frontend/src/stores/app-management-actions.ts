@@ -480,6 +480,7 @@ export function createManagementActions() {
          * @returns 没有返回值。
          */
         async updateComposerContextUsage(): Promise<void> {
+            // 窗口失焦后 token 用量保持：该状态写入 composerContextUsageState 和 composerSettings，不绑定 hover 弹层或 DOM 生命周期。
             const activeTurnId = this.sessionDetail?.turns.findLast((turn) => {
                 return turn.endedAt === null
                     || turn.status === "running"

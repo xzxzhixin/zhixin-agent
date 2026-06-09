@@ -177,6 +177,24 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-chat-experience-regressions.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-chat-composer-ui-regressions.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-provider-empty-response-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-dialog-agent-workflow-regression.mjs",
     ],
   ],

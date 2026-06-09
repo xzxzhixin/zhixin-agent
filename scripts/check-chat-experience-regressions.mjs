@@ -285,6 +285,31 @@ assertNotIncludes(
   "row.event.status",
   "Chat 页面不得使用不存在的 EventRecord 顶层 status 判断过程状态。",
 );
+assertIncludes(
+  conversationActions,
+  "replaceRealtimeEvent",
+  "WebSocket 事件必须通过替换数组引用写入，避免原地 push/sort 后依赖窗口重绘才显示。",
+);
+assertNotIncludes(
+  conversationActions,
+  "this.events.push(event)",
+  "WebSocket 实时事件不能继续原地 push，否则可能导致流式回复和过程卡片刷新滞后。",
+);
+assertNotIncludes(
+  conversationActions,
+  "this.events.sort(",
+  "WebSocket 实时事件不能继续原地 sort，必须写入新的已排序数组引用。",
+);
+assertIncludes(
+  managementActions,
+  "窗口失焦后 token 用量保持",
+  "token 用量状态必须用中文注释说明窗口失焦和切换后仍要保持。",
+);
+assertIncludes(
+  managementActions,
+  "composerContextUsage",
+  "token 用量必须保存在对话状态容器中，不能绑定到 hover 弹层 DOM 生命周期。",
+);
 
 for (const file of listFiles("scripts")) {
   const scriptText = readText(file);

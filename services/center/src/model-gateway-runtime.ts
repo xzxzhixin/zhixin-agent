@@ -365,6 +365,7 @@ async function invokeLangChainChatModel(
     }
     const state: {
         assistantText: string;
+        hasStreamedAssistantContent: boolean;
         usage: ProviderModelGatewayResult["usage"];
         toolCallParts: Map<number, {
             toolCallId: string;
@@ -373,6 +374,7 @@ async function invokeLangChainChatModel(
         }>;
     } = {
         assistantText: "",
+        hasStreamedAssistantContent: false,
         usage: null,
         toolCallParts: new Map(),
     };
@@ -386,7 +388,11 @@ async function invokeLangChainChatModel(
     }
 
     const toolCalls = readStreamingChatCompletionToolCalls(state.toolCallParts);
-    if (!state.assistantText && toolCalls.length === 0) {
+    if (!hasUsableAssistantOutput(
+        state.assistantText,
+        toolCalls,
+        state.hasStreamedAssistantContent,
+    )) {
         throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
     }
     appendProviderStreamCompleted(
@@ -434,7 +440,12 @@ async function invokeLangChainChatModelOnce(
         );
     }
     const toolCalls = readLangChainToolCalls(responseRecord.tool_calls);
-    if (!assistantText && toolCalls.length === 0) {
+    // 合法空 content 工具调用：OpenAI/兼容供应商在只请求工具时允许 assistant.content 为空。
+    if (!hasUsableAssistantOutput(
+        assistantText,
+        toolCalls,
+        assistantText.length > 0,
+    )) {
         throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
     }
     const usage = normalizeLangChainUsage(responseRecord.usage_metadata)
@@ -749,6 +760,7 @@ function applyLangChainStreamChunk(
     streamContext: ProviderStreamEventContext,
     state: {
         assistantText: string;
+        hasStreamedAssistantContent: boolean;
         usage: ProviderModelGatewayResult["usage"];
         toolCallParts: Map<number, {
             toolCallId: string;
@@ -767,6 +779,7 @@ function applyLangChainStreamChunk(
     const textDelta = readLangChainTextContent(chunkRecord.content);
     if (textDelta.length > 0) {
         state.assistantText += textDelta;
+        state.hasStreamedAssistantContent = true;
         appendProviderStreamDelta(
             streamContext,
             textDelta,
@@ -948,6 +961,30 @@ function tryParseJsonObject(value: string): Record<string, unknown> | null {
     } catch {
         return null;
     }
+}
+
+/**
+ * hasUsableAssistantOutput：判断供应商响应是否包含可继续执行的助手输出。
+ *
+ * @param assistantText 已解析出的助手自然语言文本。
+ * @param toolCalls 已解析出的 OpenAI 结构化工具调用。
+ * @param hasStreamedAssistantContent 本轮是否已经写入过模型流式文本事件。
+ * @returns 有自然语言、合法工具调用或已流式输出时返回 true。
+ */
+function hasUsableAssistantOutput(
+    assistantText: string,
+    toolCalls: OpenAiToolCall[],
+    hasStreamedAssistantContent: boolean,
+): boolean {
+    if (assistantText.length > 0) {
+        return true;
+    }
+    // 合法空 content 工具调用：OpenAI 工具调用响应可以只携带 tool_calls，不携带可展示文本。
+    if (toolCalls.length > 0) {
+        return true;
+    }
+    // 已有流式片段说明前端已经收到可展示内容，不能在结束阶段误报空响应。
+    return hasStreamedAssistantContent;
 }
 
 /**

@@ -144,6 +144,10 @@ const centerRoutes = [
 const centerEditDomain = fs.existsSync(path.join(process.cwd(), "services/center/src/agent-edit-domain.ts"))
   ? readText("services/center/src/agent-edit-domain.ts")
   : "";
+// centerEditRepository: 中心服务编辑仓储，必须实际写入待确认编辑记录。
+const centerEditRepository = fs.existsSync(path.join(process.cwd(), "services/center/src/data-access/agent-edit-repository.ts"))
+  ? readText("services/center/src/data-access/agent-edit-repository.ts")
+  : "";
 // centerDatabase: 中心服务数据库层必须创建真实持久表。
 const centerDatabase = readText("services/center/src/database.ts");
 // ideaBridge: IDEA 宿主桥接必须提供原生 diff 打开能力。
@@ -482,10 +486,25 @@ assertNotIncludes(
   ":messages=\"selectedAgentConversationMessages\"",
   "智能体对话弹框不能接收主会话消息列表。",
 );
-assertNotIncludes(
-  chatPage,
-  "selectedAgentConversationMessages",
-  "主对话页不能把主会话消息映射给智能体弹框。",
+assertIncludes(
+  sharedConversationPanel,
+  "isMainAgentConversation",
+  "点击主智能体“致心”时必须显式进入主智能体弹窗模式。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "chatConversation.messages.value",
+  "主智能体“致心”弹窗必须读取当前主会话消息，避免显示空子对话。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "appStore.events",
+  "主智能体“致心”弹窗必须读取当前主会话事件，确保过程卡片和流式内容可见。",
+);
+assertIncludes(
+  sharedConversationPanel,
+  "主智能体没有独立子对话记录",
+  "主智能体弹窗数据源切换必须用中文注释说明原因。",
 );
 assertNotIncludes(
   chatPage,
@@ -603,7 +622,7 @@ assertIncludes(
   "中心服务必须提供真实文件编辑后的待确认记录写入能力。",
 );
 assertIncludes(
-  centerEditDomain,
+  centerEditRepository,
   "INSERT INTO pending_edit_records",
   "真实文件编辑发生后必须向 pending_edit_records 落库，不能只提供空列表接口。",
 );

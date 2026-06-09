@@ -127,9 +127,13 @@ const {
 
 // isAgentConversation: 当前组件是否渲染智能体独立子对话。
 const isAgentConversation = computed(() => props.variant === "agent");
+// isMainAgentConversation: 主智能体“致心”没有独立子对话记录，弹窗需要读取当前主会话内容。
+const isMainAgentConversation = computed(() => {
+  return isAgentConversation.value && props.agentNode?.agentId === "main";
+});
 // messages: 当前组件消息源，主对话来自 sessionDetail，智能体弹框来自子对话 API。
 const messages = computed<ConversationMessage[]>(() => {
-  if (!isAgentConversation.value) {
+  if (!isAgentConversation.value || isMainAgentConversation.value) {
     return chatConversation.messages.value;
   }
   return (agentDetail.value?.messages ?? []).map((message) => {
@@ -145,7 +149,7 @@ const messages = computed<ConversationMessage[]>(() => {
 });
 // turns: 主对话展示轮次时间，智能体子对话当前没有独立轮次事实。
 const turns = computed<ConversationTurn[]>(() => {
-  return isAgentConversation.value
+  return isAgentConversation.value && !isMainAgentConversation.value
     ? []
     : chatConversation.turns.value;
 });
@@ -155,13 +159,13 @@ const messageTimelineNodes = computed(() => {
 });
 // thinkingProcessRows: 思考过程仅主对话来源于中心服务事件。
 const thinkingProcessRows = computed<ThinkingProcessRow[]>(() => {
-  return isAgentConversation.value
+  return isAgentConversation.value && !isMainAgentConversation.value
     ? []
     : chatConversation.thinkingProcessRows.value;
 });
 // processMessageRows: 工具过程仅主对话来源于中心服务事件。
 const processMessageRows = computed<ProcessMessageGroupRow[]>(() => {
-  return isAgentConversation.value
+  return isAgentConversation.value && !isMainAgentConversation.value
     ? []
     : chatConversation.processMessageRows.value;
 });
@@ -171,9 +175,9 @@ const conversationRenderRows = computed<ConversationRenderRow[]>(() => {
     messages.value,
     thinkingProcessRows.value,
     processMessageRows.value,
-    isAgentConversation.value
-      ? []
-      : appStore.events,
+      isAgentConversation.value && !isMainAgentConversation.value
+        ? []
+        : appStore.events,
   );
 });
 // agentStatusTreeRows: 智能体浮层两级树行。
@@ -540,6 +544,12 @@ async function sendAgentDraft(): Promise<void> {
   if (!props.agentNode || !appStore.activeSessionId || agentDraft.value.trim().length === 0) {
     return;
   }
+  if (isMainAgentConversation.value) {
+    appStore.draft.text = agentDraft.value.trim();
+    await appStore.sendDraft();
+    agentDraft.value = "";
+    return;
+  }
   agentDetail.value = await appStore.sendAgentSubConversationMessage({
     parentSessionId: appStore.activeSessionId,
     agentId: props.agentNode.agentId,
@@ -556,6 +566,11 @@ async function sendAgentDraft(): Promise<void> {
  */
 async function loadAgentDetail(): Promise<void> {
   if (!isAgentConversation.value || !props.agentNode || !appStore.activeSessionId) {
+    return;
+  }
+  if (isMainAgentConversation.value) {
+    // 主智能体没有独立子对话记录；弹窗复用主会话数据，避免“致心”弹窗显示为空。
+    agentDetail.value = null;
     return;
   }
   agentDetail.value = await appStore.loadAgentSubConversation({

@@ -63,6 +63,25 @@ export function createConversationActions() {
         },
 
         /**
+         * replaceRealtimeEvent：用新数组引用合并实时事件。
+         *
+         * @param event 中心服务推送的事件记录。
+         * @returns 没有返回值。
+         */
+        replaceRealtimeEvent(event: EventRecord): void {
+            const retainedEvents = this.events.filter((item: EventRecord) => {
+                return item.eventId !== event.eventId;
+            });
+            // 实时事件不能原地 push/sort；新数组引用能让 Vue/Pinia 立即刷新流式回复和过程卡片。
+            this.events = [
+                ...retainedEvents,
+                event,
+            ].sort((left: EventRecord, right: EventRecord) => {
+                return left.sequence - right.sequence;
+            });
+        },
+
+        /**
          * sendDraft：发送当前输入框文本。
          *
          * @returns 发送完成后没有返回值。
@@ -501,10 +520,7 @@ export function createConversationActions() {
                         if (event.sessionId !== this.activeSessionId) {
                             return;
                         }
-                        this.events.push(event);
-                        this.events.sort((left: EventRecord, right: EventRecord) => {
-                            return left.sequence - right.sequence;
-                        });
+                        this.replaceRealtimeEvent(event);
                         if (shouldRefreshComposerContextUsage(event)) {
                             void this.updateComposerContextUsageFromExecution();
                         }
