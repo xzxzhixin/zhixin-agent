@@ -8,7 +8,7 @@ import {
 /**
  * SubAgent：一次性子智能体执行对象。
  *
- * 用途：只执行当前任务内的短期工作，禁止继续创建任何智能体。
+ * 用途：只执行当前任务内的短期工作，禁止继续创建任何智能体或管理 team。
  */
 export class SubAgent extends BaseAgent {
     /**
@@ -30,14 +30,28 @@ export class SubAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：子智能体只允许维护自己的 todoList，禁止注入创建智能体工具。
+     * getCreationTools：子智能体只允许维护自己的 todoList，禁止注入创建智能体和 team 管理工具。
      *
      * @returns todoList 工具列表。
      */
     getCreationTools(): AgentToolName[] {
-        // 禁止：子智能体不能创建长期智能体，也不能继续创建子智能体；只保留自身 todoList 工具。
+        // 禁止：子智能体不能创建长期智能体，也不能继续创建子智能体或管理 team。
         return [
             "todo-list",
+        ];
+    }
+
+    /**
+     * getAvailableTools：子智能体只保留任务执行类工具和自身 todoList。
+     *
+     * @returns 子智能体完整工具权限列表。
+     */
+    getAvailableTools(): AgentToolName[] {
+        return [
+            "command-run",
+            "mcp-call",
+            "skill-use",
+            ...this.getCreationTools(),
         ];
     }
 }

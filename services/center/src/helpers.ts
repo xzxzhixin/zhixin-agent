@@ -1,4 +1,4 @@
-import {appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
@@ -56,8 +56,6 @@ export function resolveAllowedLocalDevCorsOrigin(origin: string | string[] | und
     const allowedOrigins = new Set([
         "http://127.0.0.1:5173",
         "http://localhost:5173",
-        "http://127.0.0.1:8877",
-        "http://localhost:8877",
     ]);
 
     return allowedOrigins.has(origin)

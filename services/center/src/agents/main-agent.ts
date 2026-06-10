@@ -8,7 +8,7 @@ import {
 /**
  * MainAgent：系统主智能体。
  *
- * 用途：直接承接用户对话，并可创建长期智能体和一次性子智能体。
+ * 用途：直接承接用户对话，并可创建长期智能体、一次性子智能体和会话级 team。
  */
 export class MainAgent extends BaseAgent {
     /**
@@ -33,15 +33,33 @@ export class MainAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：主智能体可创建长期智能体、子智能体，并维护自己的 todoList。
+     * getCreationTools：主智能体可创建长期智能体、子智能体，并管理会话级 team。
      *
-     * @returns 创建工具列表。
+     * @returns 创建和 team 管理工具列表。
      */
     getCreationTools(): AgentToolName[] {
         return [
             "create-long-term-agent",
             "create-sub-agent",
+            "create-agent-team",
+            "disband-agent-team",
+            "add-agent-team-member",
+            "remove-agent-team-member",
             "todo-list",
+        ];
+    }
+
+    /**
+     * getAvailableTools：主智能体可用命令、MCP、skill、智能体创建和 team 管理工具。
+     *
+     * @returns 主智能体完整工具权限列表。
+     */
+    getAvailableTools(): AgentToolName[] {
+        return [
+            "command-run",
+            "mcp-call",
+            "skill-use",
+            ...this.getCreationTools(),
         ];
     }
 }

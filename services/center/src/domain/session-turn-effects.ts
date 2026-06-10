@@ -11,8 +11,12 @@ import {createDataAccess} from "../data-access/index.js";
 import {syncTurnMemoryToMem0} from "../memory-engine.js";
 import {
     createTaskStep,
+    findTask,
     updateTaskStep,
 } from "./session-domain.js";
+import {
+    createAgentForTask,
+} from "../agents/index.js";
 import {
     buildUnifiedToolCallIntentFromModelCall,
     commandRequestFromUnifiedToolIntent,
@@ -147,6 +151,7 @@ export async function executeModelRequestedTools(
         resultText: string;
         unifiedToolIntent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>;
     }> = [];
+    const executionAgent = createAgentForTask(findTask(database, sent.taskId));
 
     for (const toolCall of modelResult.toolCalls) {
         events.append({
@@ -166,7 +171,10 @@ export async function executeModelRequestedTools(
             }, toolExecuteCheckpoint),
         });
 
-        const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(toolCall);
+        const unifiedToolIntent = buildUnifiedToolCallIntentFromModelCall(
+            toolCall,
+            executionAgent,
+        );
         if (!unifiedToolIntent || ![
             "agent",
             "command",
@@ -202,6 +210,7 @@ export async function executeModelRequestedTools(
                 database,
                 events,
                 sent,
+                modelResult,
                 unifiedToolIntent,
                 toolCall.toolCallId,
                 toolExecuteCheckpoint,
@@ -258,6 +267,7 @@ export async function executeModelRequestedTools(
  * @param database 中心服务数据库。
  * @param events 事件追加器。
  * @param sent 当前轮次身份。
+ * @param modelResult 当前模型结果，用于继承父级供应商、模型和推理深度。
  * @param intent 统一工具意图。
  * @param toolCallId 模型工具调用 ID。
  * @param graphCheckpoint 当前图检查点。
@@ -267,6 +277,7 @@ function runAgentTool(
     database: CenterDatabase,
     events: CenterEventStore,
     sent: SendMessageResponse,
+    modelResult: ProviderModelGatewayResult,
     intent: NonNullable<ReturnType<typeof buildUnifiedToolCallIntentFromModelCall>>,
     toolCallId: string,
     graphCheckpoint: TurnGraphCheckpoint,

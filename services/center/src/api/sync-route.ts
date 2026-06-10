@@ -4,7 +4,6 @@ import {randomUUID} from "node:crypto";
 import type {
     AgentSubConversationDetail,
     ClientType,
-    ConversationSession,
     PendingEditDiff,
     PendingEditRecord,
     ProjectRecord,

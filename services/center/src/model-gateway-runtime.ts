@@ -24,6 +24,7 @@ import type {
 } from "./openai-chat-protocol.js";
 import {createDataAccess} from "./data-access/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
+import {createAgentForTask} from "./agents/index.js";
 import {
     readProviderConfig,
     readSecretValue,
@@ -144,7 +145,10 @@ export async function invokeProviderModelGateway(
         turnId,
     );
     const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
-    const tools = await listAvailableModelToolSpecsForCenter(runtime.centerDirectory);
+    const tools = await listAvailableModelToolSpecsForCenter(
+        runtime.centerDirectory,
+        createAgentForTask(new SessionRepository(database).findTask(taskId)),
+    );
     const requestPayload = buildOpenAiChatPayload(
         userText,
         runtime.provider.providerId,
@@ -218,7 +222,10 @@ export async function continueProviderModelGatewayWithToolResults(
         turnId,
     );
     const sessionContextPrompt = buildSessionContextPrompt(sessionHistoryMessages);
-    const tools = await listAvailableModelToolSpecsForCenter(runtime.centerDirectory);
+    const tools = await listAvailableModelToolSpecsForCenter(
+        runtime.centerDirectory,
+        createAgentForTask(new SessionRepository(database).findTask(taskId)),
+    );
     const requestPayload = buildOpenAiChatPayload(
         userText,
         runtime.provider.providerId,

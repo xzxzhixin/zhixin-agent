@@ -40,4 +40,18 @@ export class LongTermAgent extends BaseAgent {
             "todo-list",
         ];
     }
+
+    /**
+     * getAvailableTools：长期智能体可用命令、MCP、skill 和子智能体创建工具。
+     *
+     * @returns 长期智能体完整工具权限列表。
+     */
+    getAvailableTools(): AgentToolName[] {
+        return [
+            "command-run",
+            "mcp-call",
+            "skill-use",
+            ...this.getCreationTools(),
+        ];
+    }
 }
