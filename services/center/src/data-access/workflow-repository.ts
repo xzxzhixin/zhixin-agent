@@ -1,4 +1,4 @@
-import type {AgentRuntimeStatus, ClientType} from "@zhixin/shared";
+import type {AgentRuntimeStatus} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 
@@ -89,32 +89,6 @@ export class WorkflowRepository {
                 input.summary,
                 input.sourceRef,
                 input.updatedAt,
-            );
-    }
-
-    /**
-     * createNotification：写入通知事件事实。
-     *
-     * @param input 通知字段。
-     * @returns 没有返回值。
-     */
-    createNotification(input: {
-        notificationId: string;
-        targetClientType: ClientType;
-        title: string;
-        summary: string;
-        createdAt: string;
-        requiresUserAction: boolean;
-    }): void {
-        this.database.connection()
-            .prepare("INSERT INTO notifications (id, target_client_type, session_id, project_id, title, summary, created_at, requires_user_action) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?)")
-            .run(
-                input.notificationId,
-                input.targetClientType,
-                input.title,
-                input.summary,
-                input.createdAt,
-                input.requiresUserAction ? 1 : 0,
             );
     }
 

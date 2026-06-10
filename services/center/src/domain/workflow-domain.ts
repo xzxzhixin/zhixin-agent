@@ -2,16 +2,15 @@ import {randomUUID} from "node:crypto";
 import {existsSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
-import type {AgentRuntimeStatus, ClientType, EventRecord, ExecutionMode} from "@zhixin/shared";
+import type {AgentRuntimeStatus, EventRecord, ExecutionMode} from "@zhixin/shared";
 
 import {writeAgentMemory} from "./agent-domain.js";
-import {broadcastGlobalEvent} from "../realtime.js";
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
 import {findProject, findSession, createMessageTurnAndTask, isFinalTaskStatus} from "./session-domain.js";
 import {listAgents} from "./agent-domain.js";
-import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "../types.js";
+import type {MemoryQueueState, SubAgentRuntimeRecord} from "../types.js";
 import {writeJsonFile} from "../helpers.js";
 import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
 import {
@@ -122,34 +121,6 @@ export function createKnowledgeItem(database: CenterDatabase, events: CenterEven
         payload: {itemId}
     });
     return {itemId};
-}
-
-export function createNotification(database: CenterDatabase, events: CenterEventStore, realtimeClients: Map<string, RealtimeClientConnection>, targetClientType: ClientType, title: string, summary: string, requiresUserAction: boolean): {
-    notificationId: string
-} {
-    const notificationId = randomUUID();
-    createDataAccess(database).workflow.createNotification({
-        notificationId,
-        targetClientType,
-        title,
-        summary,
-        createdAt: new Date().toISOString(),
-        requiresUserAction,
-    });
-    const event = events.append({
-        eventType: "notification.created",
-        scopeType: "notification",
-        scopeId: notificationId,
-        sessionId: null,
-        turnId: null,
-        taskId: null,
-        status: "completed",
-        title,
-        summary,
-        payload: {notificationId, targetClientType}
-    });
-    broadcastGlobalEvent(realtimeClients, event);
-    return {notificationId};
 }
 
 /**

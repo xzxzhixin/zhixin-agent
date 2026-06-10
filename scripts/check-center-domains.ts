@@ -611,18 +611,6 @@ async function main(): Promise<void> {
     });
     assert(knowledgeResponse.json<ApiResponse<unknown>>().success, "知识库条目创建失败");
 
-    const notificationResponse = await service.app.inject({
-      method: "POST",
-      url: "/api/notification/create",
-      payload: {
-        targetClientType: "web-local",
-        title: "检查通知",
-        summary: "通知摘要",
-        requiresUserAction: false,
-      },
-    });
-    assert(notificationResponse.json<ApiResponse<unknown>>().success, "通知创建失败");
-
     const executionModeResponse = await service.app.inject({
       method: "POST",
       url: "/api/execution-mode/set",

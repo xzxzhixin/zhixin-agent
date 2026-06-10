@@ -31,7 +31,7 @@ export interface CommandToolRequest {
     toolCallId?: string | null;
     /** shellCommand: 需要 shell 语法时的完整命令行；优先于 executablePath 和 args。 */
     shellCommand?: string | null;
-    /** executablePath: 可执行文件路径或命令名。 */
+    /** executablePath: 可执行文件路径或命令名；使用 shellCommand 时可为空字符串。 */
     executablePath: string;
     /** args: 命令参数数组。 */
     args: string[];
@@ -119,7 +119,18 @@ export async function runCommandTool(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<CommandToolResult> {
     const capability = resolveUnifiedToolCapability("builtin.command.run");
-    const execution = resolveCommandExecution(request);
+    const execution = tryResolveCommandExecution(request);
+    if (!execution) {
+        return resolveCommandToolInputFailure(
+            events,
+            capability,
+            request,
+            sessionId,
+            taskId,
+            turnId,
+            graphCheckpoint,
+        );
+    }
     const command = execution.displayCommand;
     events.append({
         eventType: "tool.command.started",
@@ -299,6 +310,23 @@ function countReplacementCharacters(text: string): number {
 }
 
 /**
+ * tryResolveCommandExecution：把命令请求转换为可执行形式，空命令返回 null。
+ *
+ * @param request 命令工具请求。
+ * @returns 实际可执行信息；缺少 shellCommand 和 executablePath 时返回 null。
+ */
+function tryResolveCommandExecution(request: CommandToolRequest): {
+    executablePath: string;
+    args: string[];
+    displayCommand: string;
+} | null {
+    const execution = resolveCommandExecution(request);
+    return execution.executablePath.trim().length > 0
+        ? execution
+        : null;
+}
+
+/**
  * resolveCommandExecution：把命令请求转换为当前系统可执行形式。
  *
  * @param request 命令工具请求。
@@ -437,6 +465,60 @@ function resolveBashCompatShellCommand(request: CommandToolRequest): string | nu
     return shellCommand
         .replace(/command -v /gu, "Get-Command ")
         .replace(/&&/gu, "; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE };");
+}
+
+/**
+ * resolveCommandToolInputFailure：命令参数缺失时生成可展示工具失败事件。
+ *
+ * @param events 事件日志仓储。
+ * @param capability 命令工具能力定义。
+ * @param request 命令请求。
+ * @param sessionId 会话 ID。
+ * @param taskId 任务 ID。
+ * @param turnId 轮次 ID。
+ * @param graphCheckpoint 当前图检查点。
+ * @returns 命令工具失败结果。
+ */
+function resolveCommandToolInputFailure(
+    events: CenterEventStore,
+    capability: UnifiedToolCapability | null,
+    request: CommandToolRequest,
+    sessionId: string,
+    taskId: string,
+    turnId: string,
+    graphCheckpoint?: TurnGraphCheckpoint,
+): CommandToolResult {
+    // failureReason: 模型没有给出可执行命令时属于工具参数错误，不能继续传空字符串给 spawn。
+    const failureReason = "COMMAND_INPUT_EMPTY: 命令工具缺少 shellCommand 或 executablePath。";
+    const event = events.append({
+        eventType: "tool.call.failed",
+        scopeType: "tool",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "failed",
+        title: "命令工具失败",
+        summary: failureReason,
+        payload: withOptionalGraphCheckpoint({
+            toolId: capability?.toolId ?? "builtin.command.run",
+            toolKind: "command",
+            toolCallId: request.toolCallId ?? null,
+            requiredPermission: capability?.requiredPermission ?? "command.run",
+            command: "",
+            inputSummary: request.inputSummary,
+            failureReason,
+        }, graphCheckpoint),
+    });
+
+    return {
+        toolKind: "command",
+        command: "",
+        status: "failed",
+        outputSummary: "",
+        failureReason,
+        traceId: event.traceId,
+    };
 }
 
 /**

@@ -23,6 +23,18 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
             required: [
                 "inputSummary",
             ],
+            anyOf: [
+                {
+                    required: [
+                        "shellCommand",
+                    ],
+                },
+                {
+                    required: [
+                        "executablePath",
+                    ],
+                },
+            ],
             properties: {
                 shellCommand: {
                     type: "string",

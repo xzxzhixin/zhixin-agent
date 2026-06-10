@@ -1,8 +1,8 @@
 /**
  * 阶段 3 领域专项实时推送检查。
  *
- * 用途：验证任务、智能体状态和通知不仅写入 event.appended，也会按专项协议推送。
- * 关键逻辑：建立真实 WebSocket 连接后触发对应 REST 接口，等待 task.updated、agent.state.changed 和 notification.created。
+ * 用途：验证任务和智能体状态不仅写入 event.appended，也会按专项协议推送。
+ * 关键逻辑：建立真实 WebSocket 连接后触发对应 REST 接口，等待 task.updated 和 agent.state.changed。
  * 参数：无。
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
@@ -192,24 +192,6 @@ async function main(): Promise<void> {
     assert(agentMessage.payload.agentId === "main", "agent.state.changed 没有携带智能体 ID");
     assert(agentMessage.payload.status === "working", "agent.state.changed 没有携带智能体状态");
 
-    const notificationPromise = waitForMessage<{
-      type: string;
-      payload: {
-        notificationId: string;
-      };
-    }>(socket, (message) => message.type === "notification.created");
-    await service.app.inject({
-      method: "POST",
-      url: "/api/notification/create",
-      payload: {
-        targetClientType: "web-local",
-        title: "领域推送通知",
-        summary: "通知专项推送检查",
-        requiresUserAction: false,
-      },
-    });
-    const notificationMessage = await notificationPromise;
-    assert(Boolean(notificationMessage.payload.notificationId), "notification.created 没有携带通知 ID");
   } finally {
     socket?.close();
     if (appListening) {
