@@ -577,6 +577,52 @@ export function createMessageTurnAndTask(
 }
 
 /**
+ * appendSessionTouchedEvent：发送消息后广播会话元信息变化。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param session 会话记录。
+ * @param turnId 触发更新时间的轮次 ID。
+ * @param taskId 触发更新时间的任务 ID。
+ * @returns 更新后的会话记录。
+ */
+export function appendSessionTouchedEvent(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    session: ConversationSession,
+    turnId: string,
+    taskId: string,
+): ConversationSession {
+    const updatedSession = findSession(
+        database,
+        session.sessionId,
+    );
+    if (!updatedSession) {
+        throw new Error("SESSION_TOUCHED_ROW_NOT_FOUND");
+    }
+
+    events.append({
+        eventType: "session.updated",
+        scopeType: "session",
+        scopeId: session.sessionId,
+        sessionId: session.sessionId,
+        turnId,
+        taskId,
+        projectId: session.projectId,
+        status: "completed",
+        title: "会话更新时间",
+        summary: "用户消息已写入，会话导航需要刷新。",
+        payload: {
+            session: updatedSession,
+            previousTitle: session.title,
+            titleSummarySource: "message-send",
+        },
+    });
+
+    return updatedSession;
+}
+
+/**
  * completeCreatedTurn：把已创建的消息轮次接入最小执行闭环。
  *
  * @param database 中心服务数据库。
@@ -836,6 +882,24 @@ function createTurnGraphNodeExecutors(
                 return {
                     modelResult: state.modelResult,
                     finalModelResult: state.modelResult,
+                    toolRound: state.toolRound + 1,
+                    totalToolRound: state.totalToolRound + 1,
+                    batchContinuation: false,
+                };
+            }
+            const commandInputFailureText = resolveCommandInputFailureAssistantText(state.toolResults);
+            if (commandInputFailureText && state.modelResult) {
+                // 空命令参数已经是工具输入错误，继续回填给模型只会触发同一个空工具调用循环。
+                const finalModelResult: ProviderModelGatewayResult = {
+                    ...state.modelResult,
+                    assistantText: commandInputFailureText,
+                    toolCall: null,
+                    toolCalls: [],
+                };
+                return {
+                    modelResult: finalModelResult,
+                    finalModelResult,
+                    toolResults: [],
                     toolRound: state.toolRound + 1,
                     totalToolRound: state.totalToolRound + 1,
                     batchContinuation: false,
@@ -1165,6 +1229,26 @@ function createStateGraphCheckpoint(
             stateSummary,
         },
     );
+}
+
+/**
+ * resolveCommandInputFailureAssistantText：把命令工具空参数失败转换为本轮可固化回复。
+ *
+ * @param toolResults 当前工具执行结果列表。
+ * @returns 全部工具结果都是命令参数缺失时返回助手回复，否则返回 null。
+ */
+function resolveCommandInputFailureAssistantText(toolResults: TurnGraphToolResult[]): string | null {
+    if (toolResults.length === 0) {
+        return null;
+    }
+    const allCommandInputFailures = toolResults.every((toolResult) => {
+        return toolResult.executedTool.toolId === "builtin.command.run"
+            && toolResult.resultText.includes("COMMAND_INPUT_EMPTY");
+    });
+    if (!allCommandInputFailures) {
+        return null;
+    }
+    return "命令工具调用失败：模型没有提供可执行的 shellCommand 或 executablePath。请重新发起命令请求，中心服务会继续要求模型使用结构化命令参数。";
 }
 
 /**

@@ -702,8 +702,8 @@ export const useAppStore = defineStore("app", {
                 await this.authorizeLocal();
             }
 
-            await this.registerRuntimeProject();
             await this.connectRealtime();
+            await this.registerRuntimeProject();
             await this.loadProviders();
             await this.loadNavigationData();
             await this.loadAgents();
@@ -767,6 +767,9 @@ export const useAppStore = defineStore("app", {
         async authorizeLocal(): Promise<void> {
             this.authorization = await this.api().authorizeLocal({
                 clientType: this.runtime.clientType,
+                projectId: this.runtime.clientType === "ide-plugin"
+                    ? this.runtime.projectContext?.projectId ?? null
+                    : null,
             });
         },
 
@@ -916,13 +919,12 @@ export const useAppStore = defineStore("app", {
                 }
                 return payload.session;
             });
-            if (this.sessionDetail?.session.sessionId === payload.session.sessionId) {
-                // sessionDetail.session: 当前详情也必须使用中心服务返回的新标题，不能等用户手动刷新页面。
-                this.sessionDetail.session = payload.session;
-            }
             await this.loadNavigationData();
             if (this.activeSessionId === payload.session.sessionId) {
-                await this.loadActiveSessionDetail();
+                // session.updated 可能比 message.created、turn.updated 等事件更稳定到达；当前会话必须直接拉完整快照，补齐多端漏收的消息、任务和事件终态。
+                await this.loadActiveSessionSnapshot();
+                // recoverActiveRunningTurnSnapshot: 其他端如果只收到本轮起始会话更新，也要启动短轮询等待中心服务终态快照。
+                this.recoverActiveRunningTurnSnapshot();
             }
         },
 

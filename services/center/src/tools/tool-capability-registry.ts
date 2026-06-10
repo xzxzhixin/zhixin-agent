@@ -21,28 +21,17 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         inputSchema: {
             type: "object",
             required: [
+                "shellCommand",
                 "inputSummary",
-            ],
-            anyOf: [
-                {
-                    required: [
-                        "shellCommand",
-                    ],
-                },
-                {
-                    required: [
-                        "executablePath",
-                    ],
-                },
             ],
             properties: {
                 shellCommand: {
                     type: "string",
-                    description: "需要 shell 语法时使用的完整命令行；Windows 由 PowerShell 执行，macOS/Linux 由 sh 执行。",
+                    description: "需要 shell 语法时使用的完整命令行；Windows 由 PowerShell 执行，macOS/Linux 由 sh 执行；shellCommand 和 executablePath 必须至少填写一个。",
                 },
                 executablePath: {
                     type: "string",
-                    description: "不需要 shell 语法时要执行的可执行文件路径或命令名。",
+                    description: "不需要 shell 语法时要执行的可执行文件路径或命令名；shellCommand 和 executablePath 必须至少填写一个。",
                 },
                 args: {
                     type: "array",

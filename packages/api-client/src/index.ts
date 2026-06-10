@@ -52,6 +52,11 @@ export interface AuthorizeLocalRequest {
    * clientType: 客户端类型，来源于运行时识别结果。
    */
   clientType: ClientType;
+
+  /**
+   * projectId: IDE 插件当前项目 ID；非项目端固定为空。
+   */
+  projectId?: string | null;
 }
 
 /**

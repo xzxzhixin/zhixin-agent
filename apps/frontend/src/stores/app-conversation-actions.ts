@@ -92,6 +92,29 @@ function isTaskUpdateForActiveSession(
 }
 
 /**
+ * isRecoverableTurnRunning：判断轮次是否需要通过快照兜底恢复终态。
+ *
+ * 关键逻辑：多端页面不是发送端，可能只收到起始 `session.updated`，后续完成事件如果漏收就会停在执行中；
+ * 只对中心服务明确仍未结束的运行态轮次启动短轮询，避免空闲会话产生无意义请求。
+ *
+ * @param turn 会话详情中的轮次记录。
+ * @returns 轮次仍处于运行、排队或等待用户时返回 true。
+ */
+function isRecoverableTurnRunning(turn: {
+    /** endedAt：中心服务轮次结束时间；null 表示尚未结束。 */
+    endedAt: string | null;
+    /** status：中心服务轮次状态。 */
+    status: string;
+}): boolean {
+    return turn.endedAt === null
+        && (
+            turn.status === "queued"
+            || turn.status === "running"
+            || turn.status === "waiting_user"
+        );
+}
+
+/**
  * createConversationActions：创建对话发送、附件和实时同步相关 Pinia actions。
  *
  * 用途：把对话主链路从主 store 拆出，避免状态定义文件继续膨胀。
@@ -228,13 +251,38 @@ export function createConversationActions() {
          */
         hasActiveRunningTurn(): boolean {
             return Boolean(this.sessionDetail?.turns.some((turn) => {
-                return turn.endedAt === null
-                    && (
-                        turn.status === "queued"
-                        || turn.status === "running"
-                        || turn.status === "waiting_user"
-                    );
+                return isRecoverableTurnRunning(turn);
             }));
+        },
+
+        /**
+         * recoverActiveRunningTurnSnapshot：从当前会话快照启动运行中轮次恢复。
+         *
+         * 关键逻辑：其他端收到 `session.updated` 后只能先拉到用户消息和运行态轮次；
+         * 如果后续完成事件没有抵达，短轮询会继续从中心服务数据库拉取，直到 assistant 消息和任务终态写入 UI。
+         *
+         * @returns 没有返回值。
+         */
+        recoverActiveRunningTurnSnapshot(): void {
+            if (!this.activeSessionId || !this.sessionDetail) {
+                return;
+            }
+            const runningTurn = [
+                ...this.sessionDetail.turns,
+            ].reverse().find((turn) => {
+                return isRecoverableTurnRunning(turn);
+            });
+            if (!runningTurn) {
+                return;
+            }
+            if (this.runningTurnSnapshotRecovery.sessionId === this.activeSessionId
+                && this.runningTurnSnapshotRecovery.turnId === runningTurn.turnId) {
+                return;
+            }
+            this.startRunningTurnSnapshotRecovery(
+                this.activeSessionId,
+                runningTurn.turnId,
+            );
         },
 
         /**
@@ -446,12 +494,7 @@ export function createConversationActions() {
                 }
                 const stillRunning = this.sessionDetail?.turns.some((turn) => {
                     return turn.turnId === currentTurnId
-                        && turn.endedAt === null
-                        && (
-                            turn.status === "queued"
-                            || turn.status === "running"
-                            || turn.status === "waiting_user"
-                        );
+                        && isRecoverableTurnRunning(turn);
                 }) ?? false;
                 if (!stillRunning) {
                     this.stopRunningTurnSnapshotRecovery();

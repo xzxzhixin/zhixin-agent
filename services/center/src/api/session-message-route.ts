@@ -10,6 +10,7 @@ import {
 } from "../helpers.js";
 import {broadcastEvents} from "../realtime.js";
 import {
+    appendSessionTouchedEvent,
     completeCreatedTurn,
     createMessageTurnAndTask,
     findSession,
@@ -89,6 +90,13 @@ export function sendSessionMessageThroughCenter(
         events,
         session,
         body.contentMarkdown,
+    );
+    appendSessionTouchedEvent(
+        database,
+        events,
+        session,
+        sent.turnId,
+        sent.taskId,
     );
     const initialEventRows = listEvents(database, {
         sessionId: session.sessionId,

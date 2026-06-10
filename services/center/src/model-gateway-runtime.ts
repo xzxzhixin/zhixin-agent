@@ -36,6 +36,9 @@ import {
     withOptionalGraphCheckpoint,
 } from "./domain/turn-graph-domain.js";
 
+const COMMAND_TOOL_INTERNAL_ID = "builtin.command.run";
+const COMMAND_TOOL_MODEL_NAME = "builtin_command_run";
+
 /**
  * ProviderModelGatewayResult：中心服务模型网关统一返回。
  */
@@ -97,6 +100,50 @@ interface ProviderStreamEventContext {
     turnId: string;
     /** graphCheckpoint: 当前模型节点检查点，用于断线或失败后恢复。 */
     graphCheckpoint?: TurnGraphCheckpoint;
+}
+
+interface LangChainToolCallPart {
+    /** order: 工具调用在供应商响应中的顺序，用于最终按原顺序执行。 */
+    order: number;
+    /** toolCallId: 工具调用 ID；供应商未返回时使用本地 UUID 保证后续工具结果可关联。 */
+    toolCallId: string;
+    /** name: 工具名称；流式片段可能分段返回，需要持续累积。 */
+    name: string;
+    /** argumentsText: 工具参数 JSON 文本；流式片段按原始顺序拼接后再解析。 */
+    argumentsText: string;
+}
+
+interface LangChainMessageLikeRecord {
+    /** content: LangChain 消息文本或多段内容。 */
+    content?: unknown;
+    /** usage_metadata: LangChain 标准用量字段。 */
+    usage_metadata?: unknown;
+    /** response_metadata: LangChain 供应商响应元数据。 */
+    response_metadata?: unknown;
+    /** tool_call_chunks: LangChain snake_case 流式工具调用片段。 */
+    tool_call_chunks?: unknown;
+    /** toolCallChunks: LangChain camelCase 流式工具调用片段。 */
+    toolCallChunks?: unknown;
+    /** tool_calls: LangChain snake_case 完整工具调用。 */
+    tool_calls?: unknown;
+    /** toolCalls: LangChain camelCase 完整工具调用。 */
+    toolCalls?: unknown;
+    /** additional_kwargs: LangChain 透传供应商原始附加字段。 */
+    additional_kwargs?: unknown;
+    /** additionalKwargs: 少数运行时序列化后可能出现的 camelCase 附加字段。 */
+    additionalKwargs?: unknown;
+}
+
+interface LangChainToolChoiceCallOptions {
+    /** tool_choice: LangChain 调用选项；明确命令场景时强制供应商返回指定工具调用。 */
+    tool_choice?: string | Record<string, unknown>;
+}
+
+interface LangChainRunnableWithTools {
+    /** invoke: 非流式模型调用入口。 */
+    invoke: (messages: BaseMessage[], options?: LangChainToolChoiceCallOptions) => Promise<unknown>;
+    /** stream: 流式模型调用入口。 */
+    stream: (messages: BaseMessage[], options?: LangChainToolChoiceCallOptions) => Promise<AsyncIterable<unknown>>;
 }
 
 interface AgentMemoryPromptEntry {
@@ -361,24 +408,24 @@ async function invokeLangChainChatModel(
     const tools = requestPayload.tools.map(toLangChainToolSpec);
     // modelWithTools: 工具声明必须通过 LangChain bindTools 注入，避免继续维护 OpenAI/Anthropic 自研协议分支。
     const modelWithTools = tools.length > 0
-        ? chatModel.bindTools(tools)
-        : chatModel;
+        ? chatModel.bindTools(tools) as LangChainRunnableWithTools
+        : chatModel as LangChainRunnableWithTools;
+    const callOptions = buildLangChainToolChoiceCallOptions(
+        requestPayload,
+    );
     if (!useStreaming) {
         return invokeLangChainChatModelOnce(
             modelWithTools,
             messages,
             streamContext,
+            callOptions,
         );
     }
     const state: {
         assistantText: string;
         hasStreamedAssistantContent: boolean;
         usage: ProviderModelGatewayResult["usage"];
-        toolCallParts: Map<number, {
-            toolCallId: string;
-            name: string;
-            argumentsText: string;
-        }>;
+        toolCallParts: Map<string, LangChainToolCallPart>;
     } = {
         assistantText: "",
         hasStreamedAssistantContent: false,
@@ -386,7 +433,7 @@ async function invokeLangChainChatModel(
         toolCallParts: new Map(),
     };
 
-    for await (const chunk of await modelWithTools.stream(messages)) {
+    for await (const chunk of await modelWithTools.stream(messages, callOptions)) {
         applyLangChainStreamChunk(
             chunk,
             streamContext,
@@ -425,19 +472,13 @@ async function invokeLangChainChatModel(
  * @returns 归一化模型结果。
  */
 async function invokeLangChainChatModelOnce(
-    modelWithTools: {
-        invoke: (messages: BaseMessage[]) => Promise<unknown>;
-    },
+    modelWithTools: LangChainRunnableWithTools,
     messages: BaseMessage[],
     streamContext: ProviderStreamEventContext,
+    callOptions: LangChainToolChoiceCallOptions,
 ): Promise<ProviderModelGatewayHttpResult> {
-    const response = await modelWithTools.invoke(messages);
-    const responseRecord = response as {
-        content?: unknown;
-        usage_metadata?: unknown;
-        response_metadata?: unknown;
-        tool_calls?: unknown;
-    };
+    const response = await modelWithTools.invoke(messages, callOptions);
+    const responseRecord = response as LangChainMessageLikeRecord;
     const assistantText = readLangChainTextContent(responseRecord.content);
     if (assistantText.length > 0) {
         appendProviderStreamDelta(
@@ -446,7 +487,7 @@ async function invokeLangChainChatModelOnce(
             "langchain",
         );
     }
-    const toolCalls = readLangChainToolCalls(responseRecord.tool_calls);
+    const toolCalls = readLangChainToolCalls(readLangChainFinalToolCalls(responseRecord));
     // 合法空 content 工具调用：OpenAI/兼容供应商在只请求工具时允许 assistant.content 为空。
     if (!hasUsableAssistantOutput(
         assistantText,
@@ -468,6 +509,72 @@ async function invokeLangChainChatModelOnce(
         toolCall: toolCalls[0] ?? null,
         toolCalls,
     };
+}
+
+/**
+ * buildLangChainToolChoiceCallOptions：按本轮用户意图构造 LangChain 工具选择选项。
+ *
+ * @param requestPayload 中心服务模型请求。
+ * @returns LangChain 调用选项；无需强制工具时返回空对象。
+ */
+function buildLangChainToolChoiceCallOptions(requestPayload: OpenAiChatRequest): LangChainToolChoiceCallOptions {
+    const commandToolAvailable = requestPayload.tools.some((tool) => {
+        return tool.sourceToolId === COMMAND_TOOL_INTERNAL_ID || tool.name === COMMAND_TOOL_MODEL_NAME;
+    });
+    if (
+        !commandToolAvailable
+        || hasToolResultMessage(requestPayload)
+        || !shouldForceCommandToolChoice(readUserTextFromRequest(requestPayload))
+    ) {
+        return {};
+    }
+    // tool_choice: 对供应商必须使用模型可见安全名，内部工具 ID 只留在中心服务权限和执行映射层。
+    return {
+        tool_choice: COMMAND_TOOL_MODEL_NAME,
+    };
+}
+
+/**
+ * hasToolResultMessage：判断当前模型请求是否已经包含工具回填结果。
+ *
+ * @param requestPayload 中心服务模型请求。
+ * @returns 已经进入工具结果回填阶段时返回 true。
+ */
+function hasToolResultMessage(requestPayload: OpenAiChatRequest): boolean {
+    return requestPayload.messages.some((message) => {
+        return message.role === "tool";
+    });
+}
+
+/**
+ * shouldForceCommandToolChoice：判断用户本轮是否明确要求实际命令执行。
+ *
+ * @param userText 用户原始输入。
+ * @returns 需要强制命令工具时返回 true。
+ */
+function shouldForceCommandToolChoice(userText: string): boolean {
+    const normalizedText = userText.toLowerCase();
+    return [
+        "命令工具",
+        "执行命令",
+        "运行命令",
+        "查看我环境",
+        "看一下我环境",
+        "node版本",
+        "node 版本",
+        "pnpm版本",
+        "pnpm 版本",
+        "npm版本",
+        "npm 版本",
+        "git版本",
+        "git 版本",
+        "node -v",
+        "pnpm -v",
+        "npm -v",
+        "git --version",
+    ].some((keyword) => {
+        return normalizedText.includes(keyword);
+    });
 }
 
 /**
@@ -571,6 +678,10 @@ function buildOpenAiChatPayload(
             role: "system",
             content: sessionContextPrompt,
         },
+        {
+            role: "system",
+            content: buildToolCallingPolicyPrompt(tools),
+        },
     ];
     return {
         requestId: randomUUID(),
@@ -589,6 +700,27 @@ function buildOpenAiChatPayload(
         tools,
         stream: true,
     };
+}
+
+/**
+ * buildToolCallingPolicyPrompt：构造模型工具调用约束提示。
+ *
+ * @param tools 当前模型可见工具定义。
+ * @returns 工具调用约束提示。
+ */
+function buildToolCallingPolicyPrompt(tools: OpenAiToolSpec[]): string {
+    const commandToolAvailable = tools.some((tool) => {
+        return tool.sourceToolId === COMMAND_TOOL_INTERNAL_ID || tool.name === COMMAND_TOOL_MODEL_NAME;
+    });
+    const commandPolicy = commandToolAvailable
+        ? `用户明确要求使用命令工具、执行命令、查看本机环境、读取 Node/pnpm/npm/git 等本机版本或让你实际检查系统状态时，必须调用 \`${COMMAND_TOOL_MODEL_NAME}\` 结构化工具；不要只回复代码块、命令文本或说自己可以执行。`
+        : "当前模型没有可用命令工具；不得声称已经执行本机命令。";
+    return [
+        "工具调用规则：",
+        commandPolicy,
+        "如果需要调用工具，必须通过供应商结构化 tool_calls 返回工具名和 JSON 参数；不要用自然语言、Markdown 代码块或伪 JSON 代替工具调用。",
+        "工具调用参数必须满足工具 schema；命令工具必须提供 shellCommand 或 executablePath，缺失时中心服务会返回可展示的工具失败。",
+    ].join("\n");
 }
 
 /**
@@ -769,20 +901,10 @@ function applyLangChainStreamChunk(
         assistantText: string;
         hasStreamedAssistantContent: boolean;
         usage: ProviderModelGatewayResult["usage"];
-        toolCallParts: Map<number, {
-            toolCallId: string;
-            name: string;
-            argumentsText: string;
-        }>;
+        toolCallParts: Map<string, LangChainToolCallPart>;
     },
 ): void {
-    const chunkRecord = chunk as {
-        content?: unknown;
-        usage_metadata?: unknown;
-        response_metadata?: unknown;
-        tool_call_chunks?: unknown;
-        tool_calls?: unknown;
-    };
+    const chunkRecord = chunk as LangChainMessageLikeRecord;
     const textDelta = readLangChainTextContent(chunkRecord.content);
     if (textDelta.length > 0) {
         state.assistantText += textDelta;
@@ -800,11 +922,14 @@ function applyLangChainStreamChunk(
     }
     appendLangChainToolCallParts(
         state.toolCallParts,
-        chunkRecord.tool_call_chunks,
+        readLangChainToolCallChunks(chunkRecord),
     );
     appendLangChainFinalToolCalls(
         state.toolCallParts,
-        chunkRecord.tool_calls,
+        readLangChainFinalToolCalls(
+            chunkRecord,
+            false,
+        ),
     );
 }
 
@@ -834,51 +959,143 @@ function readLangChainTextContent(content: unknown): string {
 }
 
 /**
+ * readLangChainToolCallChunks：兼容读取 LangChain 流式工具调用片段。
+ *
+ * @param chunkRecord LangChain 流式消息 chunk。
+ * @returns 工具调用片段数组；没有工具调用时返回空数组。
+ */
+function readLangChainToolCallChunks(chunkRecord: LangChainMessageLikeRecord): unknown[] {
+    const additionalKwargs = readLangChainAdditionalKwargs(chunkRecord);
+    const langChainChunks = mergeUnknownArrays(
+        chunkRecord.tool_call_chunks,
+        chunkRecord.toolCallChunks,
+    );
+    if (langChainChunks.length > 0) {
+        return langChainChunks;
+    }
+    return mergeUnknownArrays(
+        // 流式场景里 additional_kwargs.tool_calls 常是 OpenAI 原始 delta 片段，必须按片段累积。
+        additionalKwargs?.tool_calls,
+        additionalKwargs?.toolCalls,
+        additionalKwargs?.tool_call_chunks,
+        additionalKwargs?.toolCallChunks,
+    );
+}
+
+/**
+ * readLangChainFinalToolCalls：兼容读取 LangChain 完整工具调用。
+ *
+ * @param messageRecord LangChain 消息或消息 chunk。
+ * @param includeAdditionalKwargs 是否读取供应商原始附加字段；流式片段必须关闭，避免把半截 delta 当完整调用。
+ * @returns 完整工具调用数组；没有工具调用时返回空数组。
+ */
+function readLangChainFinalToolCalls(
+    messageRecord: LangChainMessageLikeRecord,
+    includeAdditionalKwargs = true,
+): unknown[] {
+    const additionalKwargs = includeAdditionalKwargs
+        ? readLangChainAdditionalKwargs(messageRecord)
+        : null;
+    return firstNonEmptyUnknownArray(
+        messageRecord.tool_calls,
+        messageRecord.toolCalls,
+        additionalKwargs?.tool_calls,
+        additionalKwargs?.toolCalls,
+    );
+}
+
+/**
+ * readLangChainAdditionalKwargs：读取 LangChain 透传供应商原始字段。
+ *
+ * @param messageRecord LangChain 消息或消息 chunk。
+ * @returns 附加字段对象；不存在或格式错误时返回 null。
+ */
+function readLangChainAdditionalKwargs(messageRecord: LangChainMessageLikeRecord): Record<string, unknown> | null {
+    const additionalKwargs = typeof messageRecord.additional_kwargs === "object"
+        && messageRecord.additional_kwargs !== null
+        ? messageRecord.additional_kwargs as Record<string, unknown>
+        : typeof messageRecord.additionalKwargs === "object" && messageRecord.additionalKwargs !== null
+            ? messageRecord.additionalKwargs as Record<string, unknown>
+            : null;
+    return additionalKwargs;
+}
+
+/**
+ * firstNonEmptyUnknownArray：返回候选字段中的首个非空数组。
+ *
+ * @param candidates 可能携带数组的字段列表。
+ * @returns 首个非空数组；全部不匹配或为空时返回空数组。
+ */
+function firstNonEmptyUnknownArray(...candidates: unknown[]): unknown[] {
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate) && candidate.length > 0) {
+            return candidate;
+        }
+    }
+    return [];
+}
+
+/**
+ * mergeUnknownArrays：合并候选字段中的数组。
+ *
+ * @param candidates 可能携带数组的字段列表。
+ * @returns 合并后的数组；不存在数组时返回空数组。
+ */
+function mergeUnknownArrays(...candidates: unknown[]): unknown[] {
+    return candidates.flatMap((candidate) => {
+        return Array.isArray(candidate) ? candidate : [];
+    });
+}
+
+/**
  * appendLangChainToolCallParts：累积 LangChain 流式工具调用片段。
  *
  * @param toolCallParts 当前工具片段表。
- * @param rawToolCallChunks LangChain tool_call_chunks 字段。
+ * @param toolCallChunks LangChain 工具调用片段数组。
  * @returns 没有返回值。
  */
 function appendLangChainToolCallParts(
-    toolCallParts: Map<number, {
-        toolCallId: string;
-        name: string;
-        argumentsText: string;
-    }>,
-    rawToolCallChunks: unknown,
+    toolCallParts: Map<string, LangChainToolCallPart>,
+    toolCallChunks: unknown[],
 ): void {
-    const toolCallChunks = Array.isArray(rawToolCallChunks) ? rawToolCallChunks : [];
-    for (const toolCallChunk of toolCallChunks) {
+    toolCallChunks.forEach((toolCallChunk, fallbackIndex) => {
         if (typeof toolCallChunk !== "object" || toolCallChunk === null) {
-            continue;
+            return;
         }
-        const index = typeof (toolCallChunk as { index?: unknown }).index === "number"
+        const toolCallId = typeof (toolCallChunk as { id?: unknown }).id === "string"
+            ? (toolCallChunk as { id: string }).id
+            : "";
+        const chunkIndex = typeof (toolCallChunk as { index?: unknown }).index === "number"
             ? (toolCallChunk as { index: number }).index
-            : toolCallParts.size;
-        const existing = toolCallParts.get(index) ?? {
+            : null;
+        // key: 优先用 index 保持供应商顺序；无 index 时用 id 合并同一调用片段，最后才按当前片段序号兜底。
+        const key = chunkIndex !== null
+            ? `index:${chunkIndex}`
+            : toolCallId
+                ? `id:${toolCallId}`
+                : `fallback:${fallbackIndex}`;
+        const existing = toolCallParts.get(key) ?? {
+            order: chunkIndex ?? fallbackIndex,
             toolCallId: randomUUID(),
             name: "",
             argumentsText: "",
         };
-        const nextId = typeof (toolCallChunk as { id?: unknown }).id === "string"
-            ? (toolCallChunk as { id: string }).id
-            : existing.toolCallId;
-        const nextName = typeof (toolCallChunk as { name?: unknown }).name === "string"
-            ? `${existing.name}${(toolCallChunk as { name: string }).name}`
+        const nextId = toolCallId || existing.toolCallId;
+        const nameDelta = readLangChainToolName(toolCallChunk);
+        const nextName = nameDelta
+            ? `${existing.name}${nameDelta}`
             : existing.name;
-        const argsDelta = typeof (toolCallChunk as { args?: unknown }).args === "string"
-            ? (toolCallChunk as { args: string }).args
-            : "";
+        const argsDelta = readLangChainToolArgumentsTextDelta(toolCallChunk);
         toolCallParts.set(
-            index,
+            key,
             {
+                order: existing.order,
                 toolCallId: nextId,
                 name: nextName,
                 argumentsText: `${existing.argumentsText}${argsDelta}`,
             },
         );
-    }
+    });
 }
 
 /**
@@ -889,34 +1106,25 @@ function appendLangChainToolCallParts(
  * @returns 没有返回值。
  */
 function appendLangChainFinalToolCalls(
-    toolCallParts: Map<number, {
-        toolCallId: string;
-        name: string;
-        argumentsText: string;
-    }>,
-    rawToolCalls: unknown,
+    toolCallParts: Map<string, LangChainToolCallPart>,
+    toolCalls: unknown[],
 ): void {
-    const toolCalls = Array.isArray(rawToolCalls) ? rawToolCalls : [];
     toolCalls.forEach((toolCall, index) => {
         if (typeof toolCall !== "object" || toolCall === null) {
             return;
         }
-        const name = typeof (toolCall as { name?: unknown }).name === "string"
-            ? (toolCall as { name: string }).name
-            : "";
+        const name = readLangChainToolName(toolCall);
         const id = typeof (toolCall as { id?: unknown }).id === "string"
             ? (toolCall as { id: string }).id
             : randomUUID();
-        const args = typeof (toolCall as { args?: unknown }).args === "object"
-            && (toolCall as { args?: unknown }).args !== null
-            ? JSON.stringify((toolCall as { args: Record<string, unknown> }).args)
-            : "{}";
-        if (!name) {
+        const args = readLangChainToolArgumentsText(toolCall);
+        if (!name || args === null) {
             return;
         }
         toolCallParts.set(
-            index,
+            `final:${index}`,
             {
+                order: index,
                 toolCallId: id,
                 name,
                 argumentsText: args,
@@ -937,13 +1145,8 @@ function readLangChainToolCalls(rawToolCalls: unknown): OpenAiToolCall[] {
         if (typeof toolCall !== "object" || toolCall === null) {
             return null;
         }
-        const name = typeof (toolCall as { name?: unknown }).name === "string"
-            ? (toolCall as { name: string }).name
-            : "";
-        const args = typeof (toolCall as { args?: unknown }).args === "object"
-            && (toolCall as { args?: unknown }).args !== null
-            ? (toolCall as { args: Record<string, unknown> }).args
-            : null;
+        const name = readLangChainToolName(toolCall);
+        const args = readLangChainToolArgumentsObject(toolCall);
         if (!name || !args) {
             return null;
         }
@@ -957,6 +1160,89 @@ function readLangChainToolCalls(rawToolCalls: unknown): OpenAiToolCall[] {
     }).filter((toolCall): toolCall is OpenAiToolCall => {
         return toolCall !== null;
     });
+}
+
+/**
+ * readLangChainToolName：读取 LangChain 或 OpenAI 原始工具调用名称。
+ *
+ * @param toolCall 工具调用对象。
+ * @returns 工具名称；不存在时返回空字符串。
+ */
+function readLangChainToolName(toolCall: object): string {
+    if (typeof (toolCall as { name?: unknown }).name === "string") {
+        return (toolCall as { name: string }).name;
+    }
+    const functionRecord = readLangChainToolFunctionRecord(toolCall);
+    return typeof functionRecord?.name === "string" ? functionRecord.name : "";
+}
+
+/**
+ * readLangChainToolArgumentsTextDelta：读取流式工具参数增量。
+ *
+ * @param toolCallChunk 工具调用片段对象。
+ * @returns 本片段参数文本；没有参数片段时返回空字符串。
+ */
+function readLangChainToolArgumentsTextDelta(toolCallChunk: object): string {
+    const args = (toolCallChunk as { args?: unknown }).args;
+    if (typeof args === "string") {
+        return args;
+    }
+    const functionRecord = readLangChainToolFunctionRecord(toolCallChunk);
+    return typeof functionRecord?.arguments === "string" ? functionRecord.arguments : "";
+}
+
+/**
+ * readLangChainToolArgumentsText：读取完整工具参数 JSON 文本。
+ *
+ * @param toolCall 工具调用对象。
+ * @returns 工具参数 JSON 文本；没有参数时返回 null。
+ */
+function readLangChainToolArgumentsText(toolCall: object): string | null {
+    const args = (toolCall as { args?: unknown }).args;
+    if (typeof args === "string") {
+        return args;
+    }
+    if (typeof args === "object" && args !== null && !Array.isArray(args)) {
+        return JSON.stringify(args);
+    }
+    const functionRecord = readLangChainToolFunctionRecord(toolCall);
+    if (typeof functionRecord?.arguments === "string") {
+        return functionRecord.arguments;
+    }
+    return null;
+}
+
+/**
+ * readLangChainToolArgumentsObject：读取并解析完整工具参数对象。
+ *
+ * @param toolCall 工具调用对象。
+ * @returns 工具参数对象；不存在或不是对象时返回 null。
+ */
+function readLangChainToolArgumentsObject(toolCall: object): Record<string, unknown> | null {
+    const args = (toolCall as { args?: unknown }).args;
+    if (typeof args === "object" && args !== null && !Array.isArray(args)) {
+        return args as Record<string, unknown>;
+    }
+    if (typeof args === "string") {
+        return tryParseJsonObject(args);
+    }
+    const functionRecord = readLangChainToolFunctionRecord(toolCall);
+    return typeof functionRecord?.arguments === "string"
+        ? tryParseJsonObject(functionRecord.arguments)
+        : null;
+}
+
+/**
+ * readLangChainToolFunctionRecord：读取 OpenAI 原始 function 工具字段。
+ *
+ * @param toolCall 工具调用对象。
+ * @returns function 字段对象；不存在或格式错误时返回 null。
+ */
+function readLangChainToolFunctionRecord(toolCall: object): Record<string, unknown> | null {
+    const functionRecord = (toolCall as { function?: unknown }).function;
+    return typeof functionRecord === "object" && functionRecord !== null
+        ? functionRecord as Record<string, unknown>
+        : null;
 }
 
 function tryParseJsonObject(value: string): Record<string, unknown> | null {
@@ -1000,24 +1286,40 @@ function hasUsableAssistantOutput(
  * @param toolCallParts 工具片段表。
  * @returns 工具调用数组。
  */
-function readStreamingChatCompletionToolCalls(toolCallParts: Map<number, {
-    toolCallId: string;
-    name: string;
-    argumentsText: string;
-}>): OpenAiToolCall[] {
-    return Array.from(toolCallParts.values()).map((part) => {
+function readStreamingChatCompletionToolCalls(toolCallParts: Map<string, LangChainToolCallPart>): OpenAiToolCall[] {
+    const dedupedToolCalls = new Map<string, OpenAiToolCall>();
+    Array.from(toolCallParts.values()).sort((left, right) => {
+        return left.order - right.order;
+    }).forEach((part) => {
         const argumentsJson = readToolArgumentsJson(part.argumentsText);
         if (!part.name || !argumentsJson) {
-            return null;
+            return;
         }
-        return {
+        const nextToolCall = {
             toolCallId: part.toolCallId,
             name: part.name,
             argumentsJson,
         };
-    }).filter((toolCall): toolCall is OpenAiToolCall => {
-        return toolCall !== null;
+        const existingToolCall = dedupedToolCalls.get(part.toolCallId);
+        if (!existingToolCall || countObjectKeys(nextToolCall.argumentsJson) > countObjectKeys(existingToolCall.argumentsJson)) {
+            // 同一 tool_call_id 可能同时出现在 LangChain 标准片段和供应商原始片段中，保留参数更完整的一条。
+            dedupedToolCalls.set(
+                part.toolCallId,
+                nextToolCall,
+            );
+        }
     });
+    return Array.from(dedupedToolCalls.values());
+}
+
+/**
+ * countObjectKeys：统计对象顶层字段数量，用于选择更完整的工具参数。
+ *
+ * @param value 工具参数对象。
+ * @returns 顶层字段数量。
+ */
+function countObjectKeys(value: Record<string, unknown>): number {
+    return Object.keys(value).length;
 }
 
 /**

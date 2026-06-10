@@ -28,6 +28,7 @@ export function registerAuthRoutes(context: CenterApiRouteContext): void {
             // body: 本机授权只接受明确客户端类型，服务端再结合来源地址判断。
             const body = request.body as {
                 clientType?: ClientType;
+                projectId?: string | null;
             };
             // isLocalRequest: 不能依赖前端 hostname，必须由服务端从连接来源判断。
             const isLocalRequest = isRequestFromLocalHost(request.ip);
@@ -58,7 +59,9 @@ export function registerAuthRoutes(context: CenterApiRouteContext): void {
     
             const clientId = upsertSyncClient(database, {
                 clientType: body.clientType,
-                projectId: null,
+                projectId: body.clientType === "ide-plugin"
+                    ? body.projectId ?? null
+                    : null,
             });
     
             return createSuccessResponse<AccessAuthorizeResponse>({
