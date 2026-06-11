@@ -631,7 +631,7 @@ export interface ComposerContextUsageState {
  *
  * 来源：前端本地实时同步兜底。
  * 含义：当 WebSocket 后半段事件漏收或快照刷新竞态时，按当前会话短轮询数据库快照恢复最终回复。
- * 格式：定时器 ID、会话 ID、轮次 ID 和尝试次数。
+ * 格式：定时器 ID、会话 ID、轮次 ID、尝试次数、最近活动时间和空闲次数。
  * 默认值：timer 为 null，其余身份为空。
  * 约束：只在当前会话存在运行中轮次时启用，中心服务数据库仍是事实源。
  */
@@ -644,6 +644,10 @@ export interface RunningTurnSnapshotRecoveryState {
     turnId: string | null;
     /** attempts: 已轮询次数，用于限制兜底轮询生命周期。 */
     attempts: number;
+    /** lastActivityAt: 最近一次从中心服务快照推导出的活动时间；没有快照时为 null。 */
+    lastActivityAt: string | null;
+    /** idleAttempts: 最近活动时间没有推进的连续轮询次数，用于判断本地观察是否疑似卡住。 */
+    idleAttempts: number;
 }
 
 /**

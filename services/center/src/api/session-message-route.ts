@@ -8,6 +8,7 @@ import {
     createErrorResponse,
     createSuccessResponse,
 } from "../helpers.js";
+import {centerConsoleLogger} from "../logger.js";
 import {broadcastEvents} from "../realtime.js";
 import {
     appendSessionTouchedEvent,
@@ -91,6 +92,17 @@ export function sendSessionMessageThroughCenter(
         session,
         body.contentMarkdown,
     );
+    centerConsoleLogger.info(
+        {
+            payload: {
+                sessionId: session.sessionId,
+                turnId: sent.turnId,
+                taskId: sent.taskId,
+                contentPreview: truncateConsoleText(body.contentMarkdown),
+            },
+        },
+        "center.message_send.created_turn",
+    );
     appendSessionTouchedEvent(
         database,
         events,
@@ -138,6 +150,16 @@ export function sendSessionMessageThroughCenter(
 
     // setTimeout: 先返回轮次身份，异步执行过程事件通过 realtimeEvents 逐条推送。
     setTimeout(() => {
+        centerConsoleLogger.info(
+            {
+                payload: {
+                    sessionId: session.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                },
+            },
+            "center.message_send.background_turn_scheduled",
+        );
         void runCreatedTurnInBackground(
             database,
             realtimeEvents,
@@ -225,6 +247,16 @@ async function runCreatedTurnInBackground(
     memoryQueues: Map<string, MemoryQueueState>,
     readPushedSequence: () => number,
 ): Promise<void> {
+    centerConsoleLogger.info(
+        {
+            payload: {
+                sessionId: session.sessionId,
+                turnId: sent.turnId,
+                taskId: sent.taskId,
+            },
+        },
+        "center.turn_background.started",
+    );
     try {
         await completeCreatedTurn(
             database,
@@ -241,8 +273,29 @@ async function runCreatedTurnInBackground(
             sent,
             readPushedSequence(),
         );
+        centerConsoleLogger.info(
+            {
+                payload: {
+                    sessionId: session.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                },
+            },
+            "center.turn_background.completed",
+        );
     } catch (error) {
         const message = error instanceof Error ? error.message : "MESSAGE_TURN_ASYNC_FAILED";
+        centerConsoleLogger.error(
+            {
+                payload: {
+                    sessionId: session.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    errorMessage: truncateConsoleText(message),
+                },
+            },
+            "center.turn_background.failed",
+        );
         try {
             realtimeEvents.append({
                 eventType: "message.turn.failed",
@@ -302,4 +355,17 @@ function broadcastRemainingTurnEvents(
         session,
         remainingEventRows,
     );
+}
+
+/**
+ * truncateConsoleText：截断开发控制台中的用户输入和错误摘要。
+ *
+ * @param text 原始文本。
+ * @returns 控制台安全摘要。
+ */
+function truncateConsoleText(text: string): string {
+    const normalizedText = text.replace(/\s+/gu, " ").trim();
+    return normalizedText.length > 240
+        ? `${normalizedText.slice(0, 240)}...`
+        : normalizedText;
 }

@@ -16,6 +16,7 @@ import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
 } from "../domain/turn-graph-domain.js";
+import {centerConsoleLogger} from "../logger.js";
 
 /**
  * CommandToolRequest：通用命令工具请求。
@@ -121,6 +122,18 @@ export async function runCommandTool(
     const capability = resolveUnifiedToolCapability("builtin.command.run");
     const execution = tryResolveCommandExecution(request);
     if (!execution) {
+        centerConsoleLogger.error(
+            {
+                payload: {
+                    sessionId,
+                    turnId,
+                    taskId,
+                    toolCallId: request.toolCallId ?? null,
+                    inputSummary: truncateConsoleText(request.inputSummary),
+                },
+            },
+            "center.command_tool.input_invalid",
+        );
         return resolveCommandToolInputFailure(
             events,
             capability,
@@ -151,6 +164,21 @@ export async function runCommandTool(
             inputSummary: request.inputSummary,
         }, graphCheckpoint),
     });
+    centerConsoleLogger.info(
+        {
+            payload: {
+                sessionId,
+                turnId,
+                taskId,
+                toolCallId: request.toolCallId ?? null,
+                executablePath: execution.executablePath,
+                argsCount: execution.args.length,
+                commandPreview: truncateConsoleText(command),
+                inputSummary: truncateConsoleText(request.inputSummary),
+            },
+        },
+        "center.command_tool.spawn",
+    );
 
     return new Promise<CommandToolResult>((resolve) => {
         const chunks: string[] = [];
@@ -158,6 +186,7 @@ export async function runCommandTool(
             execution.executablePath,
             execution.args,
             {
+                env: createCommandEnvironment(),
                 windowsHide: true,
             },
         );
@@ -175,6 +204,19 @@ export async function runCommandTool(
                 return;
             }
             chunks.push(normalizedChunk);
+            centerConsoleLogger.info(
+                {
+                    payload: {
+                        sessionId,
+                        turnId,
+                        taskId,
+                        toolCallId: request.toolCallId ?? null,
+                        chunkLength: normalizedChunk.length,
+                        chunkPreview: truncateConsoleText(normalizedChunk),
+                    },
+                },
+                "center.command_tool.output",
+            );
             events.append({
                 eventType: "tool.command.output",
                 scopeType: "tool",
@@ -207,6 +249,18 @@ export async function runCommandTool(
                 return;
             }
             settled = true;
+            centerConsoleLogger.error(
+                {
+                    payload: {
+                        sessionId,
+                        turnId,
+                        taskId,
+                        toolCallId: request.toolCallId ?? null,
+                        errorMessage: truncateConsoleText(error.message),
+                    },
+                },
+                "center.command_tool.spawn_error",
+            );
             appendOutputChunk(error.message);
             resolveCommandToolResult(
                 events,
@@ -227,6 +281,19 @@ export async function runCommandTool(
                 return;
             }
             settled = true;
+            centerConsoleLogger.info(
+                {
+                    payload: {
+                        sessionId,
+                        turnId,
+                        taskId,
+                        toolCallId: request.toolCallId ?? null,
+                        exitCode,
+                        outputChunkCount: chunks.length,
+                    },
+                },
+                "center.command_tool.close",
+            );
             resolveCommandToolResult(
                 events,
                 capability,
@@ -307,6 +374,39 @@ function countReplacementCharacters(text: string): number {
     return Array.from(text).filter((character) => {
         return character === "\uFFFD";
     }).length;
+}
+
+/**
+ * createCommandEnvironment：为命令工具子进程准备环境变量。
+ *
+ * 关键逻辑：Windows 中文乱码常来自子进程按本地代码页输出；优先要求 Python 和通用 CLI 使用 UTF-8，
+ * 原环境变量仍保留，避免破坏用户 PATH、代理和运行环境配置。
+ *
+ * @returns 可传给 spawn 的环境变量。
+ */
+function createCommandEnvironment(): NodeJS.ProcessEnv {
+    return {
+        ...process.env,
+        // PYTHONIOENCODING: Python stdout/stderr 统一输出 UTF-8，避免中文 traceback 或 print 内容乱码。
+        PYTHONIOENCODING: "utf-8",
+        // PYTHONUTF8: Python 3 UTF-8 模式；不影响非 Python 命令。
+        PYTHONUTF8: "1",
+        // DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION: 保留控制台重定向颜色兼容，不改变业务输出。
+        DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION: "1",
+    };
+}
+
+/**
+ * truncateConsoleText：截断命令工具控制台日志，避免长脚本或长输出刷屏。
+ *
+ * @param text 原始命令、摘要或输出。
+ * @returns 适合开发控制台的一行摘要。
+ */
+function truncateConsoleText(text: string): string {
+    const normalizedText = text.replace(/\s+/gu, " ").trim();
+    return normalizedText.length > 240
+        ? `${normalizedText.slice(0, 240)}...`
+        : normalizedText;
 }
 
 /**

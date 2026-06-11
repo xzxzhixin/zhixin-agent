@@ -335,6 +335,7 @@ function filterVisibleDecompositionSteps(
     taskSteps: Array<{
         stepId: string;
         taskId: string;
+        planVersion?: number;
         source?: string;
         title: string;
         status: string;
@@ -343,9 +344,20 @@ function filterVisibleDecompositionSteps(
         endedAt: string | null;
     }>,
 ) {
-    return taskSteps.filter((step) => {
+    const visibleSteps = taskSteps.filter((step) => {
         return step.taskId === taskId
             && step.source !== "graph";
+    });
+    const latestPlanVersion = visibleSteps.reduce((current, step) => {
+        return Math.max(
+            current,
+            step.planVersion ?? 1,
+        );
+    }, 1);
+    // latestPlanVersion: todoList 多次重规划会保留历史版本；任务面板只展示最新计划，避免旧计划和新计划叠成重复任务。
+    return visibleSteps.filter((step) => {
+        return (step.planVersion ?? 1) === latestPlanVersion
+            && step.status !== "superseded";
     });
 }
 

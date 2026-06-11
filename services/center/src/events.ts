@@ -4,6 +4,7 @@ import type {EventRecord} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import {createDataAccess} from "./data-access/index.js";
+import {centerConsoleLogger} from "./logger.js";
 import {formatCenterLocalDateTime} from "./time.js";
 
 export class CenterEventStore {
@@ -110,6 +111,7 @@ export class CenterEventStore {
             errorCode: input.errorCode ?? null,
             traceId,
         });
+        writeCenterEventToConsole(event);
         this.onAppended?.(event);
         return event;
     }
@@ -142,4 +144,54 @@ export function createBroadcastingEventStore(
     onAppended: (event: EventRecord) => void,
 ): CenterEventStore {
     return base.withAppendListener(onAppended);
+}
+
+/**
+ * writeCenterEventToConsole：把中心服务事实事件同步输出到开发控制台。
+ *
+ * @param event 已落库的中心服务事件。
+ * @returns 没有返回值。
+ */
+function writeCenterEventToConsole(event: EventRecord): void {
+    // consolePayload: 控制台只保留排查关键字段和截断摘要，完整事实源仍以 SQLite events 表为准。
+    const consolePayload = {
+        eventType: event.eventType,
+        status: event.status,
+        sessionId: event.sessionId,
+        turnId: event.turnId,
+        taskId: event.taskId,
+        stepId: event.stepId,
+        sequence: event.sequence,
+        traceId: event.traceId,
+        summary: truncateConsoleText(event.summary),
+        occurredAt: event.occurredAt,
+    };
+    if (event.status === "failed" || event.errorCode) {
+        centerConsoleLogger.error(
+            {
+                payload: consolePayload,
+            },
+            "center.event",
+        );
+        return;
+    }
+    centerConsoleLogger.info(
+        {
+            payload: consolePayload,
+        },
+        "center.event",
+    );
+}
+
+/**
+ * truncateConsoleText：截断控制台摘要，避免长命令、长文档或模型正文刷屏。
+ *
+ * @param text 原始摘要。
+ * @returns 控制台可读的短文本。
+ */
+function truncateConsoleText(text: string): string {
+    const normalizedText = text.replace(/\s+/gu, " ").trim();
+    return normalizedText.length > 240
+        ? `${normalizedText.slice(0, 240)}...`
+        : normalizedText;
 }

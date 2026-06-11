@@ -14,6 +14,7 @@ import type {
     AgentSubConversationDetail,
     EventRecord,
     PendingEditRecord,
+    SessionDetailResult,
 } from "@zhixin/shared";
 
 /**
@@ -33,6 +34,13 @@ interface TaskUpdatedPayload {
     /** status：任务最新状态，completed 表示任务已完成。 */
     status?: string;
 }
+
+// RUNNING_TURN_RECOVERY_INTERVAL_MS：运行中轮次快照恢复间隔，保持轻量轮询且能及时刷新最终消息。
+const RUNNING_TURN_RECOVERY_INTERVAL_MS = 1500;
+// RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS：连续约 10 分钟无事件、任务或步骤活动时，停止当前页面本地观察并输出诊断日志。
+const RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS = 400;
+// RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS：极端保护预算；活动持续推进时通常不会触发，避免异常页面永久高频轮询。
+const RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS = 172800;
 
 /**
  * isCompletedTaskUpdate：判断任务更新是否表示当前任务完成。
@@ -112,6 +120,112 @@ function isRecoverableTurnRunning(turn: {
             || turn.status === "running"
             || turn.status === "waiting_user"
         );
+}
+
+/**
+ * readTimeMs：把中心服务时间字符串转为毫秒时间戳。
+ *
+ * 关键逻辑：活动续租只能使用中心服务事实时间；解析失败时忽略该字段，避免本地时间兜底污染恢复判断。
+ *
+ * @param value 中心服务返回的时间字符串或空值。
+ * @returns 可比较的毫秒时间戳；无法解析时返回 null。
+ */
+function readTimeMs(value: string | null | undefined): number | null {
+    if (!value) {
+        return null;
+    }
+    const timestamp = new Date(value).getTime();
+    return Number.isNaN(timestamp)
+        ? null
+        : timestamp;
+}
+
+/**
+ * writeMaxActivity：把候选活动时间写入当前最大活动时间。
+ *
+ * @param current 当前最大活动时间。
+ * @param candidate 中心服务候选时间。
+ * @returns 推进后的最大活动时间。
+ */
+function writeMaxActivity(
+    current: {
+        /** ms：用于比较的时间戳毫秒值。 */
+        ms: number;
+        /** text：中心服务返回的原始时间文本。 */
+        text: string;
+    } | null,
+    candidate: string | null | undefined,
+): {
+    /** ms：用于比较的时间戳毫秒值。 */
+    ms: number;
+    /** text：中心服务返回的原始时间文本。 */
+    text: string;
+} | null {
+    const candidateMs = readTimeMs(candidate);
+    if (candidateMs === null || !candidate) {
+        return current;
+    }
+    if (current === null || candidateMs > current.ms) {
+        return {
+            ms: candidateMs,
+            text: candidate,
+        };
+    }
+    return current;
+}
+
+/**
+ * resolveTurnSnapshotActivityAt：从当前会话快照推导指定轮次最近活动时间。
+ *
+ * 关键逻辑：超长期任务会持续产生模型输出、命令输出、工具事件和步骤切换；
+ * 前端恢复必须根据中心服务快照中的事件、任务、步骤和轮次时间续租，不能按固定总时长停止。
+ *
+ * @param detail 当前会话详情快照。
+ * @param events 当前会话事件快照。
+ * @param turnId 运行中轮次 ID。
+ * @returns 最近活动时间字符串；没有任何活动事实时返回 null。
+ */
+function resolveTurnSnapshotActivityAt(
+    detail: SessionDetailResult | null,
+    events: EventRecord[],
+    turnId: string,
+): string | null {
+    let activity: {
+        /** ms：用于比较的时间戳毫秒值。 */
+        ms: number;
+        /** text：中心服务返回的原始时间文本。 */
+        text: string;
+    } | null = null;
+    const turn = detail?.turns.find((item) => {
+        return item.turnId === turnId;
+    });
+    activity = writeMaxActivity(activity, turn?.startedAt);
+    activity = writeMaxActivity(activity, turn?.endedAt);
+    const taskIds = new Set<string>();
+    detail?.tasks.forEach((task) => {
+        if (task.turnId !== turnId) {
+            return;
+        }
+        taskIds.add(task.taskId);
+        activity = writeMaxActivity(activity, task.createdAt);
+        activity = writeMaxActivity(activity, task.updatedAt);
+    });
+    detail?.taskSteps.forEach((step) => {
+        if (!taskIds.has(step.taskId)) {
+            return;
+        }
+        activity = writeMaxActivity(activity, step.startedAt);
+        activity = writeMaxActivity(activity, step.endedAt);
+    });
+    events.forEach((event) => {
+        if (event.turnId !== turnId) {
+            return;
+        }
+        activity = writeMaxActivity(activity, event.occurredAt);
+    });
+    return activity === null
+        ? null
+        : activity.text;
 }
 
 /**
@@ -259,7 +373,7 @@ export function createConversationActions() {
          * recoverActiveRunningTurnSnapshot：从当前会话快照启动运行中轮次恢复。
          *
          * 关键逻辑：其他端收到 `session.updated` 后只能先拉到用户消息和运行态轮次；
-         * 如果后续完成事件没有抵达，短轮询会继续从中心服务数据库拉取，直到 assistant 消息和任务终态写入 UI。
+         * 如果后续完成事件没有抵达，活动续租式恢复会按中心服务快照持续拉取，直到终态写入 UI 或长时间无活动。
          *
          * @returns 没有返回值。
          */
@@ -434,6 +548,8 @@ export function createConversationActions() {
         /**
          * startRunningTurnSnapshotRecovery：启动运行中轮次快照恢复兜底。
          *
+         * 关键逻辑：恢复生命周期由中心服务活动时间续租，避免超长期任务持续输出时被固定总时长误停。
+         *
          * @param sessionId 当前发送会话 ID。
          * @param turnId 当前发送轮次 ID。
          * @returns 没有返回值。
@@ -446,6 +562,20 @@ export function createConversationActions() {
             this.runningTurnSnapshotRecovery.sessionId = sessionId;
             this.runningTurnSnapshotRecovery.turnId = turnId;
             this.runningTurnSnapshotRecovery.attempts = 0;
+            this.runningTurnSnapshotRecovery.lastActivityAt = resolveTurnSnapshotActivityAt(
+                this.sessionDetail,
+                this.events,
+                turnId,
+            );
+            this.runningTurnSnapshotRecovery.idleAttempts = 0;
+            console.info("[frontend:turn-recovery] started", JSON.stringify({
+                sessionId,
+                turnId,
+                lastActivityAt: this.runningTurnSnapshotRecovery.lastActivityAt,
+                idleAttemptsLimit: RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS,
+                hardMaxAttempts: RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS,
+                intervalMs: RUNNING_TURN_RECOVERY_INTERVAL_MS,
+            }));
             this.scheduleRunningTurnSnapshotRecovery();
         },
 
@@ -462,10 +592,15 @@ export function createConversationActions() {
             this.runningTurnSnapshotRecovery.sessionId = null;
             this.runningTurnSnapshotRecovery.turnId = null;
             this.runningTurnSnapshotRecovery.attempts = 0;
+            this.runningTurnSnapshotRecovery.lastActivityAt = null;
+            this.runningTurnSnapshotRecovery.idleAttempts = 0;
         },
 
         /**
-         * scheduleRunningTurnSnapshotRecovery：按短间隔拉取当前会话数据库快照。
+         * scheduleRunningTurnSnapshotRecovery：按活动续租策略短间隔拉取当前会话数据库快照。
+         *
+         * 关键逻辑：只要中心服务快照中的事件、任务或步骤时间继续推进，就刷新最近活动时间；
+         * 只有连续多次没有任何活动推进时，才停止当前页面本地观察并保留控制台诊断。
          *
          * @returns 没有返回值。
          */
@@ -474,7 +609,24 @@ export function createConversationActions() {
             if (!recovery.sessionId || !recovery.turnId) {
                 return;
             }
-            if (recovery.attempts >= 40) {
+            if (recovery.attempts >= RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS) {
+                console.warn("[frontend:turn-recovery] stopped by hard budget", JSON.stringify({
+                    sessionId: recovery.sessionId,
+                    turnId: recovery.turnId,
+                    attempts: recovery.attempts,
+                    lastActivityAt: recovery.lastActivityAt,
+                }));
+                this.stopRunningTurnSnapshotRecovery();
+                return;
+            }
+            if (recovery.idleAttempts >= RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS) {
+                console.warn("[frontend:turn-recovery] stopped by idle budget", JSON.stringify({
+                    sessionId: recovery.sessionId,
+                    turnId: recovery.turnId,
+                    attempts: recovery.attempts,
+                    idleAttempts: recovery.idleAttempts,
+                    lastActivityAt: recovery.lastActivityAt,
+                }));
                 this.stopRunningTurnSnapshotRecovery();
                 return;
             }
@@ -489,7 +641,37 @@ export function createConversationActions() {
                 try {
                     // 运行中轮次最终事实在中心服务数据库；短轮询只把已完成快照恢复到当前 UI。
                     await this.loadActiveSessionSnapshot();
-                } catch {
+                    console.info("[frontend:turn-recovery] snapshot loaded", JSON.stringify({
+                        sessionId: currentSessionId,
+                        turnId: currentTurnId,
+                        attempts: this.runningTurnSnapshotRecovery.attempts,
+                    }));
+                    const activityAt = resolveTurnSnapshotActivityAt(
+                        this.sessionDetail,
+                        this.events,
+                        currentTurnId,
+                    );
+                    if (activityAt && activityAt !== this.runningTurnSnapshotRecovery.lastActivityAt) {
+                        this.runningTurnSnapshotRecovery.lastActivityAt = activityAt;
+                        this.runningTurnSnapshotRecovery.idleAttempts = 0;
+                        console.info("[frontend:turn-recovery] activity renewed", JSON.stringify({
+                            sessionId: currentSessionId,
+                            turnId: currentTurnId,
+                            attempts: this.runningTurnSnapshotRecovery.attempts,
+                            lastActivityAt: activityAt,
+                        }));
+                    } else {
+                        this.runningTurnSnapshotRecovery.idleAttempts += 1;
+                    }
+                } catch (error) {
+                    console.warn("[frontend:turn-recovery] snapshot failed", JSON.stringify({
+                        sessionId: currentSessionId,
+                        turnId: currentTurnId,
+                        attempts: this.runningTurnSnapshotRecovery.attempts,
+                        errorMessage: error instanceof Error
+                            ? error.message
+                            : "UNKNOWN_SNAPSHOT_RECOVERY_ERROR",
+                    }));
                     // WebSocket 请求可能与重连竞态冲突；下一轮继续尝试，避免单次失败让 UI 永久卡住。
                 }
                 const stillRunning = this.sessionDetail?.turns.some((turn) => {
@@ -497,11 +679,17 @@ export function createConversationActions() {
                         && isRecoverableTurnRunning(turn);
                 }) ?? false;
                 if (!stillRunning) {
+                    console.info("[frontend:turn-recovery] completed", JSON.stringify({
+                        sessionId: currentSessionId,
+                        turnId: currentTurnId,
+                        attempts: this.runningTurnSnapshotRecovery.attempts,
+                        lastActivityAt: this.runningTurnSnapshotRecovery.lastActivityAt,
+                    }));
                     this.stopRunningTurnSnapshotRecovery();
                     return;
                 }
                 this.scheduleRunningTurnSnapshotRecovery();
-            }, 1500);
+            }, RUNNING_TURN_RECOVERY_INTERVAL_MS);
         },
 
         /**

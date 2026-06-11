@@ -1,5 +1,27 @@
-import {appendFileSync, mkdirSync} from "node:fs";
+import {createWriteStream, mkdirSync} from "node:fs";
 import {dirname, join} from "node:path";
+import pino, {type Logger} from "pino";
+
+import {formatCenterLocalDateTime} from "./time.js";
+
+/** CENTER_LOG_MESSAGE_KEY：中心服务日志消息字段名。 */
+const CENTER_LOG_MESSAGE_KEY = "event";
+
+/**
+ * centerConsoleLogger：中心服务开发控制台结构化日志。
+ *
+ * 来源：pino 第三方日志包。
+ * 含义：替代散落 console.info/error 的开发控制台日志，确保中文以 UTF-8 结构化输出。
+ * 默认值：输出到当前进程 stdout。
+ * 约束：payload 不写敏感明文，时间使用中心服务本机时间格式。
+ */
+export const centerConsoleLogger: Logger = pino({
+    base: null,
+    messageKey: CENTER_LOG_MESSAGE_KEY,
+    timestamp: () => {
+        return `,"occurredAt":"${formatCenterLocalDateTime()}"`;
+    },
+});
 
 export class CenterLogger {
     /**
@@ -8,12 +30,33 @@ export class CenterLogger {
     private readonly logFilePath: string;
 
     /**
+     * logger: pino 文件日志实例。
+     */
+    private readonly logger: Logger;
+
+    /**
      * constructor：绑定日志文件路径。
      *
      * @param centerDirectory 中心目录绝对路径。
      */
     constructor(centerDirectory: string) {
         this.logFilePath = join(centerDirectory, "logs", "center.log");
+        mkdirSync(dirname(this.logFilePath), {
+            recursive: true,
+        });
+        this.logger = pino(
+            {
+                base: null,
+                messageKey: CENTER_LOG_MESSAGE_KEY,
+                timestamp: () => {
+                    return `,"occurredAt":"${formatCenterLocalDateTime()}"`;
+                },
+            },
+            createWriteStream(this.logFilePath, {
+                flags: "a",
+                encoding: "utf-8",
+            }),
+        );
     }
 
     /**
@@ -51,18 +94,12 @@ export class CenterLogger {
         event: string,
         payload: Record<string, unknown>,
     ): Promise<void> {
-        // line: 每行一个 JSON 对象，方便后续增量读取和 grep。
-        const line = JSON.stringify({
-            level,
+        // pinoLogger: 统一使用第三方日志包写 JSON 行，避免手写 JSON 和本机时间格式分叉。
+        this.logger[level](
+            {
+                payload,
+            },
             event,
-            payload,
-            occurredAt: new Date().toISOString(),
-        });
-        // mkdirSync: 日志可能在初始化早期调用，先确保父目录存在。
-        mkdirSync(dirname(this.logFilePath), {
-            recursive: true,
-        });
-        // appendFileSync: 阶段 2 日志体量小，同步追加能避免进程退出时丢日志。
-        appendFileSync(this.logFilePath, `${line}\n`, "utf-8");
+        );
     }
 }

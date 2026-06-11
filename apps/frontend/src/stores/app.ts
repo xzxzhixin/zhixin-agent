@@ -342,6 +342,8 @@ export const useAppStore = defineStore("app", {
             sessionId: null,
             turnId: null,
             attempts: 0,
+            lastActivityAt: null,
+            idleAttempts: 0,
         } as RunningTurnSnapshotRecoveryState,
 
         /**
