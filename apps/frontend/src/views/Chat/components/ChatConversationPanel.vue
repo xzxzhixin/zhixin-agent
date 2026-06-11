@@ -213,17 +213,24 @@ const activeComposerEditFile = computed(() => {
 });
 // taskProgressText: 任务入口数字。
 const taskProgressText = computed(() => {
-  const tasks = isAgentConversation.value && !isMainAgentConversation.value
-    ? (agentDetail.value?.tasks ?? [])
-    : chatConversation.currentTurnTasks.value;
-  const total = tasks.length;
+  const steps = activeTaskPanelRows.value.flatMap((task) => {
+    return task.steps;
+  });
+  const total = steps.length;
   if (total === 0) {
-    return "0/0";
+    return "";
   }
-  const completed = tasks.filter((task) => {
-    return task.status === "completed";
+  const completed = steps.filter((step) => {
+    return step.status === "已完成";
   }).length;
   return `${completed}/${total}`;
+});
+// taskOverviewText: 紧凑状态栏任务概览，空拆解时不读取默认任务行。
+const taskOverviewText = computed(() => {
+  if (activeTaskPanelRows.value.length === 0) {
+    return "暂无拆解";
+  }
+  return `${activeTaskPanelRows.value.length} 项拆解`;
 });
 // agentStatusProgressText: 智能体入口数字。
 const agentStatusProgressText = computed(() => {
@@ -799,12 +806,13 @@ onBeforeUnmount(() => {
 
           <section class="composer-entry-strip">
             <button
+                v-if="taskProgressText"
                 class="composer-entry-tab"
                 :class="{ active: activeComposerEntry === 'task' && composerMiniDialogVisible }"
                 type="button"
                 @click="openComposerMiniDialog('task')"
             >
-              任务 {{ taskProgressText }}
+              任务{{ taskProgressText ? ` ${taskProgressText}` : "" }}
             </button>
             <button
                 class="composer-entry-tab"
@@ -1027,7 +1035,7 @@ onBeforeUnmount(() => {
               class="plugin-inline-status"
           >
             <span>连接：{{ formatConnectionState(appStore.connectionState) }}</span>
-            <span>任务：{{ activeTaskPanelRows[0].status }}</span>
+            <span>任务：{{ taskOverviewText }}</span>
             <span>{{ chatConversation.currentTurnNotice.value }}</span>
             <span>智能体：{{ agentStatusTreeRows.length > 0 ? `${agentStatusTreeRows.length} 个` : "暂无智能体" }}</span>
           </section>

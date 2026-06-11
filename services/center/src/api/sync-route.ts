@@ -427,17 +427,37 @@ function handleRealtimeRequest(input: {
                 /** contentMarkdown: 用户补充或修改的需求文本。 */
                 contentMarkdown?: string;
             };
+            const sessionId = payload.sessionId ?? "";
+            const session = findSession(
+                input.database,
+                sessionId,
+            );
+            if (!session) {
+                throw new Error("SESSION_NOT_FOUND");
+            }
+            const beforeSequence = input.events.lastSequenceForSession(sessionId);
+            const merged = submitGuidanceForActiveTask(
+                input.database,
+                input.events,
+                {
+                    sessionId,
+                    contentMarkdown: payload.contentMarkdown ?? "",
+                },
+            );
+            const appendedEvents = listEvents(input.database, {
+                sessionId,
+                turnId: merged.turnId,
+                afterSequence: beforeSequence,
+            });
+            broadcastEvents(
+                input.realtimeClients,
+                session,
+                appendedEvents,
+            );
             sendSocketEnvelope(input.socket, {
                 type: "session.guidance.merged",
                 requestId: input.envelope.requestId,
-                payload: submitGuidanceForActiveTask(
-                    input.database,
-                    input.events,
-                    {
-                        sessionId: payload.sessionId ?? "",
-                        contentMarkdown: payload.contentMarkdown ?? "",
-                    },
-                ),
+                payload: merged,
             });
             return;
         }

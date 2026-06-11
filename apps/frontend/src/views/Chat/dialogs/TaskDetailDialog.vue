@@ -36,8 +36,8 @@ interface TaskPanelRow {
     status: string;
     /** elapsed: 步骤耗时。 */
     elapsed: string;
-    /** summary: 步骤摘要或排查信息。 */
-    summary: string;
+    /** positionText: 步骤序号，格式为 当前序号/总数。 */
+    positionText: string;
     /** traceId: 步骤所属任务最近事件排查 ID。 */
     traceId: string;
   }>;
@@ -56,18 +56,32 @@ const props = defineProps<{
       v-if="props.modelValue"
       class="composer-mini-dialog task-detail-dialog"
   >
-    <section class="composer-mini-dialog-body composer-task-panel">
-      <article
+    <section
+        v-if="props.tasks.length > 0"
+        class="composer-mini-dialog-body composer-task-panel"
+    >
+      <template
           v-for="task in props.tasks"
           :key="task.id"
-          class="composer-panel-row"
       >
-        <header class="composer-task-row-header">
-          <strong>{{ task.title }}</strong>
-          <span>{{ task.status }}</span>
-        </header>
-      </article>
+        <article
+            v-for="step in task.steps"
+            :key="step.id"
+            class="composer-task-step-row"
+        >
+          <span class="composer-task-step-status">{{ step.status }}</span>
+          <strong>{{ step.title }}</strong>
+          <span class="composer-task-step-meta">
+            {{ step.positionText }}{{ step.elapsed ? ` · ${step.elapsed}` : "" }}
+          </span>
+        </article>
+      </template>
     </section>
+    <el-empty
+        v-else
+        description="暂无拆解步骤"
+        :image-size="56"
+    />
   </section>
 </template>
 
@@ -97,30 +111,35 @@ const props = defineProps<{
   overflow: visible;
 }
 
-.composer-panel-row {
+.composer-task-step-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
   gap: 3px 10px;
   padding: 7px 9px;
   border-bottom: 1px solid var(--zhixin-border);
   background: var(--zhixin-soft-bg);
 }
 
-.composer-panel-row:last-child {
+.composer-task-step-row:last-child {
   border-bottom: 0;
 }
 
-.composer-task-row-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 10px;
+.composer-task-step-status {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
-.composer-panel-row strong,
-.composer-panel-row span {
+.composer-task-step-row strong,
+.composer-task-step-row span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.composer-task-step-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>

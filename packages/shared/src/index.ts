@@ -623,16 +623,30 @@ export interface TaskStepRecord {
   stepId: string;
   /** taskId: 所属任务 ID。 */
   taskId: string;
+  /** planVersion: 步骤所属计划版本，来源于 task_steps.plan_version，旧数据默认 1。 */
+  planVersion: number;
+  /** stepOrder: 同一任务内的步骤顺序，来源于 task_steps.step_order，从 1 开始。 */
+  stepOrder: number;
+  /** source: 步骤来源，来源于 task_steps.source，旧图节点默认 graph。 */
+  source: "graph" | "model" | "todoList" | "user" | "system";
   /** status: 步骤状态。 */
   status: TaskStatus;
   /** title: 步骤标题。 */
   title: string;
+  /** dependsOn: 依赖步骤 ID 列表，来源于 task_steps.depends_on JSON 数组。 */
+  dependsOn: string[];
+  /** acceptance: 步骤完成验收口径，来源于模型计划、todoList 或用户引导。 */
+  acceptance: string | null;
   /** startedAt: 步骤开始时间，ISO 字符串或 null。 */
   startedAt: string | null;
   /** endedAt: 步骤结束时间，ISO 字符串或 null。 */
   endedAt: string | null;
   /** summary: 步骤摘要、失败原因或排查信息。 */
   summary: string | null;
+  /** supersededBy: 替换当前步骤的新步骤 ID，未替换时为 null。 */
+  supersededBy: string | null;
+  /** supersededReason: 当前步骤被替换的原因，未替换时为 null。 */
+  supersededReason: string | null;
 }
 
 /**

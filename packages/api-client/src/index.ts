@@ -203,16 +203,30 @@ export interface TaskStepRecordView {
   stepId: string;
   /** taskId: 所属任务 ID。 */
   taskId: string;
+  /** planVersion: 步骤所属计划版本，来源于中心服务 task_steps.plan_version。 */
+  planVersion: number;
+  /** stepOrder: 同一任务内步骤顺序，来源于中心服务 task_steps.step_order。 */
+  stepOrder: number;
+  /** source: 步骤来源，graph 表示内部图节点，todoList/model/user/system 表示可见拆解来源。 */
+  source: "graph" | "model" | "todoList" | "user" | "system";
   /** status: 步骤状态。 */
   status: TaskStatus;
   /** title: 步骤标题。 */
   title: string;
-  /** startedAt: 步骤开始时间，ISO 字符串或 null。 */
+  /** dependsOn: 依赖步骤 ID 列表。 */
+  dependsOn: string[];
+  /** acceptance: 步骤完成验收口径。 */
+  acceptance: string | null;
+  /** startedAt: 步骤开始时间，中心服务本机时间字符串或 null。 */
   startedAt: string | null;
-  /** endedAt: 步骤结束时间，ISO 字符串或 null。 */
+  /** endedAt: 步骤结束时间，中心服务本机时间字符串或 null。 */
   endedAt: string | null;
   /** summary: 步骤摘要、失败原因或排查信息。 */
   summary: string | null;
+  /** supersededBy: 替换当前步骤的新步骤 ID，未替换时为 null。 */
+  supersededBy: string | null;
+  /** supersededReason: 当前步骤被替换的原因，未替换时为 null。 */
+  supersededReason: string | null;
 }
 
 /**

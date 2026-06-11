@@ -49,6 +49,7 @@ import {
     withOptionalGraphCheckpoint,
     withTurnGraphCheckpoint,
 } from "./turn-graph-domain.js";
+import {formatCenterLocalDateTime} from "../time.js";
 
 export function upsertSyncClient(
     database: CenterDatabase,
@@ -60,7 +61,7 @@ export function upsertSyncClient(
     // clientId: 当前阶段每次授权生成新客户端 ID，后续 WebSocket 可绑定该 ID。
     const clientId = randomUUID();
     // now: 同步客户端最后访问时间。
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     new SessionRepository(database).upsertSyncClient({
         clientId,
         clientType: input.clientType,
@@ -226,19 +227,51 @@ export function findTask(database: CenterDatabase, taskId: string): TaskRecord |
 export function createTaskStep(
     database: CenterDatabase,
     events: CenterEventStore,
-    task: TaskRecord,
+    task: Pick<TaskRecord, "taskId" | "sessionId" | "turnId">,
     title: string,
+    options: {
+        /** planVersion: 步骤所属计划版本，默认使用当前任务最后一个步骤版本或 1。 */
+        planVersion?: number;
+        /** stepOrder: 同一任务下步骤顺序，默认追加到当前任务末尾。 */
+        stepOrder?: number;
+        /** source: 步骤来源，默认 graph 表示 LangGraph 图节点。 */
+        source?: TaskStepRecord["source"];
+        /** dependsOn: 依赖步骤 ID 列表，默认空数组。 */
+        dependsOn?: string[];
+        /** acceptance: 步骤验收口径，默认没有单独验收说明。 */
+        acceptance?: string | null;
+    } = {},
     graphCheckpoint?: TurnGraphCheckpoint,
 ): TaskStepRecord {
+    const repository = new SessionRepository(database);
+    const storedTask = repository.findTask(task.taskId);
+    if (!storedTask) {
+        throw new Error("TASK_NOT_FOUND_FOR_STEP_CREATE");
+    }
     // stepId: 任务步骤身份。
     const stepId = randomUUID();
     // now: 步骤开始时间。
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
+    const existingSteps = repository.listTaskStepsByTaskForAgent({
+        sessionId: task.sessionId,
+        taskId: task.taskId,
+        agentId: storedTask.agentId,
+    });
+    const planVersion = options.planVersion ?? (existingSteps.at(-1)?.planVersion ?? 1);
+    const stepOrder = options.stepOrder ?? repository.nextTaskStepOrder(task.taskId);
+    const source = options.source ?? "graph";
+    const dependsOn = options.dependsOn ?? [];
+    const acceptance = options.acceptance ?? null;
 
-    new SessionRepository(database).createTaskStep({
+    repository.createTaskStep({
         stepId,
         taskId: task.taskId,
+        planVersion,
+        stepOrder,
+        source,
         title,
+        dependsOn,
+        acceptance,
         startedAt: now,
     });
 
@@ -255,18 +288,30 @@ export function createTaskStep(
         summary: title,
         payload: withOptionalGraphCheckpoint({
             stepId,
+            planVersion,
+            stepOrder,
+            source,
             title,
+            dependsOn,
+            acceptance,
         }, graphCheckpoint),
     });
 
     return {
         stepId,
         taskId: task.taskId,
+        planVersion,
+        stepOrder,
+        source,
         status: "running",
         title,
+        dependsOn,
+        acceptance,
         startedAt: now,
         endedAt: null,
         summary: null,
+        supersededBy: null,
+        supersededReason: null,
     };
 }
 
@@ -288,6 +333,24 @@ export function updateTaskStep(
     status: TaskRecord["status"],
     summary: string | null,
     graphCheckpoint?: TurnGraphCheckpoint,
+    options: {
+        /** title: 更新后的步骤标题；不传时保留原标题。 */
+        title?: string;
+        /** planVersion: 更新后的计划版本；不传时保留原版本。 */
+        planVersion?: number;
+        /** stepOrder: 更新后的步骤顺序；不传时保留原顺序。 */
+        stepOrder?: number;
+        /** source: 更新后的步骤来源；不传时保留原来源。 */
+        source?: TaskStepRecord["source"];
+        /** dependsOn: 更新后的依赖步骤 ID；不传时保留原依赖。 */
+        dependsOn?: string[];
+        /** acceptance: 更新后的验收口径；不传时保留原验收口径。 */
+        acceptance?: string | null;
+        /** supersededBy: 替换当前步骤的新步骤 ID。 */
+        supersededBy?: string | null;
+        /** supersededReason: 当前步骤被替换的原因。 */
+        supersededReason?: string | null;
+    } = {},
 ): TaskStepRecord | null {
     const existing = new SessionRepository(database).findTaskStepWithTask(stepId);
 
@@ -296,7 +359,7 @@ export function updateTaskStep(
     }
 
     // now: 终态步骤保存结束时间，运行态保留空结束时间。
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     const endedAt = isFinalTaskStatus(status) ? now : null;
 
     new SessionRepository(database).updateTaskStep({
@@ -304,6 +367,7 @@ export function updateTaskStep(
         status,
         endedAt,
         summary,
+        ...options,
     });
 
     events.append({
@@ -320,17 +384,31 @@ export function updateTaskStep(
         payload: withOptionalGraphCheckpoint({
             stepId,
             status,
+            planVersion: options.planVersion ?? existing.planVersion,
+            stepOrder: options.stepOrder ?? existing.stepOrder,
+            source: options.source ?? existing.source,
+            dependsOn: options.dependsOn ?? existing.dependsOn,
+            acceptance: options.acceptance ?? existing.acceptance,
+            supersededBy: options.supersededBy ?? existing.supersededBy,
+            supersededReason: options.supersededReason ?? existing.supersededReason,
         }, graphCheckpoint),
     });
 
     return {
         stepId,
         taskId: existing.taskId,
+        planVersion: options.planVersion ?? existing.planVersion,
+        stepOrder: options.stepOrder ?? existing.stepOrder,
+        source: options.source ?? existing.source,
         status,
-        title: existing.title,
+        title: options.title ?? existing.title,
+        dependsOn: options.dependsOn ?? existing.dependsOn,
+        acceptance: options.acceptance ?? existing.acceptance,
         startedAt: existing.startedAt,
         endedAt,
         summary,
+        supersededBy: options.supersededBy ?? existing.supersededBy,
+        supersededReason: options.supersededReason ?? existing.supersededReason,
     };
 }
 
@@ -410,7 +488,7 @@ export function updateTurnStatus(
     }
 
     // now: 终态轮次固定结束时间，等待用户状态仍不写结束时间。
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     const endedAt = status === "waiting_user" ? null : now;
     const durationMs = endedAt ? Math.max(0, new Date(endedAt).getTime() - new Date(turn.startedAt).getTime()) : null;
 
@@ -498,7 +576,7 @@ export function createMessageTurnAndTask(
     contentMarkdown: string,
 ): SendMessageResponse {
     // now: 消息、轮次和任务共享同一服务端创建时间，便于审计。
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     // messageId: 用户消息身份。
     const messageId = randomUUID();
     // turnId: 本轮对话身份。
@@ -692,6 +770,7 @@ function createTurnGraphNodeExecutors(
                 events,
                 stepTaskFromGraphContext(graphContext),
                 "思考与上下文整理",
+                {},
                 checkpoint,
             );
             appendThinkingEvents(
@@ -732,6 +811,7 @@ function createTurnGraphNodeExecutors(
                 events,
                 stepTaskFromGraphContext(graphContext),
                 "模型流式输出",
+                {},
                 checkpoint,
             );
             try {
@@ -956,6 +1036,7 @@ function createTurnGraphNodeExecutors(
                 events,
                 stepTaskFromGraphContext(graphContext),
                 "工具计划生成",
+                {},
                 checkpoint,
             );
             events.append({
@@ -1044,7 +1125,7 @@ function createTurnGraphNodeExecutors(
                 messageId: assistantMessageId,
                 turnId: state.turnId,
                 contentMarkdown: assistantText,
-                createdAt: new Date().toISOString(),
+                createdAt: formatCenterLocalDateTime(),
             });
             events.append({
                 eventType: "message.created",
@@ -1151,12 +1232,13 @@ function createTurnGraphNodeExecutors(
             new SessionRepository(database).updateTaskStatus(
                 state.taskId,
                 "failed",
-                new Date().toISOString(),
+                formatCenterLocalDateTime(),
             );
+            const failedAt = formatCenterLocalDateTime();
             new SessionRepository(database).updateTurnStatus({
                 turnId: state.turnId,
                 status: "failed",
-                endedAt: new Date().toISOString(),
+                endedAt: failedAt,
                 durationMs: 0,
             });
             events.append({
@@ -1526,7 +1608,7 @@ export function updateSessionTitleAfterTurn(
             assistantText,
         );
         // now: 会话标题变化属于会话元信息更新，需要刷新列表排序和详情更新时间。
-        const now = new Date().toISOString();
+        const now = formatCenterLocalDateTime();
         new SessionRepository(database).updateSessionTitle({
             sessionId: session.sessionId,
             title: nextTitle,

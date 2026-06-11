@@ -12,6 +12,11 @@ import type {
 import type {CenterDatabase} from "../database.js";
 import type {TaskStepRecord} from "../types.js";
 
+type TaskStepRow = Omit<TaskStepRecord, "dependsOn"> & {
+    /** dependsOnJson: task_steps.depends_on 原始 JSON 字符串。 */
+    dependsOnJson: string;
+};
+
 /**
  * SessionRepository：会话、任务和事件 SQLite 访问层。
  *
@@ -29,6 +34,51 @@ export class SessionRepository {
      */
     constructor(database: CenterDatabase) {
         this.database = database;
+    }
+
+    /**
+     * mapTaskStepRow：把 SQLite 行映射为任务步骤协议对象。
+     *
+     * @param row SQLite 查询出的步骤行。
+     * @returns 任务步骤记录，dependsOn 已按 JSON 数组解析。
+     */
+    private mapTaskStepRow(row: TaskStepRow): TaskStepRecord {
+        return {
+            stepId: row.stepId,
+            taskId: row.taskId,
+            planVersion: row.planVersion,
+            stepOrder: row.stepOrder,
+            source: row.source,
+            status: row.status,
+            title: row.title,
+            dependsOn: this.parseDependsOnJson(row.dependsOnJson),
+            acceptance: row.acceptance,
+            startedAt: row.startedAt,
+            endedAt: row.endedAt,
+            summary: row.summary,
+            supersededBy: row.supersededBy,
+            supersededReason: row.supersededReason,
+        };
+    }
+
+    /**
+     * parseDependsOnJson：解析步骤依赖 JSON 数组。
+     *
+     * @param value SQLite 中保存的 depends_on 字段。
+     * @returns 依赖步骤 ID 数组；字段损坏时返回空数组，历史迁移默认即为空数组。
+     */
+    private parseDependsOnJson(value: string): string[] {
+        try {
+            const parsed = JSON.parse(value);
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed.filter((item) => {
+                return typeof item === "string";
+            });
+        } catch {
+            return [];
+        }
     }
 
     /**
@@ -374,21 +424,34 @@ export class SessionRepository {
      * @returns 任务步骤列表。
      */
     listTaskSteps(sessionId: string): TaskStepRecord[] {
-        return this.database.connection()
+        const rows = this.database.connection()
             .prepare(`
-                 SELECT task_steps.id         AS stepId,
-                        task_steps.task_id    AS taskId,
+                 SELECT task_steps.id              AS stepId,
+                        task_steps.task_id         AS taskId,
+                        task_steps.plan_version    AS planVersion,
+                        task_steps.step_order      AS stepOrder,
+                        task_steps.source,
                        task_steps.status,
                        task_steps.title,
-                       task_steps.started_at AS startedAt,
-                       task_steps.ended_at   AS endedAt,
-                       task_steps.summary
+                       task_steps.depends_on       AS dependsOnJson,
+                       task_steps.acceptance,
+                       task_steps.started_at       AS startedAt,
+                       task_steps.ended_at         AS endedAt,
+                       task_steps.summary,
+                       task_steps.superseded_by    AS supersededBy,
+                       task_steps.superseded_reason AS supersededReason
                 FROM task_steps
                          INNER JOIN tasks ON tasks.id = task_steps.task_id
                 WHERE tasks.session_id = ?
-                ORDER BY task_steps.started_at ASC
+                ORDER BY task_steps.plan_version ASC,
+                         task_steps.step_order ASC,
+                         task_steps.started_at ASC
             `)
-            .all(sessionId) as TaskStepRecord[];
+            .all(sessionId) as TaskStepRow[];
+
+        return rows.map((row) => {
+            return this.mapTaskStepRow(row);
+        });
     }
 
     /**
@@ -402,25 +465,102 @@ export class SessionRepository {
         sessionId: string,
         agentId: string,
     ): TaskStepRecord[] {
-        return this.database.connection()
+        const rows = this.database.connection()
             .prepare(`
-                SELECT task_steps.id         AS stepId,
-                       task_steps.task_id    AS taskId,
+                SELECT task_steps.id              AS stepId,
+                       task_steps.task_id         AS taskId,
+                       task_steps.plan_version    AS planVersion,
+                       task_steps.step_order      AS stepOrder,
+                       task_steps.source,
                        task_steps.status,
                        task_steps.title,
-                       task_steps.started_at AS startedAt,
-                       task_steps.ended_at   AS endedAt,
-                       task_steps.summary
+                       task_steps.depends_on       AS dependsOnJson,
+                       task_steps.acceptance,
+                       task_steps.started_at       AS startedAt,
+                       task_steps.ended_at         AS endedAt,
+                       task_steps.summary,
+                       task_steps.superseded_by    AS supersededBy,
+                       task_steps.superseded_reason AS supersededReason
                 FROM task_steps
                          INNER JOIN tasks ON tasks.id = task_steps.task_id
                 WHERE tasks.session_id = ?
                   AND tasks.agent_id = ?
-                ORDER BY task_steps.started_at ASC
+                ORDER BY task_steps.plan_version ASC,
+                         task_steps.step_order ASC,
+                         task_steps.started_at ASC
             `)
             .all(
                 sessionId,
                 agentId,
-            ) as TaskStepRecord[];
+            ) as TaskStepRow[];
+
+        return rows.map((row) => {
+            return this.mapTaskStepRow(row);
+        });
+    }
+
+    /**
+     * listTaskStepsByTaskForAgent：按会话、任务和智能体查询步骤。
+     *
+     * @param input 当前工具调用限定的会话、任务和智能体范围。
+     * @returns 当前范围内的任务步骤。
+     */
+    listTaskStepsByTaskForAgent(input: {
+        sessionId: string;
+        taskId: string;
+        agentId: string;
+    }): TaskStepRecord[] {
+        const rows = this.database.connection()
+            .prepare(`
+                SELECT task_steps.id              AS stepId,
+                       task_steps.task_id         AS taskId,
+                       task_steps.plan_version    AS planVersion,
+                       task_steps.step_order      AS stepOrder,
+                       task_steps.source,
+                       task_steps.status,
+                       task_steps.title,
+                       task_steps.depends_on       AS dependsOnJson,
+                       task_steps.acceptance,
+                       task_steps.started_at       AS startedAt,
+                       task_steps.ended_at         AS endedAt,
+                       task_steps.summary,
+                       task_steps.superseded_by    AS supersededBy,
+                       task_steps.superseded_reason AS supersededReason
+                FROM task_steps
+                         INNER JOIN tasks ON tasks.id = task_steps.task_id
+                WHERE tasks.session_id = ?
+                  AND tasks.id = ?
+                  AND tasks.agent_id = ?
+                ORDER BY task_steps.plan_version ASC,
+                         task_steps.step_order ASC,
+                         task_steps.started_at ASC
+            `)
+            .all(
+                input.sessionId,
+                input.taskId,
+                input.agentId,
+            ) as TaskStepRow[];
+
+        return rows.map((row) => {
+            return this.mapTaskStepRow(row);
+        });
+    }
+
+    /**
+     * nextTaskStepOrder：计算同一任务内下一条步骤顺序。
+     *
+     * @param taskId 任务 ID。
+     * @returns 从 1 开始的下一顺序号。
+     */
+    nextTaskStepOrder(taskId: string): number {
+        const row = this.database.connection()
+            .prepare("SELECT COALESCE(MAX(step_order), 0) + 1 AS nextOrder FROM task_steps WHERE task_id = ?")
+            .get(taskId) as {
+            /** nextOrder: SQLite 聚合得到的下一步骤顺序。 */
+            nextOrder: number;
+        };
+
+        return row.nextOrder;
     }
 
     /**
@@ -600,25 +740,42 @@ export class SessionRepository {
     createTaskStep(input: {
         stepId: string;
         taskId: string;
+        planVersion: number;
+        stepOrder: number;
+        source: TaskStepRecord["source"];
         title: string;
+        dependsOn: string[];
+        acceptance: string | null;
         startedAt: string;
     }): void {
         this.database.connection()
             .prepare(`
                 INSERT INTO task_steps (id,
                                         task_id,
+                                        plan_version,
+                                        step_order,
+                                        source,
                                         status,
                                         title,
+                                        depends_on,
+                                        acceptance,
                                         started_at,
                                         ended_at,
-                                        summary)
-                VALUES (?, ?, ?, ?, ?, NULL, NULL)
+                                        summary,
+                                        superseded_by,
+                                        superseded_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
             `)
             .run(
                 input.stepId,
                 input.taskId,
+                input.planVersion,
+                input.stepOrder,
+                input.source,
                 "running",
                 input.title,
+                JSON.stringify(input.dependsOn),
+                input.acceptance,
                 input.startedAt,
             );
 
@@ -641,25 +798,40 @@ export class SessionRepository {
     }) | null {
         const row = this.database.connection()
             .prepare(`
-                SELECT task_steps.id         AS stepId,
-                       task_steps.task_id    AS taskId,
+                SELECT task_steps.id              AS stepId,
+                       task_steps.task_id         AS taskId,
+                       task_steps.plan_version    AS planVersion,
+                       task_steps.step_order      AS stepOrder,
+                       task_steps.source,
                        task_steps.status,
                        task_steps.title,
-                       task_steps.started_at AS startedAt,
-                       task_steps.ended_at   AS endedAt,
+                       task_steps.depends_on       AS dependsOnJson,
+                       task_steps.acceptance,
+                       task_steps.started_at       AS startedAt,
+                       task_steps.ended_at         AS endedAt,
                        task_steps.summary,
-                       tasks.session_id      AS sessionId,
-                       tasks.turn_id         AS turnId
+                       task_steps.superseded_by    AS supersededBy,
+                       task_steps.superseded_reason AS supersededReason,
+                       tasks.session_id           AS sessionId,
+                       tasks.turn_id              AS turnId
                 FROM task_steps
                          INNER JOIN tasks ON tasks.id = task_steps.task_id
                 WHERE task_steps.id = ?
             `)
-            .get(stepId) as (TaskStepRecord & {
+            .get(stepId) as (TaskStepRow & {
             sessionId: string;
             turnId: string;
         }) | undefined;
 
-        return row ?? null;
+        if (!row) {
+            return null;
+        }
+
+        return {
+            ...this.mapTaskStepRow(row),
+            sessionId: row.sessionId,
+            turnId: row.turnId,
+        };
     }
 
     /**
@@ -673,15 +845,62 @@ export class SessionRepository {
         status: string;
         endedAt: string | null;
         summary: string | null;
+        title?: string;
+        planVersion?: number;
+        stepOrder?: number;
+        source?: TaskStepRecord["source"];
+        dependsOn?: string[];
+        acceptance?: string | null;
+        supersededBy?: string | null;
+        supersededReason?: string | null;
     }): void {
+        const assignments = [
+            "status = ?",
+            "ended_at = ?",
+            "summary = ?",
+        ];
+        const values: Array<string | number | null> = [
+            input.status,
+            input.endedAt,
+            input.summary,
+        ];
+        if (input.title !== undefined) {
+            assignments.push("title = ?");
+            values.push(input.title);
+        }
+        if (input.planVersion !== undefined) {
+            assignments.push("plan_version = ?");
+            values.push(input.planVersion);
+        }
+        if (input.stepOrder !== undefined) {
+            assignments.push("step_order = ?");
+            values.push(input.stepOrder);
+        }
+        if (input.source !== undefined) {
+            assignments.push("source = ?");
+            values.push(input.source);
+        }
+        if (input.dependsOn !== undefined) {
+            assignments.push("depends_on = ?");
+            values.push(JSON.stringify(input.dependsOn));
+        }
+        if (input.acceptance !== undefined) {
+            assignments.push("acceptance = ?");
+            values.push(input.acceptance);
+        }
+        if (input.supersededBy !== undefined) {
+            assignments.push("superseded_by = ?");
+            values.push(input.supersededBy);
+        }
+        if (input.supersededReason !== undefined) {
+            assignments.push("superseded_reason = ?");
+            values.push(input.supersededReason);
+        }
+        values.push(input.stepId);
+
         this.database.connection()
-            .prepare("UPDATE task_steps SET status = ?, ended_at = ?, summary = ? WHERE id = ?")
-            .run(
-                input.status,
-                input.endedAt,
-                input.summary,
-                input.stepId,
-            );
+            .prepare(`UPDATE task_steps SET ${assignments.join(", ")} WHERE id = ?`)
+            .run(...values);
     }
 
     /**

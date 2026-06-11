@@ -439,6 +439,21 @@ export class CenterDatabase {
                 TEXT
                 NOT
                 NULL,
+                plan_version
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 1,
+                step_order
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 1,
+                source
+                TEXT
+                NOT
+                NULL
+                DEFAULT 'graph',
                 status
                 TEXT
                 NOT
@@ -447,11 +462,22 @@ export class CenterDatabase {
                 TEXT
                 NOT
                 NULL,
+                depends_on
+                TEXT
+                NOT
+                NULL
+                DEFAULT '[]',
+                acceptance
+                TEXT,
                 started_at
                 TEXT,
                 ended_at
                 TEXT,
                 summary
+                TEXT,
+                superseded_by
+                TEXT,
+                superseded_reason
                 TEXT
             );
 
@@ -1043,6 +1069,56 @@ export class CenterDatabase {
         });
         if (!hasTaskAgentId) {
             db.exec("ALTER TABLE tasks ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'main'");
+        }
+
+        // task_steps 长任务拆解字段：旧库可能只有图节点步骤字段；这里逐列补齐并使用业务明确默认值保持历史步骤可展示。
+        const taskStepColumns = db.prepare("PRAGMA table_info(task_steps)").all() as Array<{
+            name: string;
+        }>;
+        const taskStepColumnNames = new Set(taskStepColumns.map((column) => {
+            return column.name;
+        }));
+        const taskStepColumnMigrations = [
+            {
+                // plan_version: 旧步骤属于首版计划。
+                name: "plan_version",
+                sql: "ALTER TABLE task_steps ADD COLUMN plan_version INTEGER NOT NULL DEFAULT 1",
+            },
+            {
+                // step_order: 旧步骤缺少显式顺序时先按 1 补齐，仓储查询仍按开始时间和步骤顺序稳定排序。
+                name: "step_order",
+                sql: "ALTER TABLE task_steps ADD COLUMN step_order INTEGER NOT NULL DEFAULT 1",
+            },
+            {
+                // source: 历史步骤都来自 LangGraph 图节点。
+                name: "source",
+                sql: "ALTER TABLE task_steps ADD COLUMN source TEXT NOT NULL DEFAULT 'graph'",
+            },
+            {
+                // depends_on: 默认空依赖列表，使用 JSON 数组字符串保存。
+                name: "depends_on",
+                sql: "ALTER TABLE task_steps ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'",
+            },
+            {
+                // acceptance: 历史步骤没有单独验收口径。
+                name: "acceptance",
+                sql: "ALTER TABLE task_steps ADD COLUMN acceptance TEXT",
+            },
+            {
+                // superseded_by: 历史步骤没有替换关系。
+                name: "superseded_by",
+                sql: "ALTER TABLE task_steps ADD COLUMN superseded_by TEXT",
+            },
+            {
+                // superseded_reason: 历史步骤没有替换原因。
+                name: "superseded_reason",
+                sql: "ALTER TABLE task_steps ADD COLUMN superseded_reason TEXT",
+            },
+        ];
+        for (const migration of taskStepColumnMigrations) {
+            if (!taskStepColumnNames.has(migration.name)) {
+                db.exec(migration.sql);
+            }
         }
 
         // meta.centerDirectory: 模型网关需要从 SQLite 侧读取中心目录以访问 providers 和 secrets；每次初始化都按启动配置刷新，支持用户切换中心目录后继续使用同一数据库文件。

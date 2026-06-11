@@ -47,6 +47,17 @@ export function submitGuidanceForActiveTask(
             && step.status !== "cancelled"
             && step.status !== "superseded";
     });
+    const maxPlanVersion = Math.max(
+        1,
+        ...repository.listTaskStepsByTaskForAgent({
+            sessionId: input.sessionId,
+            taskId: activeTask.taskId,
+            agentId: activeTask.agentId,
+        }).map((step) => {
+            return step.planVersion;
+        }),
+    );
+    const nextPlanVersion = maxPlanVersion + 1;
     for (const step of existingSteps) {
         updateTaskStep(
             database,
@@ -54,6 +65,10 @@ export function submitGuidanceForActiveTask(
             step.stepId,
             "superseded",
             "用户中途补充或修改需求后，该步骤由新计划替换。",
+            undefined,
+            {
+                supersededReason: "用户中途补充或修改需求后，该步骤由新计划替换。",
+            },
         );
     }
     recordTaskPlanRevised(
@@ -62,7 +77,7 @@ export function submitGuidanceForActiveTask(
             sessionId: input.sessionId,
             turnId: activeTask.turnId,
             taskId: activeTask.taskId,
-            planVersion: Date.now(),
+            planVersion: nextPlanVersion,
             reason: input.contentMarkdown,
             supersededStepIds: existingSteps.map((step) => {
                 return step.stepId;
@@ -78,6 +93,11 @@ export function submitGuidanceForActiveTask(
             turnId: activeTask.turnId,
         },
         "用户补充引导",
+        {
+            planVersion: nextPlanVersion,
+            source: "user",
+            acceptance: "按用户补充引导调整当前任务计划。",
+        },
     );
     updateTaskStep(
         database,

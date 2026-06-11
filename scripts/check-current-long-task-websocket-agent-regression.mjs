@@ -145,6 +145,13 @@ function assertPathExists(
 }
 
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
+const sharedProtocol = readText("packages/shared/src/index.ts");
+const centerTypes = readText("services/center/src/types.ts");
+const database = readText("services/center/src/database.ts");
+const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
+const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
+const todoListTool = readText("services/center/src/tools/todo-list-tool.ts");
+const toolCapabilityRegistry = readText("services/center/src/tools/tool-capability-registry.ts");
 const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
 const realtime = readText("services/center/src/realtime.ts");
 const syncRoute = readText("services/center/src/api/sync-route.ts");
@@ -153,6 +160,9 @@ const appStore = readText("apps/frontend/src/stores/app.ts");
 const conversationActions = readText("apps/frontend/src/stores/app-conversation-actions.ts");
 const projectActions = readText("apps/frontend/src/stores/app-project-actions.ts");
 const chatPanel = readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
+const chatConversation = readText("apps/frontend/src/views/Chat/useChatConversation.ts");
+const taskDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
+const sessionGuidanceDomain = readText("services/center/src/domain/session-guidance-domain.ts");
 const autoScroll = readText("apps/frontend/src/views/Chat/useMessageListAutoScroll.ts");
 const providerDomain = readText("services/center/src/domain/provider-domain.ts");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
@@ -162,6 +172,115 @@ const workspace = readText("pnpm-workspace.yaml");
 const desktopDevScript = readText("scripts/dev-desktop-shell.mjs");
 const desktopZipScript = readText("apps/desktop-shell/scripts/build-zip.mjs");
 const frontendProviderPage = readText("apps/frontend/src/views/Providers/RouterIndex.vue");
+
+for (const taskStepField of [
+  "planVersion",
+  "stepOrder",
+  "source",
+  "dependsOn",
+  "acceptance",
+  "supersededBy",
+  "supersededReason",
+]) {
+  assertIncludes(
+    sharedProtocol,
+    `${taskStepField}:`,
+    `共享 TaskStepRecord 必须包含 ${taskStepField} 字段。`,
+  );
+  assertIncludes(
+    centerTypes,
+    `${taskStepField}:`,
+    `中心服务 TaskStepRecord 必须包含 ${taskStepField} 字段。`,
+  );
+}
+for (const taskStepColumn of [
+  "plan_version",
+  "step_order",
+  "source",
+  "depends_on",
+  "acceptance",
+  "superseded_by",
+  "superseded_reason",
+]) {
+  assertIncludes(
+    database + sessionRepository,
+    taskStepColumn,
+    `task_steps 表迁移和仓储读写必须覆盖 ${taskStepColumn} 字段。`,
+  );
+}
+assertIncludes(
+  database,
+  "DEFAULT 1",
+  "旧 task_steps 数据的 plan_version 必须默认迁移为 1。",
+);
+assertIncludes(
+  database,
+  "DEFAULT 'graph'",
+  "旧 task_steps 数据的 source 必须默认迁移为 graph。",
+);
+assertPathExists(
+  "services/center/src/tools/todo-list-tool.ts",
+  "builtin.todo.list 必须具备明确执行器文件 services/center/src/tools/todo-list-tool.ts。",
+);
+assertIncludes(
+  todoListTool,
+  "executeTodoListTool",
+  "todoList 执行器必须导出 executeTodoListTool。",
+);
+assertIncludes(
+  todoListTool,
+  "sessionId",
+  "todoList 执行器必须限定当前 sessionId 范围。",
+);
+assertIncludes(
+  todoListTool,
+  "taskId",
+  "todoList 执行器必须限定当前 taskId 范围。",
+);
+assertIncludes(
+  todoListTool,
+  "agentId",
+  "todoList 执行器必须限定当前 agentId 范围。",
+);
+assertIncludes(
+  todoListTool,
+  "createTaskStep(",
+  "todoList 执行器创建每个步骤时必须走领域层 createTaskStep 写入 task.step.started 事件。",
+);
+assertIncludes(
+  todoListTool,
+  "updateTaskStep(",
+  "todoList 执行器更新每个步骤时必须走领域层 updateTaskStep 写入 task.step.updated 事件。",
+);
+assertIncludes(
+  todoListTool + sessionGuidanceDomain,
+  "maxPlanVersion + 1",
+  "重规划和 todoList 新计划版本必须基于当前最大版本 + 1，不能复用旧版本或使用 Date.now。",
+);
+assertIncludes(
+  readText("services/center/src/domain/session-turn-effects.ts"),
+  "executeTodoListTool",
+  "session-turn-effects 必须把 builtin.todo.list 分派到明确执行器。",
+);
+for (const todoListSchemaField of [
+  "id",
+  "dependsOn",
+  "acceptance",
+  "superseded",
+  "failed",
+  "cancelled",
+]) {
+  assertIncludes(
+    toolCapabilityRegistry,
+    todoListSchemaField,
+    `builtin.todo.list 模型可见 schema 必须暴露 ${todoListSchemaField}，否则模型无法维护完整拆解步骤。`,
+  );
+}
+assertNotIncludes(
+  sessionDomain,
+  "const now = new Date().toISOString();",
+  "session-domain 本轮任务、步骤和重规划新增代码不能继续使用 UTC ISO 时间。",
+);
 
 assertIncludes(
   sessionDomain + langGraphRunner,
@@ -275,6 +394,76 @@ assertIncludes(
   syncRoute + conversationActions,
   "session.guidance.submit",
   "运行中补充引导必须通过 WebSocket 合并到当前任务。",
+);
+assertIncludes(
+  syncRoute,
+  "session.guidance.merged",
+  "WebSocket 引导请求必须返回 session.guidance.merged。",
+);
+assertRegex(
+  syncRoute,
+  /session\.guidance\.submit[\s\S]*broadcastEvents/u,
+  "WebSocket 引导合并后必须广播 task.plan.revised 和任务步骤事件给其他端。",
+);
+assertIncludes(
+  chatConversation,
+  "filterVisibleDecompositionSteps",
+  "前端任务入口必须先筛选可见拆解步骤，不能把默认任务或单步骤任务展示为拆解入口。",
+);
+assertIncludes(
+  chatConversation,
+  'step.source !== "graph"',
+  "前端任务入口必须排除 graph 内部图节点步骤，只展示真实拆解步骤。",
+);
+assertIncludes(
+  chatConversation,
+  "visibleSteps.length <= 1",
+  "前端任务入口必须隐藏 0 个或 1 个可见步骤的任务，避免显示任务 0/1、1/1。",
+);
+assertNotIncludes(
+  chatConversation,
+  'id: "composer-task-idle"',
+  "任务详情弹框不能再注入默认空态任务行。",
+);
+assertNotIncludes(
+  chatConversation,
+  "failureReason: failedStep?.summary",
+  "失败原因不能从步骤摘要写入任务行，必须留给过程卡片或详情事件。",
+);
+assertIncludes(
+  chatPanel,
+  "activeTaskPanelRows.value.flatMap",
+  "任务入口数字必须基于可见拆解步骤计算，而不是基于默认任务数量。",
+);
+assertIncludes(
+  chatPanel,
+  'taskProgressText ? ` ${taskProgressText}` : ""',
+  "没有可见拆解步骤时任务入口不能显示 0/0、0/1 或 1/1 数字。",
+);
+assertIncludes(
+  chatPanel,
+  'v-if="taskProgressText"',
+  "没有可见拆解步骤时任务入口按钮本身必须隐藏。",
+);
+assertIncludes(
+  taskDetailDialog,
+  "composer-task-step-row",
+  "任务详情弹框必须按拆解步骤渲染单行，而不是渲染任务容器行。",
+);
+assertIncludes(
+  taskDetailDialog,
+  "step.positionText",
+  "任务详情步骤右侧必须显示序号/总数。",
+);
+assertNotIncludes(
+  taskDetailDialog,
+  "task.status",
+  "任务详情弹框不应在右侧重复显示任务状态。",
+);
+assertNotIncludes(
+  taskDetailDialog,
+  "step.summary",
+  "任务详情步骤行不能展示第二行摘要、失败原因、替换原因或工具输出。",
 );
 
 assertIncludes(
@@ -431,7 +620,6 @@ assertRegex(
   /SubAgent[\s\S]*(forbid|禁止|withoutCreation|creationTools:\s*\[\])/iu,
   "子智能体必须明确禁止创建任何智能体工具。",
 );
-const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 assertIncludes(
   toolRuntime,
   "builtin.agent.createLongTerm",

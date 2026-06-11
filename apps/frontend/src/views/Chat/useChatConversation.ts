@@ -65,8 +65,8 @@ export interface TaskPanelRow {
         status: string;
         /** elapsed: 步骤耗时。 */
         elapsed: string;
-        /** summary: 步骤摘要或排查信息。 */
-        summary: string;
+        /** positionText: 步骤序号，格式为 当前序号/总数。 */
+        positionText: string;
         /** traceId: 步骤所属任务最近排查 ID。 */
         traceId: string;
     }>;
@@ -128,6 +128,7 @@ export function useChatConversation(appStore: {
         taskSteps: Array<{
             stepId: string;
             taskId: string;
+            source?: string;
             title: string;
             status: string;
             summary: string | null;
@@ -141,6 +142,10 @@ export function useChatConversation(appStore: {
     };
     composerEditFiles: ComposerEditFile[];
     sendDraft: () => Promise<void>;
+    requireRealtimeRequest: <TResponse>(type: string, payload: unknown) => Promise<TResponse>;
+    loadNavigationData: () => Promise<void>;
+    loadActiveSessionSnapshot: () => Promise<void>;
+    updateComposerContextUsageFromExecution: () => Promise<void>;
 }): ChatConversationContext {
     const conversationId = computed(() => {
         return appStore.sessionDetail?.session.sessionId ?? appStore.activeSessionId;
@@ -203,11 +208,15 @@ export function useChatConversation(appStore: {
             if (messageText.length === 0) {
                 return;
             }
-            // 引导仍归属当前对话当前轮次；独立引导 API 明确前使用单一文本协议进入现有发送链路。
-            appStore.draft.text = target
+            // 引导必须合并进当前轮次；这里调用已有 WebSocket 引导动作，避免走普通发送创建新轮次。
+            const contentMarkdown = target
                 ? `引导 @${target.name}：${messageText}`
                 : `针对当前对话当前轮次补充引导：${messageText}`;
-            await appStore.sendDraft();
+            appStore.draft.text = "";
+            await submitGuidanceToCurrentTurn(
+                appStore,
+                contentMarkdown,
+            );
         },
         composerEditFiles,
     };
@@ -256,6 +265,7 @@ export function createTaskPanelRows(
     taskSteps: Array<{
         stepId: string;
         taskId: string;
+        source?: string;
         title: string;
         status: string;
         summary: string | null;
@@ -265,67 +275,117 @@ export function createTaskPanelRows(
     events: EventRecord[],
     currentTurnNotice: string,
 ): TaskPanelRow[] {
-    if (tasks.length === 0) {
-        return [
-            {
-                id: "composer-task-idle",
-                title: "当前对话暂无编排任务",
-                status: "空闲",
-                summary: "发送消息后，本入口展示本轮任务、阶段和当前对话内排队状态。",
-                elapsed: "无耗时",
-                traceId: "无",
-                traceIdUnavailableReason: "TRACE_ID_PENDING：当前还没有中心服务事件写入排查 ID。",
-                failureReason: null,
-                scopeHint: "作用域：当前对话当前轮次，不代表全局任务队列。",
-                currentTurnNotice,
-                steps: [],
-            },
-        ];
-    }
-
-    return tasks.map((task) => {
-        const steps = taskSteps.filter((step) => {
-            return step.taskId === task.taskId;
-        });
-        const failedStep = steps.find((step) => {
-            return step.status === "failed";
-        });
+    return tasks.flatMap((task) => {
+        const visibleSteps = filterVisibleDecompositionSteps(
+            task.taskId,
+            taskSteps,
+        );
+        if (visibleSteps.length <= 1) {
+            return [];
+        }
         const traceId = resolveTaskTraceId(
             events,
             task.taskId,
         );
         const statusMeta = resolveTaskStatusMeta(task.status);
-        return {
-            id: task.taskId,
-            title: normalizeTaskTitle(task.title),
-            status: formatTaskStatus(task.status),
-            summary: statusMeta.title,
-            elapsed: formatTaskElapsed(
-                task.createdAt,
-                task.updatedAt,
-            ),
-            traceId,
-            traceIdUnavailableReason: traceId === "等待中心服务事件"
-                ? "TRACE_ID_PENDING：该任务仍在等待中心服务写入事件排查 ID。"
-                : "",
-            failureReason: failedStep?.summary ?? null,
-            scopeHint: "作用域：当前对话当前轮次；排队、等待用户和确认不会阻塞其他对话。",
-            currentTurnNotice,
-            steps: steps.map((step) => {
-                return {
-                    id: step.stepId,
-                    title: step.title,
-                    status: formatTaskStatus(step.status),
-                    elapsed: formatOptionalElapsed(
-                        step.startedAt,
-                        step.endedAt,
-                    ),
-                    summary: step.summary ?? "步骤仍在处理中。",
-                    traceId,
-                };
-            }),
-        };
+        return [
+            {
+                id: task.taskId,
+                title: normalizeTaskTitle(task.title),
+                status: formatTaskStatus(task.status),
+                summary: statusMeta.title,
+                elapsed: formatTaskElapsed(
+                    task.createdAt,
+                    task.updatedAt,
+                ),
+                traceId,
+                traceIdUnavailableReason: traceId === "等待中心服务事件"
+                    ? "TRACE_ID_PENDING：该任务仍在等待中心服务写入事件排查 ID。"
+                    : "",
+                failureReason: null,
+                scopeHint: "作用域：当前对话当前轮次；排队、等待用户和确认不会阻塞其他对话。",
+                currentTurnNotice,
+                steps: visibleSteps.map((step, stepIndex) => {
+                    return {
+                        id: step.stepId,
+                        title: step.title,
+                        status: formatTaskStatus(step.status),
+                        elapsed: formatOptionalElapsed(
+                            step.startedAt,
+                            step.endedAt,
+                        ),
+                        positionText: `${stepIndex + 1}/${visibleSteps.length}`,
+                        traceId,
+                    };
+                }),
+            },
+        ];
     });
+}
+
+/**
+ * filterVisibleDecompositionSteps：筛选单个任务下可展示的拆解步骤。
+ *
+ * @param taskId 当前任务 ID。
+ * @param taskSteps 当前会话或智能体范围内的任务步骤。
+ * @returns 同一任务下的可见拆解步骤。
+ */
+function filterVisibleDecompositionSteps(
+    taskId: string,
+    taskSteps: Array<{
+        stepId: string;
+        taskId: string;
+        source?: string;
+        title: string;
+        status: string;
+        summary: string | null;
+        startedAt: string | null;
+        endedAt: string | null;
+    }>,
+) {
+    return taskSteps.filter((step) => {
+        return step.taskId === taskId
+            && step.source !== "graph";
+    });
+}
+
+/**
+ * submitGuidanceToCurrentTurn：把当前输入作为运行中轮次引导提交。
+ *
+ * @param appStore Pinia 主状态容器。
+ * @param contentMarkdown 引导 Markdown 正文。
+ * @returns 引导提交完成后没有返回值。
+ */
+async function submitGuidanceToCurrentTurn(
+    appStore: {
+        activeSessionId: string | null;
+        requireRealtimeRequest: <TResponse>(type: string, payload: unknown) => Promise<TResponse>;
+        loadNavigationData: () => Promise<void>;
+        loadActiveSessionSnapshot: () => Promise<void>;
+        updateComposerContextUsageFromExecution: () => Promise<void>;
+    },
+    contentMarkdown: string,
+): Promise<void> {
+    if (!appStore.activeSessionId) {
+        return;
+    }
+    // session.guidance.submit 是运行中引导的既有协议，必须合并当前轮次而不是走普通 sendDraft。
+    await appStore.requireRealtimeRequest<{
+        /** taskId: 被合并的当前任务 ID。 */
+        taskId: string;
+        /** turnId: 被合并的当前轮次 ID。 */
+        turnId: string;
+        /** stepId: 新增或更新的引导步骤 ID。 */
+        stepId: string;
+        /** status: 中心服务确认的引导合并状态。 */
+        status: "merged";
+    }>("session.guidance.submit", {
+        sessionId: appStore.activeSessionId,
+        contentMarkdown,
+    });
+    await appStore.loadNavigationData();
+    await appStore.loadActiveSessionSnapshot();
+    await appStore.updateComposerContextUsageFromExecution();
 }
 
 /**

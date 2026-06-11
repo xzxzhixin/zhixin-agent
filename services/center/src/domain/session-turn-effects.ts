@@ -42,6 +42,10 @@ import {
 import {
     executeRemoveAgentTeamMemberTool,
 } from "../tools/remove-agent-team-member-tool.js";
+import {
+    executeTodoListTool,
+    type TodoListToolItem,
+} from "../tools/todo-list-tool.js";
 import type {SubAgentRuntimeRecord} from "../types.js";
 import {
     stepTaskFromGraphContext,
@@ -203,6 +207,7 @@ export async function executeModelRequestedTools(
             events,
             stepTaskFromGraphContext(graphContext),
             resolveToolStepTitle(unifiedToolIntent.toolKind),
+            {},
             toolExecuteCheckpoint,
         );
         const toolResult = unifiedToolIntent.toolKind === "agent"
@@ -292,6 +297,41 @@ function runAgentTool(
         const creatorAgentId = typeof intent.arguments.creatorAgentId === "string"
             ? intent.arguments.creatorAgentId
             : "main";
+        if (intent.toolId === "builtin.todo.list") {
+            const currentTask = findTask(
+                database,
+                sent.taskId,
+            );
+            if (!currentTask) {
+                return {
+                    toolKind: "agent",
+                    status: "failed",
+                    outputSummary: "",
+                    failureReason: "TODO_LIST_TASK_NOT_FOUND",
+                    traceId: "",
+                };
+            }
+            const result = executeTodoListTool(
+                database,
+                events,
+                {
+                    sessionId: sent.sessionId,
+                    turnId: sent.turnId,
+                    taskId: sent.taskId,
+                    agentId: currentTask.agentId,
+                    toolCallId,
+                    items: readTodoListItems(intent.arguments.items),
+                },
+            );
+            return {
+                toolKind: "agent",
+                status: result.status,
+                outputSummary: result.outputSummary,
+                failureReason: result.failureReason,
+                traceId: "",
+            };
+        }
+
         const result = intent.toolId === "builtin.agent.createLongTerm"
             ? executeCreateLongTermAgentTool(
                 database,
@@ -452,6 +492,45 @@ function runAgentTool(
             traceId: "",
         };
     }
+}
+
+/**
+ * readTodoListItems：从模型参数中读取 todoList 条目数组。
+ *
+ * @param value 模型传入的 items 字段。
+ * @returns 结构化 todoList 条目；格式不正确时返回空数组。
+ */
+function readTodoListItems(value: unknown): TodoListToolItem[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.map((item) => {
+        if (!item || typeof item !== "object") {
+            return {
+                title: "",
+            };
+        }
+        const record = item as Record<string, unknown>;
+        return {
+            id: typeof record.id === "string"
+                ? record.id
+                : undefined,
+            title: typeof record.title === "string"
+                ? record.title
+                : "",
+            status: typeof record.status === "string"
+                ? record.status as TodoListToolItem["status"]
+                : undefined,
+            dependsOn: Array.isArray(record.dependsOn)
+                ? record.dependsOn.filter((stepId) => {
+                    return typeof stepId === "string";
+                }) as string[]
+                : undefined,
+            acceptance: typeof record.acceptance === "string"
+                ? record.acceptance
+                : null,
+        };
+    });
 }
 
 /**
