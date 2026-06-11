@@ -1,4 +1,5 @@
 import {createDataAccess} from "../data-access/index.js";
+import {formatCenterLocalDateTime} from "../time.js";
 import {
     type AgentTeamToolScope,
     appendAgentTeamToolEvent,
@@ -44,7 +45,7 @@ export function executeCreateAgentTeamTool(
 } {
     assertMainAgentCreator(scope.creatorAgentId);
     const dataAccess = createDataAccess(scope.database);
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     const teamId = createTeamId();
     dataAccess.agentTeams.createTeam({
         teamId,

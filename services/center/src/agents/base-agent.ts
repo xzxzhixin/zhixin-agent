@@ -14,6 +14,36 @@ export type AgentToolName =
     | "todo-list";
 
 /**
+ * TOOL_CAPABILITY_AGENT_TOOL_MAP：统一工具 ID 到智能体权限名的映射。
+ *
+ * 来源：中心服务统一工具注册表和智能体权限边界设计。
+ * 含义：调用方只传中心服务工具 ID，由智能体类层级统一判断可见性。
+ * 约束：动态 MCP 工具不写入该表，统一通过 `mcp_` 前缀继承 MCP 权限。
+ */
+const TOOL_CAPABILITY_AGENT_TOOL_MAP: Readonly<Record<string, AgentToolName>> = {
+    /** builtin.command.run: 中心服务内置命令执行工具。 */
+    "builtin.command.run": "command-run",
+    /** builtin.agent.createLongTerm: 主智能体专属长期智能体创建工具。 */
+    "builtin.agent.createLongTerm": "create-long-term-agent",
+    /** builtin.agent.createSubAgent: 主智能体和长期智能体可用的子智能体创建工具。 */
+    "builtin.agent.createSubAgent": "create-sub-agent",
+    /** create-agent-team: 主智能体专属 team 创建工具。 */
+    "create-agent-team": "create-agent-team",
+    /** disband-agent-team: 主智能体专属 team 解散工具。 */
+    "disband-agent-team": "disband-agent-team",
+    /** add-agent-team-member: 主智能体专属 team 成员添加工具。 */
+    "add-agent-team-member": "add-agent-team-member",
+    /** remove-agent-team-member: 主智能体专属 team 成员移除工具。 */
+    "remove-agent-team-member": "remove-agent-team-member",
+    /** builtin.mcp.call: MCP 动态工具的统一权限边界。 */
+    "builtin.mcp.call": "mcp-call",
+    /** builtin.skill.use: skill 工作流使用权限。 */
+    "builtin.skill.use": "skill-use",
+    /** builtin.todo.list: 智能体私有 todoList 状态维护权限。 */
+    "builtin.todo.list": "todo-list",
+};
+
+/**
  * AgentKind：智能体执行类类型。
  */
 export type AgentKind =
@@ -86,22 +116,29 @@ export abstract class BaseAgent {
     abstract getCreationTools(): AgentToolName[];
 
     /**
+     * getExecutionTools：返回所有智能体都可按上下文裁决使用的任务执行工具。
+     *
+     * @returns 任务执行类工具列表。
+     */
+    getExecutionTools(): AgentToolName[] {
+        return [
+            "command-run",
+            "mcp-call",
+            "skill-use",
+            "todo-list",
+        ];
+    }
+
+    /**
      * getAvailableTools：返回当前智能体可注入模型的完整工具集合。
      *
      * @returns 工具名称列表。
      */
     getAvailableTools(): AgentToolName[] {
-        return this.getCreationTools();
-    }
-
-    /**
-     * canUseCreationTool：判断当前智能体是否可使用某个创建工具。
-     *
-     * @param toolName 工具名称。
-     * @returns 允许使用时返回 true。
-     */
-    canUseCreationTool(toolName: AgentToolName): boolean {
-        return this.getCreationTools().includes(toolName);
+        return [
+            ...this.getExecutionTools(),
+            ...this.getCreationTools(),
+        ];
     }
 
     /**
@@ -112,6 +149,16 @@ export abstract class BaseAgent {
      */
     canUseTool(toolName: AgentToolName): boolean {
         return this.getAvailableTools().includes(toolName);
+    }
+
+    /**
+     * canUseCreationTool：判断当前智能体是否可使用某个创建工具。
+     *
+     * @param toolName 工具名称。
+     * @returns 允许使用时返回 true。
+     */
+    canUseCreationTool(toolName: AgentToolName): boolean {
+        return this.getCreationTools().includes(toolName);
     }
 
     /**
@@ -168,32 +215,5 @@ export function mapToolCapabilityToAgentToolName(toolId: string): AgentToolName 
     if (toolId.startsWith("mcp_")) {
         return "mcp-call";
     }
-    if (toolId === "builtin.command.run") {
-        return "command-run";
-    }
-    if (toolId === "builtin.agent.createLongTerm") {
-        return "create-long-term-agent";
-    }
-    if (toolId === "builtin.agent.createSubAgent") {
-        return "create-sub-agent";
-    }
-    if (toolId === "create-agent-team") {
-        return "create-agent-team";
-    }
-    if (toolId === "disband-agent-team") {
-        return "disband-agent-team";
-    }
-    if (toolId === "add-agent-team-member") {
-        return "add-agent-team-member";
-    }
-    if (toolId === "remove-agent-team-member") {
-        return "remove-agent-team-member";
-    }
-    if (toolId === "builtin.mcp.call") {
-        return "mcp-call";
-    }
-    if (toolId === "builtin.skill.use") {
-        return "skill-use";
-    }
-    return null;
+    return TOOL_CAPABILITY_AGENT_TOOL_MAP[toolId] ?? null;
 }

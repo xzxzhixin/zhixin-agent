@@ -45,21 +45,7 @@ export class MainAgent extends BaseAgent {
             "disband-agent-team",
             "add-agent-team-member",
             "remove-agent-team-member",
-            "todo-list",
         ];
     }
 
-    /**
-     * getAvailableTools：主智能体可用命令、MCP、skill、智能体创建和 team 管理工具。
-     *
-     * @returns 主智能体完整工具权限列表。
-     */
-    getAvailableTools(): AgentToolName[] {
-        return [
-            "command-run",
-            "mcp-call",
-            "skill-use",
-            ...this.getCreationTools(),
-        ];
-    }
 }

@@ -4,6 +4,7 @@ import type {EventRecord} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import {createDataAccess} from "./data-access/index.js";
+import {formatCenterLocalDateTime} from "./time.js";
 
 export class CenterEventStore {
     /**
@@ -84,7 +85,7 @@ export class CenterEventStore {
         // sequence: 无轮次事件使用 0，轮次内事件严格递增。
         const sequence = input.turnId ? this.nextSequenceForTurn(input.turnId) : 0;
         // occurredAt: 服务端事件发生时间，作为断线补齐排序依据。
-        const occurredAt = new Date().toISOString();
+        const occurredAt = formatCenterLocalDateTime();
         // eventId: 事件持久化身份。
         const eventId = randomUUID();
 

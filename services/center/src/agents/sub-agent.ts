@@ -30,28 +30,12 @@ export class SubAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：子智能体只允许维护自己的 todoList，禁止注入创建智能体和 team 管理工具。
+     * getCreationTools：子智能体禁止注入创建智能体和 team 管理工具。
      *
-     * @returns todoList 工具列表。
+     * @returns 空创建工具列表。
      */
     getCreationTools(): AgentToolName[] {
         // 禁止：子智能体不能创建长期智能体，也不能继续创建子智能体或管理 team。
-        return [
-            "todo-list",
-        ];
-    }
-
-    /**
-     * getAvailableTools：子智能体只保留任务执行类工具和自身 todoList。
-     *
-     * @returns 子智能体完整工具权限列表。
-     */
-    getAvailableTools(): AgentToolName[] {
-        return [
-            "command-run",
-            "mcp-call",
-            "skill-use",
-            ...this.getCreationTools(),
-        ];
+        return [];
     }
 }

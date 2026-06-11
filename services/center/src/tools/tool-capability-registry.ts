@@ -330,6 +330,49 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         approvalRequired: false,
         displayText: "使用 skill",
     },
+    {
+        toolId: "builtin.todo.list",
+        toolKind: "agent",
+        displayName: "智能体 todoList",
+        requiredPermission: "project.read",
+        availability: "available",
+        unavailableReason: null,
+        description: "维护当前智能体自己的任务拆解 todoList；todoList 按 agentId 隔离，不属于创建类工具。",
+        inputSchema: {
+            type: "object",
+            required: [
+                "items",
+            ],
+            properties: {
+                items: {
+                    type: "array",
+                    description: "当前智能体要保存或更新的 todoList 条目。",
+                    items: {
+                        type: "object",
+                        properties: {
+                            title: {
+                                type: "string",
+                                description: "todo 条目标题。",
+                            },
+                            status: {
+                                type: "string",
+                                enum: [
+                                    "pending",
+                                    "running",
+                                    "completed",
+                                ],
+                                description: "todo 条目状态。",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        riskLevel: "low",
+        scope: "session",
+        approvalRequired: false,
+        displayText: "维护 todoList",
+    },
 ];
 
 /**

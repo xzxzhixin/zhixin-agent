@@ -13,6 +13,7 @@ import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, SubAgentRuntimeRecord} from "../types.js";
 import {writeJsonFile} from "../helpers.js";
 import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
+import {formatCenterLocalDateTime} from "../time.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
@@ -54,7 +55,7 @@ export function createTodo(database: CenterDatabase, events: CenterEventStore, t
         todoId,
         title,
         dueAt,
-        updatedAt: new Date().toISOString(),
+        updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
         eventType: "personal.todo.created",
@@ -80,7 +81,7 @@ export function createCalendarEvent(database: CenterDatabase, events: CenterEven
         title,
         startsAt,
         endsAt,
-        updatedAt: new Date().toISOString(),
+        updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
         eventType: "personal.calendar.created",
@@ -106,7 +107,7 @@ export function createKnowledgeItem(database: CenterDatabase, events: CenterEven
         title,
         summary,
         sourceRef,
-        updatedAt: new Date().toISOString(),
+        updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
         eventType: "personal.knowledge.created",
@@ -158,7 +159,7 @@ export function createSubAgentRuntime(
     // subAgentId: 使用运行期前缀，避免和长期智能体 Markdown 定义混淆。
     const subAgentId = `sub-${randomUUID()}`;
     // createdAt: 子智能体只存在于当前任务上下文和事件日志。
-    const createdAt = new Date().toISOString();
+    const createdAt = formatCenterLocalDateTime();
     subAgents.set(subAgentId, {
         subAgentId,
         parentAgentId,
@@ -274,7 +275,7 @@ export function setAgentRuntimeState(
     updatedAt: string;
 } {
     // updatedAt: 服务端状态更新时间，作为多端展示的事实时间。
-    const updatedAt = new Date().toISOString();
+    const updatedAt = formatCenterLocalDateTime();
     createDataAccess(database).workflow.upsertAgentRuntimeState({
         agentId,
         status,
@@ -317,7 +318,7 @@ export function saveExecutionMode(centerDirectory: string, clientType: ClientTyp
     writeJsonFile(join(centerDirectory, "config", `execution-mode-${clientType}.json`), {
         clientType,
         executionMode,
-        updatedAt: new Date().toISOString(),
+        updatedAt: formatCenterLocalDateTime(),
     });
     return {clientType, executionMode};
 }
@@ -402,7 +403,7 @@ export function recordUsage(database: CenterDatabase, events: CenterEventStore, 
         cacheHitTokens: input.cacheHitTokens ?? null,
         cacheMissTokens: input.cacheMissTokens ?? null,
         status: input.status,
-        createdAt: new Date().toISOString(),
+        createdAt: formatCenterLocalDateTime(),
     });
     events.append({
         eventType: "usage.recorded",
@@ -426,7 +427,7 @@ export function markWorkerTaskFailed(database: CenterDatabase, events: CenterEve
     taskId: string;
     status: string
 } {
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     createDataAccess(database).sessions.updateTaskStatus(
         taskId,
         "failed",
@@ -452,7 +453,7 @@ export function startWorkerTask(database: CenterDatabase, events: CenterEventSto
     status: string;
     heartbeatAt: string
 } {
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     createDataAccess(database).sessions.updateTaskStatus(
         taskId,
         "running",
@@ -489,7 +490,7 @@ export function cancelWorkerTask(database: CenterDatabase, events: CenterEventSt
     taskId: string;
     status: string
 } {
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     createDataAccess(database).sessions.updateTaskStatus(
         taskId,
         "cancelled",
@@ -824,7 +825,7 @@ export function handleWorkerMessage(
             createDataAccess(database).sessions.updateTaskStatus(
                 taskId,
                 "completed",
-                new Date().toISOString(),
+                formatCenterLocalDateTime(),
             );
         }
     }
@@ -836,7 +837,7 @@ export function handleWorkerMessage(
             createDataAccess(database).sessions.updateTaskStatus(
                 taskId,
                 "failed",
-                new Date().toISOString(),
+                formatCenterLocalDateTime(),
             );
         }
     }

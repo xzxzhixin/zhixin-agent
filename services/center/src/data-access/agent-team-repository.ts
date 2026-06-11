@@ -20,9 +20,9 @@ export interface AgentTeamRow {
     description: string | null;
     /** createdByAgentId: 创建者智能体 ID，本轮固定要求为 main。 */
     createdByAgentId: string;
-    /** createdAt: 创建时间 ISO 字符串。 */
+    /** createdAt: 创建时间，中心服务本机 `YYYY-MM-DD HH:mm:ss` 字符串。 */
     createdAt: string;
-    /** updatedAt: 更新时间 ISO 字符串。 */
+    /** updatedAt: 更新时间，中心服务本机 `YYYY-MM-DD HH:mm:ss` 字符串。 */
     updatedAt: string;
 }
 
@@ -44,7 +44,7 @@ export interface AgentTeamMemberRow {
     agentId: string;
     /** role: 成员在 team 中的角色。 */
     role: string;
-    /** addedAt: 加入时间 ISO 字符串。 */
+    /** addedAt: 加入时间，中心服务本机 `YYYY-MM-DD HH:mm:ss` 字符串。 */
     addedAt: string;
 }
 

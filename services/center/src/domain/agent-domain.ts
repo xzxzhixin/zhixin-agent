@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync} from "node:fs";
+import {appendFileSync, existsSync, mkdirSync, renameSync, rmSync} from "node:fs";
 import {arch, platform, release, type} from "node:os";
 import {dirname, join} from "node:path";
 
@@ -8,6 +8,7 @@ import type {CenterEventStore} from "../events.js";
 import type {MemoryQueueState} from "../types.js";
 import {writeFileSyncUtf8, writeFileSyncUtf8IfMissing, writeJsonFile} from "../helpers.js";
 import {AgentRepository} from "../data-access/agent-repository.js";
+import {formatCenterLocalDateTime} from "../time.js";
 
 // AGENT_DYNAMIC_CAPABILITY_BOUNDARY: 兼容旧 agents_index 字段；真实可用能力由当前会话窗口动态决定，不再由前端编辑。
 const AGENT_DYNAMIC_CAPABILITY_BOUNDARY = "可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。";
@@ -78,7 +79,7 @@ export function ensureMainAgent(
         memoryIndexPath: "memory/agents/main",
         createdBy: "system-builtin",
         definitionPath: "agents/main.md",
-        updatedAt: new Date().toISOString(),
+        updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
         eventType: "agent.bootstrap",
@@ -175,7 +176,7 @@ export function createAgent(
         memoryIndexPath: `memory/agents/${agentId}`,
         createdBy: input.createdBy ?? "user",
         definitionPath: relativePath,
-        updatedAt: new Date().toISOString(),
+        updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
         eventType: "agent.created",
@@ -242,7 +243,7 @@ export function updateAgent(
         defaultModel: input.defaultModel ?? existing.defaultModel,
         reasoningEffort: input.reasoningEffort ?? existing.reasoningEffort,
     };
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     repository.updateAgent({
         agentId: input.agentId ?? "",
         name: next.name,
@@ -310,7 +311,7 @@ export function disableAgent(
         throw new Error("MAIN_AGENT_DISABLE_FORBIDDEN");
     }
 
-    const now = new Date().toISOString();
+    const now = formatCenterLocalDateTime();
     new AgentRepository(database).disableAgent(
         agentId,
         now,
@@ -382,8 +383,9 @@ export function deleteAgent(
         };
     }
 
-    const now = new Date().toISOString();
-    const archiveStamp = now.replace(/[:.]/gu, "-");
+    const now = formatCenterLocalDateTime();
+    // archiveStamp: Windows 文件名不能包含冒号，归档目录使用同一本机时间再替换为安全字符。
+    const archiveStamp = now.replace(/[: ]/gu, "-");
     repository.deleteAgentIndexes(agentId);
 
     const definitionPath = join(centerDirectory, existing.definitionPath);
@@ -545,6 +547,7 @@ export function formatMemoryComputerIdentity(): string {
  * @param database 中心服务数据库。
  * @param events 事件追加器。
  * @param centerDirectory 中心目录。
+ * @param memoryQueues 智能体记忆单写队列。
  * @param input 记忆写入参数。
  * @returns 记忆文件相对路径。
  */
@@ -559,6 +562,7 @@ export function writeAgentMemory(
 } {
     const queueState = enterMemoryQueue(memoryQueues, input.agentId ?? "");
     const now = new Date();
+    const nowText = formatCenterLocalDateTime(now);
     const year = String(now.getFullYear());
     const month = String(now.getMonth() + 1).padStart(2, "0");
     const day = String(now.getDate()).padStart(2, "0");
@@ -602,7 +606,7 @@ export function writeAgentMemory(
         sourceTurnId: input.sourceTurnId ?? null,
         attachmentRefsJson: input.attachmentRefsJson ?? "[]",
         memoryPath: relativePath,
-        createdAt: now.toISOString(),
+        createdAt: nowText,
     });
     events.append({
         eventType: "memory.write",

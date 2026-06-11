@@ -1,4 +1,5 @@
 import {createDataAccess} from "../data-access/index.js";
+import {formatCenterLocalDateTime} from "../time.js";
 import {
     type AgentTeamToolScope,
     appendAgentTeamToolEvent,
@@ -51,7 +52,7 @@ export function executeAddAgentTeamMemberTool(
             teamId: input.teamId,
             agentId: input.agentId,
             role: input.role ?? "member",
-            addedAt: new Date().toISOString(),
+            addedAt: formatCenterLocalDateTime(),
         });
     }
     appendAgentTeamToolEvent(

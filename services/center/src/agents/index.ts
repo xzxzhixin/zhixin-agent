@@ -4,7 +4,10 @@ import type {
     BaseAgentInput,
     AgentKind,
 } from "./base-agent.js";
-import {BaseAgent} from "./base-agent.js";
+import {
+    BaseAgent,
+    mapToolCapabilityToAgentToolName,
+} from "./base-agent.js";
 import {LongTermAgent} from "./long-term-agent.js";
 import {MainAgent} from "./main-agent.js";
 import {SubAgent} from "./sub-agent.js";
@@ -20,6 +23,7 @@ export interface AgentExecutionIdentity extends BaseAgentInput {
 export {
     BaseAgent,
     LongTermAgent,
+    mapToolCapabilityToAgentToolName,
     MainAgent,
     SubAgent,
 };
