@@ -153,6 +153,9 @@ export function createBroadcastingEventStore(
  * @returns 没有返回值。
  */
 function writeCenterEventToConsole(event: EventRecord): void {
+    if (!shouldWriteCenterEventToConsole(event)) {
+        return;
+    }
     // consolePayload: 控制台只保留排查关键字段和截断摘要，完整事实源仍以 SQLite events 表为准。
     const consolePayload = {
         eventType: event.eventType,
@@ -181,6 +184,25 @@ function writeCenterEventToConsole(event: EventRecord): void {
         },
         "center.event",
     );
+}
+
+/**
+ * shouldWriteCenterEventToConsole：判断事件是否需要输出到开发控制台。
+ *
+ * @param event 已落库中心服务事件。
+ * @returns 失败、命令启动、终态和关键审计节点返回 true；运行中和输出块等中间态返回 false。
+ */
+function shouldWriteCenterEventToConsole(event: EventRecord): boolean {
+    if (event.status === "failed" || event.errorCode) {
+        return true;
+    }
+    if (event.eventType === "tool.command.output") {
+        return false;
+    }
+    if (event.eventType === "tool.command.started") {
+        return true;
+    }
+    return event.status !== "running" && !event.eventType.endsWith(".started");
 }
 
 /**

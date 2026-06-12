@@ -108,7 +108,7 @@ const toolRuntime = [
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 
 for (const signal of [
-  "appendThinkingEvents",
+  "thinking.context",
   "appendProviderStreamDelta",
   "setTimeout",
   "broadcastEvents",

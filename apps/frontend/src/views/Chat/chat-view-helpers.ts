@@ -159,6 +159,8 @@ export interface ProcessMessageGroupRow {
     logs: Array<{
         /** eventId: 事件 ID。 */
         eventId: string;
+        /** label: 当前日志阶段标签。 */
+        label: string;
         /** text: 日志或过程输出。 */
         text: string;
         /** occurredAt: 统一格式时间。 */
@@ -440,8 +442,12 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         const isRunning = statusEntries.some((entry) => {
             return entry.statusMeta.status === "running";
         }) && !hasCompleted && !hasFailed;
-        const title = resolveProcessGroupTitle(latestEvent);
-        const processKind = resolveProcessKind(latestEvent);
+        const representativeEvent = resolveProcessRepresentativeEvent(
+            sortedEvents,
+            latestEvent,
+        );
+        const title = resolveProcessGroupTitle(representativeEvent);
+        const processKind = resolveProcessKind(representativeEvent);
         return {
             rowId: `process-${groupKey}`,
             turnId: latestEvent.turnId,
@@ -465,9 +471,12 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
             logs: statusEntries.map((entry) => {
                 return {
                     eventId: entry.event.eventId,
+                    label: resolveProcessLogLabel(entry.event),
                     text: resolveProcessLogText(entry.event),
                     occurredAt: formatDisplayTime(entry.event.occurredAt),
                 };
+            }).filter((log) => {
+                return log.text.trim().length > 0;
             }),
         };
     });
@@ -489,6 +498,18 @@ function resolveProcessGroupKey(event: EventRecord): string {
             event.taskId ?? "no-task",
             "task-step",
             event.stepId ?? event.scopeId ?? event.eventId,
+        ].join(":");
+    }
+    const toolCallProcessGroupId = resolveToolCallProcessGroupId(
+        event,
+        payload,
+    );
+    if (toolCallProcessGroupId) {
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "tool-call",
+            toolCallProcessGroupId,
         ].join(":");
     }
     const commandGroupId = resolveCommandProcessGroupId(
@@ -649,6 +670,34 @@ function resolveCommandProcessGroupId(
         }
     }
     return event.eventId;
+}
+
+/**
+ * resolveToolCallProcessGroupId：解析模型工具调用闭环的统一聚合 ID。
+ *
+ * @param event 中心服务事件。
+ * @param payload 事件载荷。
+ * @returns 有 toolCallId 时返回该 ID，否则返回空字符串。
+ */
+function resolveToolCallProcessGroupId(
+    event: EventRecord,
+    payload: Record<string, unknown>,
+): string {
+    if (![
+        "model.tool.requested",
+        "model.tool.rejected",
+        "model.tool.result.appended",
+        "tool.plan.created",
+    ].includes(event.eventType)
+        && !event.eventType.startsWith("tool.command.")
+        && !event.eventType.startsWith("tool.mcp.")
+        && !event.eventType.startsWith("tool.call.")) {
+        return "";
+    }
+    const toolCallId = payload.toolCallId;
+    return typeof toolCallId === "string" && toolCallId.length > 0
+        ? toolCallId
+        : "";
 }
 
 /**
@@ -833,6 +882,9 @@ function resolveProcessSummary(event: EventRecord): string {
         "outputSummary",
     ) || readEventText(
         event,
+        "resultSummary",
+    ) || readEventText(
+        event,
         "inputSummary",
     ) || readEventText(
         event,
@@ -841,6 +893,37 @@ function resolveProcessSummary(event: EventRecord): string {
         event,
         "reason",
     ) || event.summary;
+}
+
+/**
+ * resolveProcessLogLabel：生成过程卡片内部阶段标签。
+ *
+ * @param event 中心服务事件。
+ * @returns 面向用户的短标签。
+ */
+function resolveProcessLogLabel(event: EventRecord): string {
+    if (event.eventType === "model.tool.requested") {
+        return "请求";
+    }
+    if (event.eventType === "tool.plan.created") {
+        return "计划";
+    }
+    if (event.eventType.endsWith(".started")) {
+        return "开始";
+    }
+    if (event.eventType === "tool.command.output") {
+        return "输出";
+    }
+    if (event.eventType.endsWith(".completed")) {
+        return "完成";
+    }
+    if (event.eventType === "model.tool.result.appended") {
+        return "回填";
+    }
+    if (event.eventType.endsWith(".failed") || event.eventType.endsWith(".rejected")) {
+        return "失败";
+    }
+    return "过程";
 }
 
 /**
@@ -853,6 +936,9 @@ function resolveProcessLogText(event: EventRecord): string {
     return readEventText(
         event,
         "outputSummary",
+    ) || readEventText(
+        event,
+        "resultSummary",
     ) || readEventText(
         event,
         "inputSummary",
@@ -872,6 +958,28 @@ function resolveProcessLogText(event: EventRecord): string {
         event,
         "reason",
     ) || event.summary;
+}
+
+/**
+ * resolveProcessRepresentativeEvent：为聚合卡片选择最能代表标题和类型的事件。
+ *
+ * @param sortedEvents 同一过程内按序排列的事件。
+ * @param latestEvent 最新事件。
+ * @returns 优先返回真实工具执行事件；没有时返回最新事件。
+ */
+function resolveProcessRepresentativeEvent(
+    sortedEvents: EventRecord[],
+    latestEvent: EventRecord,
+): EventRecord {
+    const toolEvent = sortedEvents.find((event) => {
+        return event.eventType.startsWith("tool.command.")
+            || event.eventType.startsWith("tool.mcp.")
+            || event.eventType.startsWith("tool.agent.")
+            || event.eventType.startsWith("tool.call.")
+            || event.eventType.startsWith("tool.skill.")
+            || event.eventType.startsWith("tool.plugin.");
+    });
+    return toolEvent ?? latestEvent;
 }
 
 /**

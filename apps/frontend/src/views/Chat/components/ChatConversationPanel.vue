@@ -729,7 +729,11 @@ onBeforeUnmount(() => {
           >
             <details
                 class="process-card"
-                :class="`process-card--${row.process.processKind}`"
+                :class="[
+                  row.process.processKind === 'command'
+                    ? 'process-card--command'
+                    : `process-card--${row.process.processKind}`,
+                ]"
                 :open="row.process.defaultOpen"
             >
               <summary class="process-card__summary">
@@ -756,6 +760,21 @@ onBeforeUnmount(() => {
                   v-else
                   class="process-card__body"
               >{{ row.process.responseText }}</pre>
+              <ol
+                  v-if="row.process.logs.length > 0"
+                  class="process-card__timeline"
+              >
+                <li
+                    v-for="log in row.process.logs"
+                    :key="log.eventId"
+                    class="process-card__timeline-item"
+                >
+                  <span class="process-card__timeline-meta">
+                    {{ log.occurredAt }} · {{ log.label }}
+                  </span>
+                  <span class="process-card__timeline-text">{{ log.text }}</span>
+                </li>
+              </ol>
             </details>
           </article>
           <article
@@ -1226,6 +1245,36 @@ onBeforeUnmount(() => {
   padding: 8px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--el-color-black) 5%, var(--el-fill-color-blank));
+}
+
+.process-card__timeline {
+  display: flex;
+  max-height: 200px;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 12px 12px 28px;
+  overflow: auto;
+}
+
+.process-card__timeline-item {
+  min-width: 0;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.process-card__timeline-meta {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+}
+
+.process-card__timeline-text {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .composer {

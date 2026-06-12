@@ -684,48 +684,14 @@ export function appendThinkingEvents(
     userText: string,
     graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
-    // thinkingId: 同一次公开思考过程的稳定聚合键，前端依赖它把 delta 和 completed 合成一张卡片。
-    const thinkingId = `${turnId}:context-planning`;
-    // thinkingText: 只写中心服务公开执行阶段，不冒充模型私有思考内容。
-    const thinkingText = "正在整理会话上下文、项目上下文、记忆和可用工具。";
-    // completedThinkingText: 思考完成提示同样只描述公开编排阶段，供前端过程卡片正文展示。
-    const completedThinkingText = "上下文和可用能力已整理完成，准备进入模型输出和工具过程记录。";
-    // database/userText: 当前函数签名沿用执行图调用边界；本阶段思考事件不把上下文统计写成正文，避免固定阶段摘要冒充真实思考。
+    // 保留函数边界给后续供应商公开 reasoning/thinking 摘要接入；当前没有真实公开思考时不写 thinking.* 事件。
+    void events;
     void database;
+    void sessionId;
+    void taskId;
+    void turnId;
     void userText;
-    events.append({
-        eventType: "thinking.delta",
-        scopeType: "thinking",
-        scopeId: thinkingId,
-        sessionId,
-        turnId,
-        taskId,
-        status: "running",
-        title: "思考片段",
-        summary: "正在思考",
-        payload: withOptionalGraphCheckpoint({
-            thinkingId,
-            phase: "上下文整理",
-            thinkingText,
-        }, graphCheckpoint),
-    });
-    events.append({
-        eventType: "thinking.completed",
-        scopeType: "thinking",
-        scopeId: thinkingId,
-        sessionId,
-        turnId,
-        taskId,
-        status: "completed",
-        title: "思考完成",
-        summary: "思考过程已完成，进入模型输出和工具过程记录。",
-        payload: withOptionalGraphCheckpoint({
-            taskId,
-            thinkingId,
-            phase: "上下文整理",
-            thinkingText: completedThinkingText,
-        }, graphCheckpoint),
-    });
+    void graphCheckpoint;
 }
 
 export function appendModelStreamEvent(

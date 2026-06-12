@@ -89,6 +89,13 @@ interface ProviderModelGatewayHttpResult {
     toolCalls: OpenAiToolCall[];
 }
 
+interface LangChainContentParts {
+    /** assistantText: 供应商明确返回的助手回复正文。 */
+    assistantText: string;
+    /** publicThinkingText: 供应商明确标记可公开的 reasoning/thinking 摘要。 */
+    publicThinkingText: string;
+}
+
 interface ProviderStreamEventContext {
     /** events: 中心服务事件仓储，收到供应商 delta 时立即追加事件。 */
     events: CenterEventStore;
@@ -291,33 +298,29 @@ export async function continueProviderModelGatewayWithToolResults(
         }),
     });
     for (const toolResult of toolResults) {
+        // toolCallId: 每个工具结果单独写事件，前端才能把回填过程放回对应工具调用卡片内部。
+        events.append({
+            eventType: "model.tool.result.appended",
+            scopeType: "model",
+            scopeId: taskId,
+            sessionId,
+            turnId,
+            taskId,
+            status: "completed",
+            title: "工具结果回填模型",
+            summary: `已回填工具结果：${toolResult.toolCall.name}`,
+            payload: withOptionalGraphCheckpoint({
+                toolCallId: toolResult.toolCall.toolCallId,
+                toolName: toolResult.toolCall.name,
+                resultSummary: toolResult.resultText.slice(0, 240),
+            }, graphCheckpoint),
+        });
         requestPayload.messages.push({
             role: "tool",
             content: toolResult.resultText,
             tool_call_id: toolResult.toolCall.toolCallId,
         });
     }
-
-    events.append({
-        eventType: "model.tool.result.appended",
-        scopeType: "model",
-        scopeId: taskId,
-        sessionId,
-        turnId,
-        taskId,
-        status: "completed",
-        title: "工具结果回填模型",
-        summary: `已回填 ${toolResults.length} 个工具结果。`,
-        payload: withOptionalGraphCheckpoint({
-            toolResults: toolResults.map((toolResult) => {
-                return {
-                    toolCallId: toolResult.toolCall.toolCallId,
-                    toolName: toolResult.toolCall.name,
-                    resultSummary: toolResult.resultText.slice(0, 240),
-                };
-            }),
-        }, graphCheckpoint),
-    });
 
     return sendProviderOpenAiChat(runtime, requestPayload, {
         events,
@@ -423,12 +426,16 @@ async function invokeLangChainChatModel(
     }
     const state: {
         assistantText: string;
+        publicThinkingText: string;
         hasStreamedAssistantContent: boolean;
+        hasStreamedPublicThinking: boolean;
         usage: ProviderModelGatewayResult["usage"];
         toolCallParts: Map<string, LangChainToolCallPart>;
     } = {
         assistantText: "",
+        publicThinkingText: "",
         hasStreamedAssistantContent: false,
+        hasStreamedPublicThinking: false,
         usage: null,
         toolCallParts: new Map(),
     };
@@ -438,6 +445,13 @@ async function invokeLangChainChatModel(
             chunk,
             streamContext,
             state,
+        );
+    }
+    if (state.hasStreamedPublicThinking) {
+        appendProviderPublicThinkingCompleted(
+            streamContext,
+            state.publicThinkingText,
+            "langchain",
         );
     }
 
@@ -479,20 +493,32 @@ async function invokeLangChainChatModelOnce(
 ): Promise<ProviderModelGatewayHttpResult> {
     const response = await modelWithTools.invoke(messages, callOptions);
     const responseRecord = response as LangChainMessageLikeRecord;
-    const assistantText = readLangChainTextContent(responseRecord.content);
-    if (assistantText.length > 0) {
+    const contentParts = readLangChainContentParts(responseRecord.content);
+    if (contentParts.publicThinkingText.length > 0) {
+        appendProviderPublicThinkingDelta(
+            streamContext,
+            contentParts.publicThinkingText,
+            "langchain",
+        );
+        appendProviderPublicThinkingCompleted(
+            streamContext,
+            contentParts.publicThinkingText,
+            "langchain",
+        );
+    }
+    if (contentParts.assistantText.length > 0) {
         appendProviderStreamDelta(
             streamContext,
-            assistantText,
+            contentParts.assistantText,
             "langchain",
         );
     }
     const toolCalls = readLangChainToolCalls(readLangChainFinalToolCalls(responseRecord));
     // 合法空 content 工具调用：OpenAI/兼容供应商在只请求工具时允许 assistant.content 为空。
     if (!hasUsableAssistantOutput(
-        assistantText,
+        contentParts.assistantText,
         toolCalls,
-        assistantText.length > 0,
+        contentParts.assistantText.length > 0,
     )) {
         throw new Error("PROVIDER_RESPONSE_TEXT_EMPTY");
     }
@@ -504,7 +530,7 @@ async function invokeLangChainChatModelOnce(
         "langchain",
     );
     return {
-        assistantText,
+        assistantText: contentParts.assistantText,
         usage,
         toolCall: toolCalls[0] ?? null,
         toolCalls,
@@ -899,19 +925,30 @@ function applyLangChainStreamChunk(
     streamContext: ProviderStreamEventContext,
     state: {
         assistantText: string;
+        publicThinkingText: string;
         hasStreamedAssistantContent: boolean;
+        hasStreamedPublicThinking: boolean;
         usage: ProviderModelGatewayResult["usage"];
         toolCallParts: Map<string, LangChainToolCallPart>;
     },
 ): void {
     const chunkRecord = chunk as LangChainMessageLikeRecord;
-    const textDelta = readLangChainTextContent(chunkRecord.content);
-    if (textDelta.length > 0) {
-        state.assistantText += textDelta;
+    const contentParts = readLangChainContentParts(chunkRecord.content);
+    if (contentParts.publicThinkingText.length > 0) {
+        state.publicThinkingText += contentParts.publicThinkingText;
+        state.hasStreamedPublicThinking = true;
+        appendProviderPublicThinkingDelta(
+            streamContext,
+            contentParts.publicThinkingText,
+            "langchain",
+        );
+    }
+    if (contentParts.assistantText.length > 0) {
+        state.assistantText += contentParts.assistantText;
         state.hasStreamedAssistantContent = true;
         appendProviderStreamDelta(
             streamContext,
-            textDelta,
+            contentParts.assistantText,
             "langchain",
         );
     }
@@ -934,28 +971,97 @@ function applyLangChainStreamChunk(
 }
 
 /**
- * readLangChainTextContent：读取 LangChain 文本或分块正文。
+ * readLangChainContentParts：拆分 LangChain 助手正文和供应商公开思考。
  *
  * @param content LangChain content 字段。
- * @returns 可展示文本。
+ * @returns 普通助手正文和公开思考正文。
  */
-function readLangChainTextContent(content: unknown): string {
+function readLangChainContentParts(content: unknown): LangChainContentParts {
     if (typeof content === "string") {
-        return content;
+        return {
+            assistantText: content,
+            publicThinkingText: "",
+        };
     }
     if (!Array.isArray(content)) {
-        return "";
+        return {
+            assistantText: "",
+            publicThinkingText: "",
+        };
     }
-    return content.map((item) => {
+    const parts = content.map((item): LangChainContentParts => {
         if (typeof item === "string") {
-            return item;
+            return {
+                assistantText: item,
+                publicThinkingText: "",
+            };
         }
         if (typeof item !== "object" || item === null) {
-            return "";
+            return {
+                assistantText: "",
+                publicThinkingText: "",
+            };
         }
-        const text = (item as { text?: unknown }).text;
-        return typeof text === "string" ? text : "";
-    }).join("");
+        const itemRecord = item as Record<string, unknown>;
+        const contentType = typeof itemRecord.type === "string"
+            ? itemRecord.type
+            : "";
+        if (isPublicThinkingContentType(contentType)) {
+            return {
+                assistantText: "",
+                publicThinkingText: readPublicThinkingContentBlockText(itemRecord),
+            };
+        }
+        const text = itemRecord.text;
+        return {
+            assistantText: typeof text === "string" ? text : "",
+            publicThinkingText: "",
+        };
+    });
+    return {
+        assistantText: parts.map((part) => {
+            return part.assistantText;
+        }).join(""),
+        publicThinkingText: parts.map((part) => {
+            return part.publicThinkingText;
+        }).join(""),
+    };
+}
+
+/**
+ * isPublicThinkingContentType：判断内容块是否是供应商明确公开的思考摘要。
+ *
+ * @param contentType LangChain 或供应商透传内容块类型。
+ * @returns 明确为 thinking/reasoning 类型时返回 true。
+ */
+function isPublicThinkingContentType(contentType: string): boolean {
+    return [
+        "thinking",
+        "reasoning",
+        "reasoning_text",
+        "reasoning_content",
+    ].includes(contentType);
+}
+
+/**
+ * readPublicThinkingContentBlockText：读取公开思考内容块文本。
+ *
+ * @param itemRecord LangChain 内容块。
+ * @returns 供应商明确返回的公开思考文本。
+ */
+function readPublicThinkingContentBlockText(itemRecord: Record<string, unknown>): string {
+    // thinking/text/summary: 这些字段分别对应 Anthropic thinking 块、通用 reasoning 文本块和公开摘要块。
+    for (const key of [
+        "thinking",
+        "text",
+        "summary",
+    ]) {
+        const value = itemRecord[key];
+        if (typeof value === "string") {
+            return value;
+        }
+    }
+    return "";
 }
 
 /**
@@ -1350,6 +1456,76 @@ function appendProviderStreamDelta(
         payload: withOptionalGraphCheckpoint({
             deltaText,
             streamSource,
+        }, streamContext.graphCheckpoint),
+    });
+}
+
+/**
+ * appendProviderPublicThinkingDelta：追加供应商真实公开思考片段。
+ *
+ * @param streamContext 当前会话事件上下文。
+ * @param thinkingText 本次公开思考增量。
+ * @returns 没有返回值。
+ */
+function appendProviderPublicThinkingDelta(
+    streamContext: ProviderStreamEventContext,
+    thinkingText: string,
+    streamSource = "provider-public-reasoning",
+): void {
+    if (thinkingText.length === 0) {
+        return;
+    }
+    const thinkingId = `${streamContext.turnId}:provider-public-thinking`;
+    streamContext.events.append({
+        eventType: "thinking.delta",
+        scopeType: "thinking",
+        scopeId: thinkingId,
+        sessionId: streamContext.sessionId,
+        turnId: streamContext.turnId,
+        taskId: streamContext.taskId,
+        status: "running",
+        title: "模型公开思考",
+        summary: "供应商返回公开思考片段。",
+        payload: withOptionalGraphCheckpoint({
+            thinkingId,
+            phase: "模型公开思考",
+            thinkingSource: streamSource,
+            thinkingText,
+        }, streamContext.graphCheckpoint),
+    });
+}
+
+/**
+ * appendProviderPublicThinkingCompleted：追加供应商公开思考完成事件。
+ *
+ * @param streamContext 当前会话事件上下文。
+ * @param thinkingText 本次公开思考完整文本。
+ * @returns 没有返回值。
+ */
+function appendProviderPublicThinkingCompleted(
+    streamContext: ProviderStreamEventContext,
+    thinkingText: string,
+    streamSource = "provider-public-reasoning",
+): void {
+    if (thinkingText.length === 0) {
+        return;
+    }
+    const thinkingId = `${streamContext.turnId}:provider-public-thinking`;
+    streamContext.events.append({
+        eventType: "thinking.completed",
+        scopeType: "thinking",
+        scopeId: thinkingId,
+        sessionId: streamContext.sessionId,
+        turnId: streamContext.turnId,
+        taskId: streamContext.taskId,
+        status: "completed",
+        title: "模型公开思考完成",
+        summary: "供应商公开思考片段已接收完成。",
+        payload: withOptionalGraphCheckpoint({
+            thinkingId,
+            phase: "模型公开思考",
+            thinkingSource: streamSource,
+            thinkingText,
         }, streamContext.graphCheckpoint),
     });
 }

@@ -74,6 +74,10 @@ const panel = readProjectFile("apps/frontend/src/views/Chat/components/ChatConve
 const helpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // commandRuntime: 中心服务命令运行器，负责 stdout 和 stderr 解码。
 const commandRuntime = readProjectFile("services/center/src/tools/command-tool.ts");
+// eventStore: 中心服务事件控制台输出，必须避免输出工具中间态刷屏。
+const eventStore = readProjectFile("services/center/src/events.ts");
+// sessionDomain: LangGraph 会话执行器，不能用固定上下文整理事件冒充真实思考。
+const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 
 assertIncludes(
   helpers,
@@ -84,6 +88,31 @@ assertIncludes(
   helpers,
   "defaultOpen: isRunning",
   "工具过程卡片必须运行中默认展开，完成或失败后默认折叠。",
+);
+assertIncludes(
+  helpers,
+  "resolveToolCallProcessGroupId",
+  "同一 toolCallId 的模型请求、工具计划、命令/MCP 执行和结果回填必须聚合到同一过程卡片。",
+);
+assertIncludes(
+  helpers,
+  "event.eventType === \"model.tool.result.appended\"",
+  "工具结果回填事件必须能按 toolCallId 回到对应工具过程卡片内部。",
+);
+assertIncludes(
+  helpers,
+  "event.eventType === \"tool.plan.created\"",
+  "工具计划事件必须能按 toolCallId 回到对应工具过程卡片内部。",
+);
+assertIncludes(
+  panel,
+  "process-card__timeline",
+  "过程卡片内部必须渲染请求、计划、执行、输出、完成和回填日志。",
+);
+assertIncludes(
+  panel,
+  "row.process.logs",
+  "过程卡片内部必须按聚合日志展示完整工具调用过程。",
 );
 assertIncludes(
   panel,
@@ -139,6 +168,31 @@ assertNotIncludes(
   commandRuntime,
   "chunk.toString(\"utf-8\")",
   "命令输出不能继续直接 Buffer.toString(\"utf-8\") 解码 Windows 非 UTF-8 输出。",
+);
+assertIncludes(
+  eventStore,
+  "shouldWriteCenterEventToConsole",
+  "中心服务事件控制台输出必须集中判断一头一尾和失败，不能直接输出所有事件。",
+);
+assertIncludes(
+  eventStore,
+  "tool.command.output",
+  "中心服务控制台日志必须明确压制命令输出中间态。",
+);
+assertIncludes(
+  eventStore,
+  "event.eventType === \"tool.command.started\"",
+  "中心服务控制台日志必须保留命令启动这一头日志。",
+);
+assertNotIncludes(
+  sessionDomain,
+  "appendThinkingEvents(",
+  "LangGraph 上下文整理节点不能继续写固定 thinking 事件冒充模型真实思考。",
+);
+assertIncludes(
+  sessionDomain,
+  "for (const toolResult of state.toolResults)",
+  "工具计划事件必须按每个 toolCallId 分别写入，避免多工具同轮时只聚合第一个工具卡片。",
 );
 
 if (failures.length > 0) {

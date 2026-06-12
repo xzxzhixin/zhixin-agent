@@ -22,7 +22,6 @@ import {
 } from "../langgraph-runner.js";
 import type {MemoryQueueState} from "../types.js";
 import {
-    appendThinkingEvents,
     handleWorkerMessage,
     recordUsage,
     startWorkerTask,
@@ -773,15 +772,7 @@ function createTurnGraphNodeExecutors(
                 {},
                 checkpoint,
             );
-            appendThinkingEvents(
-                events,
-                database,
-                state.sessionId,
-                state.taskId,
-                state.turnId,
-                state.userText,
-                checkpoint,
-            );
+            // 真实思考只能来自供应商明确公开的 reasoning/thinking 摘要；上下文整理节点只维护任务步骤，不写 thinking.* 正文事件。
             updateTaskStep(
                 database,
                 events,
@@ -1037,30 +1028,11 @@ function createTurnGraphNodeExecutors(
                 {},
                 checkpoint,
             );
-            events.append({
-                eventType: "tool.plan.created",
-                scopeType: "tool-plan",
-                scopeId: state.taskId,
-                sessionId: state.sessionId,
-                turnId: state.turnId,
-                taskId: state.taskId,
-                status: "completed",
-                title: "工具计划",
-                summary: state.executedTool
-                    ? "模型已基于 OpenAI 结构化工具定义请求工具调用。"
-                    : "当前模型回复未请求工具调用，已记录内联工具、MCP 和 skill 可用性。",
-                payload: withTurnGraphCheckpoint({
-                    plannedToolId: state.executedTool?.toolId ?? null,
-                    plannedToolKind: state.executedTool?.toolKind ?? null,
-                    inputSummary: state.executedTool?.inputSummary ?? null,
-                    fallbackToolKinds: [
-                        "agent",
-                        "command",
-                        "mcp",
-                        "skill",
-                    ],
-                }, checkpoint),
-            });
+            appendToolPlanCreatedEvents(
+                events,
+                state,
+                checkpoint,
+            );
             appendToolVisibilityEvents(
                 events,
                 state.sessionId,
@@ -1261,6 +1233,73 @@ function createTurnGraphNodeExecutors(
             return {};
         },
     };
+}
+
+/**
+ * appendToolPlanCreatedEvents：按模型工具调用结果写入工具计划事件。
+ *
+ * @param events 事件日志仓储。
+ * @param state 当前 LangGraph 状态。
+ * @param checkpoint 工具计划节点检查点。
+ * @returns 无返回值。
+ */
+function appendToolPlanCreatedEvents(
+    events: CenterEventStore,
+    state: LangGraphTurnState,
+    checkpoint: TurnGraphCheckpoint,
+): void {
+    if (state.toolResults.length === 0) {
+        events.append({
+            eventType: "tool.plan.created",
+            scopeType: "tool-plan",
+            scopeId: state.taskId,
+            sessionId: state.sessionId,
+            turnId: state.turnId,
+            taskId: state.taskId,
+            status: "completed",
+            title: "工具计划",
+            summary: "当前模型回复未请求工具调用，已记录内联工具、MCP 和 skill 可用性。",
+            payload: withTurnGraphCheckpoint({
+                toolCallId: null,
+                plannedToolId: null,
+                plannedToolKind: null,
+                inputSummary: null,
+                fallbackToolKinds: [
+                    "agent",
+                    "command",
+                    "mcp",
+                    "skill",
+                ],
+            }, checkpoint),
+        });
+        return;
+    }
+    for (const toolResult of state.toolResults) {
+        // toolCallId: 每个 OpenAI 工具调用都要有独立计划事件，避免多工具同轮时只聚合第一个工具卡片。
+        events.append({
+            eventType: "tool.plan.created",
+            scopeType: "tool-plan",
+            scopeId: state.taskId,
+            sessionId: state.sessionId,
+            turnId: state.turnId,
+            taskId: state.taskId,
+            status: "completed",
+            title: "工具计划",
+            summary: "模型已基于 OpenAI 结构化工具定义请求工具调用。",
+            payload: withTurnGraphCheckpoint({
+                toolCallId: toolResult.toolCall.toolCallId,
+                plannedToolId: toolResult.executedTool.toolId,
+                plannedToolKind: toolResult.executedTool.toolKind,
+                inputSummary: toolResult.executedTool.inputSummary,
+                fallbackToolKinds: [
+                    "agent",
+                    "command",
+                    "mcp",
+                    "skill",
+                ],
+            }, checkpoint),
+        });
+    }
 }
 
 /**
