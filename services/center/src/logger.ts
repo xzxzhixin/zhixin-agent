@@ -395,9 +395,9 @@ function escapeNonAscii(text: string): string {
 /**
  * formatCenterLogFileTimestamp：格式化日志文件名时间。
  *
- * @returns center-YYYY-MM-DD HH：mm：ss 格式文件名前缀。
+ * @returns center_YYYY_MM_DD_HH_mm_ss 格式文件名前缀。
  */
 function formatCenterLogFileTimestamp(): string {
-    // Windows 文件名禁止英文冒号，项目运行环境是 Windows 时使用全角冒号保留肉眼时间格式。
-    return `center-${formatCenterLocalDateTime().replace(/:/gu, "：")}`;
+    // replace：文件名按需求统一使用下划线分隔日期、时间和前缀，避免空格与冒号造成跨平台命名差异。
+    return `center_${formatCenterLocalDateTime().replace(/[- :]/gu, "_")}`;
 }
