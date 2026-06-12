@@ -120,6 +120,7 @@ const capabilityApi = readProjectFile("services/center/src/api/capability.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const langgraphRunner = readProjectFile("services/center/src/langgraph-runner.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;
+const chatProcessAggregationSource = chatHelpers + chatConversation + chatConversationPanel;
 
 for (const signal of [
   ".el-dialog",
@@ -163,6 +164,21 @@ for (const signal of [
     chatRuntimeSource + chatHelpers + appConversationActions,
     signal,
     `主对话流式/思考展示缺少：${signal}`,
+  );
+}
+
+for (const signal of [
+  "tool.plan.created",
+  "agent.loop.batch_limit_reached",
+  "task.step.started",
+  "task.step.updated",
+  "model.tool.requested",
+  "model.tool.result.appended",
+]) {
+  assertIncludes(
+    chatProcessAggregationSource,
+    signal,
+    `主智能体对话过程聚合缺少正在做什么的事件信号：${signal}`,
   );
 }
 
@@ -358,11 +374,16 @@ for (const signal of [
   );
 }
 
-assertIncludes(
-  appConversationActions,
-  "this.events.sort",
-  "实时事件进入前端后必须按中心服务 sequence 排序。",
-);
+for (const signal of [
+  "].sort((left",
+  "left.sequence - right.sequence",
+]) {
+  assertIncludes(
+    appConversationActions,
+    signal,
+    `实时事件进入前端后必须按中心服务 sequence 排序：${signal}`,
+  );
+}
 
 for (const signal of [
   "height: 100%;",

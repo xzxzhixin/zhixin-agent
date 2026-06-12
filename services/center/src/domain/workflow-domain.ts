@@ -686,6 +686,10 @@ export function appendThinkingEvents(
 ): void {
     // thinkingId: 同一次公开思考过程的稳定聚合键，前端依赖它把 delta 和 completed 合成一张卡片。
     const thinkingId = `${turnId}:context-planning`;
+    // thinkingText: 只写中心服务公开执行阶段，不冒充模型私有思考内容。
+    const thinkingText = "正在整理会话上下文、项目上下文、记忆和可用工具。";
+    // completedThinkingText: 思考完成提示同样只描述公开编排阶段，供前端过程卡片正文展示。
+    const completedThinkingText = "上下文和可用能力已整理完成，准备进入模型输出和工具过程记录。";
     // database/userText: 当前函数签名沿用执行图调用边界；本阶段思考事件不把上下文统计写成正文，避免固定阶段摘要冒充真实思考。
     void database;
     void userText;
@@ -702,6 +706,7 @@ export function appendThinkingEvents(
         payload: withOptionalGraphCheckpoint({
             thinkingId,
             phase: "上下文整理",
+            thinkingText,
         }, graphCheckpoint),
     });
     events.append({
@@ -718,6 +723,7 @@ export function appendThinkingEvents(
             taskId,
             thinkingId,
             phase: "上下文整理",
+            thinkingText: completedThinkingText,
         }, graphCheckpoint),
     });
 }

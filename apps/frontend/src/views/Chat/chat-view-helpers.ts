@@ -131,12 +131,15 @@ export interface ProcessMessageGroupRow {
     taskId: string | null;
     /** kind: 渲染行大类，当前过程卡片统一归为工具过程。 */
     kind: "tool";
-    /** processKind: 过程细分类型，来源于事件类型或 payload.toolKind，用于区分命令、MCP、插件、skill 和普通工具。 */
+    /** processKind: 过程细分类型，来源于事件类型或 payload.toolKind，用于区分命令、MCP、插件、skill、任务、智能体和普通工具。 */
     processKind:
         | "command"
         | "mcp"
         | "plugin"
         | "skill"
+        | "task"
+        | "agent"
+        | "model"
         | "tool";
     /** title: 展示标题。 */
     title: string;
@@ -400,21 +403,7 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
  */
 export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageGroupRow[] {
     const processEvents = events.filter((event) => {
-        return [
-            "model.failed",
-            "message.turn.failed",
-            "worker.task.failed",
-            "tool.command.started",
-            "tool.command.output",
-            "tool.command.completed",
-            "tool.mcp.started",
-            "tool.mcp.completed",
-            "tool.mcp.failed",
-            "tool.call.started",
-            "tool.call.output",
-            "tool.call.completed",
-            "tool.call.failed",
-        ].includes(event.eventType);
+        return isVisibleProcessEvent(event);
     });
     const groups = new Map<string, EventRecord[]>();
     for (const event of processEvents) {
@@ -494,6 +483,14 @@ function resolveProcessGroupKey(event: EventRecord): string {
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
+    if (event.eventType.startsWith("task.step.")) {
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "task-step",
+            event.stepId ?? event.scopeId ?? event.eventId,
+        ].join(":");
+    }
     const commandGroupId = resolveCommandProcessGroupId(
         event,
         payload,
@@ -520,6 +517,25 @@ function resolveProcessGroupKey(event: EventRecord): string {
             toolCallId || event.eventId,
         ].join(":");
     }
+    if (event.eventType.startsWith("model.tool.")) {
+        const toolCallId = typeof payload.toolCallId === "string" && payload.toolCallId.length > 0
+            ? payload.toolCallId
+            : "";
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "model-tool",
+            toolCallId || event.eventType,
+        ].join(":");
+    }
+    if (event.eventType.startsWith("agent.loop.")) {
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "agent-loop",
+            event.eventType,
+        ].join(":");
+    }
     const toolKind = typeof payload.toolKind === "string"
         ? payload.toolKind
         : "tool";
@@ -532,6 +548,50 @@ function resolveProcessGroupKey(event: EventRecord): string {
         toolKind,
         toolCallId || event.eventId,
     ].join(":");
+}
+
+/**
+ * isVisibleProcessEvent：判断事件是否应进入对话过程卡片。
+ *
+ * @param event 中心服务事件。
+ * @returns 需要在消息流中展示“正在做什么”时返回 true。
+ */
+function isVisibleProcessEvent(event: EventRecord): boolean {
+    if ([
+        "model.failed",
+        "message.turn.failed",
+        "worker.task.failed",
+        "model.tool.requested",
+        "model.tool.rejected",
+        "model.tool.result.appended",
+        "tool.plan.created",
+        "agent.loop.batch_limit_reached",
+        "task.plan.revised",
+        "task.step.started",
+        "task.step.updated",
+    ].includes(event.eventType)) {
+        return true;
+    }
+    return isVisibleToolProcessEvent(event)
+        || event.eventType.startsWith("agent.team.");
+}
+
+/**
+ * isVisibleToolProcessEvent：判断工具类事件是否是真实过程，而不是不可用审计。
+ *
+ * @param event 中心服务事件。
+ * @returns 可以进入消息流过程卡片时返回 true。
+ */
+function isVisibleToolProcessEvent(event: EventRecord): boolean {
+    if (event.eventType.endsWith(".unavailable")) {
+        return false;
+    }
+    return event.eventType.startsWith("tool.command.")
+        || event.eventType.startsWith("tool.mcp.")
+        || event.eventType.startsWith("tool.call.")
+        || event.eventType.startsWith("tool.skill.")
+        || event.eventType.startsWith("tool.plugin.")
+        || event.eventType.startsWith("tool.agent.");
 }
 
 /**
@@ -613,6 +673,36 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             ? command
             : "命令";
     }
+    if (event.eventType.startsWith("model.tool.")) {
+        return readEventText(
+            event,
+            "toolName",
+        ) || event.title || "模型工具请求";
+    }
+    if (event.eventType === "tool.plan.created") {
+        return "工具计划";
+    }
+    if (event.eventType.startsWith("agent.loop.")) {
+        return event.title || "智能体自动续跑";
+    }
+    if (event.eventType.startsWith("task.step.")) {
+        return readEventText(
+            event,
+            "title",
+        ) || event.title || "任务步骤";
+    }
+    if (event.eventType === "task.plan.revised") {
+        return "任务计划重规划";
+    }
+    if (event.eventType.startsWith("tool.agent.") || event.eventType.startsWith("agent.team.")) {
+        return readEventText(
+            event,
+            "agentName",
+        ) || readEventText(
+            event,
+            "teamName",
+        ) || event.title || "智能体协作";
+    }
     if (event.eventType.startsWith("tool.call.")) {
         return readEventText(
             event,
@@ -690,6 +780,10 @@ function resolveProcessResponseText(
         if (event.eventType.endsWith(".completed")) {
             return resolveProcessSummary(event);
         }
+        // 非 started 的过程事件本身已经携带“正在做什么”，需要直接展示，避免卡片只有等待文案。
+        if (isVisibleProcessEvent(event) && !event.eventType.endsWith(".started")) {
+            return resolveProcessSummary(event) || resolveProcessLogText(event);
+        }
         return "";
     }).filter((text) => {
         return text.trim().length > 0;
@@ -737,6 +831,15 @@ function resolveProcessSummary(event: EventRecord): string {
     ) || readEventText(
         event,
         "outputSummary",
+    ) || readEventText(
+        event,
+        "inputSummary",
+    ) || readEventText(
+        event,
+        "nextPlan",
+    ) || readEventText(
+        event,
+        "reason",
     ) || event.summary;
 }
 
@@ -762,6 +865,12 @@ function resolveProcessLogText(event: EventRecord): string {
     ) || readEventText(
         event,
         "failureReason",
+    ) || readEventText(
+        event,
+        "nextPlan",
+    ) || readEventText(
+        event,
+        "reason",
     ) || event.summary;
 }
 
@@ -887,6 +996,17 @@ function resolveProcessKind(event: EventRecord): ProcessMessageGroupRow["process
     }
     if (event.eventType.startsWith("tool.skill.") || payload.toolKind === "skill") {
         return "skill";
+    }
+    if (event.eventType.startsWith("task.") || event.eventType === "worker.task.failed") {
+        return "task";
+    }
+    if (event.eventType.startsWith("tool.agent.")
+        || event.eventType.startsWith("agent.team.")
+        || event.eventType.startsWith("agent.loop.")) {
+        return "agent";
+    }
+    if (event.eventType.startsWith("model.")) {
+        return "model";
     }
     return "tool";
 }
