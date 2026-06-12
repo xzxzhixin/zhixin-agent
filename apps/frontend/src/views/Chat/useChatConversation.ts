@@ -128,6 +128,7 @@ export function useChatConversation(appStore: {
         taskSteps: Array<{
             stepId: string;
             taskId: string;
+            planVersion?: number;
             source?: string;
             title: string;
             status: string;
@@ -306,10 +307,14 @@ export function createTaskPanelRows(
                 scopeHint: "作用域：当前对话当前轮次；排队、等待用户和确认不会阻塞其他对话。",
                 currentTurnNotice,
                 steps: visibleSteps.map((step, stepIndex) => {
+                    const visibleStepStatus = normalizeStepStatusByTaskFinalState(
+                        task.status,
+                        step.status,
+                    );
                     return {
                         id: step.stepId,
                         title: step.title,
-                        status: formatTaskStatus(step.status),
+                        status: formatTaskStatus(visibleStepStatus),
                         elapsed: formatOptionalElapsed(
                             step.startedAt,
                             step.endedAt,
@@ -321,6 +326,36 @@ export function createTaskPanelRows(
             },
         ];
     });
+}
+
+/**
+ * normalizeStepStatusByTaskFinalState：按任务终态修正历史步骤展示状态。
+ *
+ * @param taskStatus 当前任务主状态，来源于中心服务 tasks.status。
+ * @param stepStatus 当前步骤状态，来源于中心服务 task_steps.status。
+ * @returns 用于 UI 展示的步骤状态。
+ */
+function normalizeStepStatusByTaskFinalState(
+    taskStatus: string,
+    stepStatus: string,
+): string {
+    if (![
+        "completed",
+        "failed",
+        "cancelled",
+    ].includes(taskStatus)) {
+        return stepStatus;
+    }
+    if ([
+        "completed",
+        "failed",
+        "cancelled",
+        "superseded",
+    ].includes(stepStatus)) {
+        return stepStatus;
+    }
+    // 历史数据可能只把任务主状态置为终态，步骤仍停在运行中；展示层跟随任务终态，避免任务已完成但入口仍显示 0/N。
+    return taskStatus;
 }
 
 /**

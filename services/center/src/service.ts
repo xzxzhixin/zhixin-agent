@@ -113,7 +113,7 @@ export interface CenterListenResult {
  * @returns 中心服务模块化实例。
  */
 export async function createCenterService(config: CenterServiceConfig): Promise<CenterService> {
-    // app: logger=false 避免检查脚本输出噪音，日志统一写 center.log。
+    // app: logger=false 避免检查脚本输出噪音，日志统一写中心服务文件日志。
     const app = Fastify({
         logger: false,
         trustProxy: true,

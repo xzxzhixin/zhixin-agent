@@ -92,17 +92,6 @@ export function sendSessionMessageThroughCenter(
         session,
         body.contentMarkdown,
     );
-    centerConsoleLogger.info(
-        {
-            payload: {
-                sessionId: session.sessionId,
-                turnId: sent.turnId,
-                taskId: sent.taskId,
-                contentPreview: truncateConsoleText(body.contentMarkdown),
-            },
-        },
-        "center.message_send.created_turn",
-    );
     appendSessionTouchedEvent(
         database,
         events,
@@ -150,16 +139,6 @@ export function sendSessionMessageThroughCenter(
 
     // setTimeout: 先返回轮次身份，异步执行过程事件通过 realtimeEvents 逐条推送。
     setTimeout(() => {
-        centerConsoleLogger.info(
-            {
-                payload: {
-                    sessionId: session.sessionId,
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                },
-            },
-            "center.message_send.background_turn_scheduled",
-        );
         void runCreatedTurnInBackground(
             database,
             realtimeEvents,
@@ -247,16 +226,6 @@ async function runCreatedTurnInBackground(
     memoryQueues: Map<string, MemoryQueueState>,
     readPushedSequence: () => number,
 ): Promise<void> {
-    centerConsoleLogger.info(
-        {
-            payload: {
-                sessionId: session.sessionId,
-                turnId: sent.turnId,
-                taskId: sent.taskId,
-            },
-        },
-        "center.turn_background.started",
-    );
     try {
         await completeCreatedTurn(
             database,
@@ -272,16 +241,6 @@ async function runCreatedTurnInBackground(
             session,
             sent,
             readPushedSequence(),
-        );
-        centerConsoleLogger.info(
-            {
-                payload: {
-                    sessionId: session.sessionId,
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                },
-            },
-            "center.turn_background.completed",
         );
     } catch (error) {
         const message = error instanceof Error ? error.message : "MESSAGE_TURN_ASYNC_FAILED";

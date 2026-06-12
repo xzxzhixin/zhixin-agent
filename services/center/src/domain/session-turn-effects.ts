@@ -10,9 +10,7 @@ import {
 import {createDataAccess} from "../data-access/index.js";
 import {syncTurnMemoryToMem0} from "../memory-engine.js";
 import {
-    createTaskStep,
     findTask,
-    updateTaskStep,
 } from "./session-domain.js";
 import {
     createAgentForTask,
@@ -48,9 +46,7 @@ import {
 } from "../tools/todo-list-tool.js";
 import type {SubAgentRuntimeRecord} from "../types.js";
 import {
-    stepTaskFromGraphContext,
     type TurnGraphCheckpoint,
-    type TurnGraphContext,
     withOptionalGraphCheckpoint,
     withTurnGraphCheckpoint,
 } from "./turn-graph-domain.js";
@@ -134,7 +130,6 @@ export async function commitMainAgentMemoryAfterTurn(
  * @param events 事件追加器。
  * @param sent 当前轮次身份。
  * @param modelResult 当前模型返回。
- * @param graphContext 当前对话图上下文。
  * @param toolExecuteCheckpoint 工具执行节点检查点。
  * @returns 可回填模型的工具结果。
  */
@@ -143,7 +138,6 @@ export async function executeModelRequestedTools(
     events: CenterEventStore,
     sent: SendMessageResponse,
     modelResult: ProviderModelGatewayResult,
-    graphContext: TurnGraphContext,
     toolExecuteCheckpoint: TurnGraphCheckpoint,
 ): Promise<Array<{
     toolCall: NonNullable<ProviderModelGatewayResult["toolCall"]>;
@@ -202,14 +196,7 @@ export async function executeModelRequestedTools(
             continue;
         }
 
-        const toolStep = createTaskStep(
-            database,
-            events,
-            stepTaskFromGraphContext(graphContext),
-            resolveToolStepTitle(unifiedToolIntent.toolKind),
-            {},
-            toolExecuteCheckpoint,
-        );
+        // 工具过程只写入工具事件和过程卡片；只有 todoList 或明确 stepId 才能改写可见任务步骤，避免“工具完成”被误判为拆解任务完成。
         const toolResult = unifiedToolIntent.toolKind === "agent"
             ? runAgentTool(
                 database,
@@ -244,16 +231,6 @@ export async function executeModelRequestedTools(
                 },
                 toolExecuteCheckpoint,
             );
-        updateTaskStep(
-            database,
-            events,
-            toolStep.stepId,
-            toolResult.status,
-            toolResult.status === "completed"
-                ? `${resolveToolKindLabel(unifiedToolIntent.toolKind)}工具执行完成：${toolResult.outputSummary || "工具没有输出。"}`
-                : `${resolveToolKindLabel(unifiedToolIntent.toolKind)}工具执行失败：${toolResult.failureReason ?? "未返回失败原因。"}`,
-            toolExecuteCheckpoint,
-        );
         toolResults.push({
             toolCall,
             resultText: toolResult.status === "completed"
@@ -531,38 +508,6 @@ function readTodoListItems(value: unknown): TodoListToolItem[] {
                 : null,
         };
     });
-}
-
-/**
- * resolveToolStepTitle：根据工具类型返回任务步骤标题。
- *
- * @param toolKind 统一工具类型。
- * @returns 任务步骤标题。
- */
-function resolveToolStepTitle(toolKind: string): string {
-    if (toolKind === "command") {
-        return "命令工具执行";
-    }
-    if (toolKind === "mcp") {
-        return "MCP 工具执行";
-    }
-    return "智能体工具执行";
-}
-
-/**
- * resolveToolKindLabel：根据工具类型返回中文前缀。
- *
- * @param toolKind 统一工具类型。
- * @returns 中文工具类型。
- */
-function resolveToolKindLabel(toolKind: string): string {
-    if (toolKind === "command") {
-        return "命令";
-    }
-    if (toolKind === "mcp") {
-        return "MCP";
-    }
-    return "智能体";
 }
 
 /**

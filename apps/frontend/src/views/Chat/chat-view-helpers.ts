@@ -523,10 +523,14 @@ function resolveProcessGroupKey(event: EventRecord): string {
     const toolKind = typeof payload.toolKind === "string"
         ? payload.toolKind
         : "tool";
+    const toolCallId = typeof payload.toolCallId === "string" && payload.toolCallId.length > 0
+        ? payload.toolCallId
+        : "";
     return [
         event.turnId ?? "no-turn",
         event.taskId ?? "no-task",
         toolKind,
+        toolCallId || event.eventId,
     ].join(":");
 }
 
@@ -660,6 +664,22 @@ function resolveProcessResponseText(
     sortedEvents: EventRecord[],
     latestEvent: EventRecord,
 ): string {
+    if (resolveProcessKind(latestEvent) === "command") {
+        const commandOutputChunks = sortedEvents.filter((event) => {
+            return event.eventType === "tool.command.output";
+        }).map((event) => {
+            return readEventText(
+                event,
+                "outputChunk",
+            );
+        }).filter((text) => {
+            return text.trim().length > 0;
+        });
+        if (commandOutputChunks.length > 0) {
+            return commandOutputChunks.join("\n");
+        }
+    }
+
     const responseParts = sortedEvents.map((event) => {
         if (event.eventType === "tool.command.output") {
             return resolveProcessLogText(event);

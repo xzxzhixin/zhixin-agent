@@ -164,22 +164,6 @@ export async function runCommandTool(
             inputSummary: request.inputSummary,
         }, graphCheckpoint),
     });
-    centerConsoleLogger.info(
-        {
-            payload: {
-                sessionId,
-                turnId,
-                taskId,
-                toolCallId: request.toolCallId ?? null,
-                executablePath: execution.executablePath,
-                argsCount: execution.args.length,
-                commandPreview: truncateConsoleText(command),
-                inputSummary: truncateConsoleText(request.inputSummary),
-            },
-        },
-        "center.command_tool.spawn",
-    );
-
     return new Promise<CommandToolResult>((resolve) => {
         const chunks: string[] = [];
         const child = spawn(
@@ -204,19 +188,6 @@ export async function runCommandTool(
                 return;
             }
             chunks.push(normalizedChunk);
-            centerConsoleLogger.info(
-                {
-                    payload: {
-                        sessionId,
-                        turnId,
-                        taskId,
-                        toolCallId: request.toolCallId ?? null,
-                        chunkLength: normalizedChunk.length,
-                        chunkPreview: truncateConsoleText(normalizedChunk),
-                    },
-                },
-                "center.command_tool.output",
-            );
             events.append({
                 eventType: "tool.command.output",
                 scopeType: "tool",
@@ -281,19 +252,6 @@ export async function runCommandTool(
                 return;
             }
             settled = true;
-            centerConsoleLogger.info(
-                {
-                    payload: {
-                        sessionId,
-                        turnId,
-                        taskId,
-                        toolCallId: request.toolCallId ?? null,
-                        exitCode,
-                        outputChunkCount: chunks.length,
-                    },
-                },
-                "center.command_tool.close",
-            );
             resolveCommandToolResult(
                 events,
                 capability,

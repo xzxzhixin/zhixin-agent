@@ -7,7 +7,6 @@ import {
   ref,
   watch,
 } from "vue";
-import {ElMessageBox} from "element-plus";
 
 import {
   type AgentStatusTreeNode,
@@ -191,8 +190,7 @@ const agentStatusTreeRows = computed<AgentStatusTreeRow[]>(() => {
 // activeTaskPanelRows: 当前轮次任务列表。
 const activeTaskPanelRows = computed(() => {
   if (!isAgentConversation.value || isMainAgentConversation.value) {
-    const mainConversationRows = chatConversation.taskPanelRows.value;
-    return mainConversationRows;
+    return chatConversation.taskPanelRows.value;
   }
   return createTaskPanelRows(
     agentDetail.value?.tasks ?? [],
@@ -741,7 +739,23 @@ onBeforeUnmount(() => {
                 <strong class="process-card__title">{{ row.process.title }}</strong>
                 <small class="process-card__status">{{ row.process.statusLabel }}</small>
               </summary>
-              <pre class="process-card__body">{{ row.process.responseText }}</pre>
+              <div
+                  v-if="row.process.processKind === 'command'"
+                  class="process-card__command"
+              >
+                <section class="process-card__section">
+                  <h4 class="process-card__section-title">原始命令</h4>
+                  <pre class="process-card__body process-card__body--command">{{ row.process.title }}</pre>
+                </section>
+                <section class="process-card__section">
+                  <h4 class="process-card__section-title">执行结果</h4>
+                  <pre class="process-card__body process-card__body--result">{{ row.process.responseText }}</pre>
+                </section>
+              </div>
+              <pre
+                  v-else
+                  class="process-card__body"
+              >{{ row.process.responseText }}</pre>
             </details>
           </article>
           <article
@@ -1130,11 +1144,6 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-primary);
 }
 
-.process-card--command {
-  border-color: color-mix(in srgb, var(--el-color-warning) 50%, var(--el-border-color));
-  background: color-mix(in srgb, var(--el-color-warning) 8%, var(--el-fill-color-blank));
-}
-
 .process-card__summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1184,6 +1193,39 @@ onBeforeUnmount(() => {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.process-card__command {
+  display: flex;
+  max-height: 200px;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+  overflow: auto;
+}
+
+.process-card__section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.process-card__section-title {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.process-card__body--command,
+.process-card__body--result {
+  max-height: none;
+  padding: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--el-color-black) 5%, var(--el-fill-color-blank));
 }
 
 .composer {

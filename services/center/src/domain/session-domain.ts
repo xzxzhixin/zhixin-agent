@@ -904,7 +904,6 @@ function createTurnGraphNodeExecutors(
                     batchContinuation: true,
                 };
             }
-            const graphContext = createStateGraphContext(state);
             const checkpoint = createStateGraphCheckpoint(
                 state,
                 "tool.execute",
@@ -921,7 +920,6 @@ function createTurnGraphNodeExecutors(
                 events,
                 state.sent,
                 state.modelResult,
-                graphContext,
                 checkpoint,
             );
             return {
