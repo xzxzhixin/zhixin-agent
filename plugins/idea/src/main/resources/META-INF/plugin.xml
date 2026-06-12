@@ -11,8 +11,9 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow
-                id="致心"
+                id="致心智能体"
                 anchor="right"
+                icon="/icons/zhixin-16.png"
                 factoryClass="top.xzxsrq.agent.ZhixinToolWindowFactory"/>
         <notificationGroup
                 id="Zhixin Agent"
@@ -23,8 +24,9 @@
         <action
                 id="top.xzxsrq.agent.SendContextToZhixinAction"
                 class="top.xzxsrq.agent.SendContextToZhixinAction"
-                text="发送到致心对话框"
-                description="把当前文件、文件夹或代码选区作为上下文发送到致心输入区">
+                text="发送到致心智能体对话框"
+                description="把当前文件、文件夹或代码选区作为上下文发送到致心智能体输入区"
+                icon="/icons/zhixin-16.png">
             <add-to-group
                     group-id="EditorPopupMenu"
                     anchor="last"/>
