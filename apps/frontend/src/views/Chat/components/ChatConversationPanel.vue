@@ -727,55 +727,34 @@ onBeforeUnmount(() => {
                 `process-${row.process.processKind}`,
               ]"
           >
-            <details
+            <section
                 class="process-card"
                 :class="[
                   row.process.processKind === 'command'
                     ? 'process-card--command'
                     : `process-card--${row.process.processKind}`,
                 ]"
-                :open="row.process.defaultOpen"
             >
-              <summary class="process-card__summary">
+              <header class="process-card__summary">
                 <span class="process-card__kind">
                   {{ row.process.processKind === "command" ? "命令" : row.process.statusLabel }}
                 </span>
                 <strong class="process-card__title">{{ row.process.title }}</strong>
                 <small class="process-card__status">{{ row.process.statusLabel }}</small>
-              </summary>
+              </header>
+              <pre class="process-card__body">{{ row.process.terminalText }}</pre>
+            </section>
+          </article>
+          <article
+              v-else-if="row.rowKind === 'model_interim'"
+              class="message-row process model-interim"
+          >
+            <section class="model-interim-card">
               <div
-                  v-if="row.process.processKind === 'command'"
-                  class="process-card__command"
-              >
-                <section class="process-card__section">
-                  <h4 class="process-card__section-title">原始命令</h4>
-                  <pre class="process-card__body process-card__body--command">{{ row.process.title }}</pre>
-                </section>
-                <section class="process-card__section">
-                  <h4 class="process-card__section-title">执行结果</h4>
-                  <pre class="process-card__body process-card__body--result">{{ row.process.responseText }}</pre>
-                </section>
-              </div>
-              <pre
-                  v-else
-                  class="process-card__body"
-              >{{ row.process.responseText }}</pre>
-              <ol
-                  v-if="row.process.logs.length > 0"
-                  class="process-card__timeline"
-              >
-                <li
-                    v-for="log in row.process.logs"
-                    :key="log.eventId"
-                    class="process-card__timeline-item"
-                >
-                  <span class="process-card__timeline-meta">
-                    {{ log.occurredAt }} · {{ log.label }}
-                  </span>
-                  <span class="process-card__timeline-text">{{ log.text }}</span>
-                </li>
-              </ol>
-            </details>
+                  class="markdown-body"
+                  v-html="appStore.renderMarkdown(row.interim.contentMarkdown)"
+              />
+            </section>
           </article>
           <article
               v-else
@@ -1170,11 +1149,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-width: 0;
   padding: 10px 12px;
-  cursor: pointer;
-}
-
-.process-card__summary::marker {
-  color: var(--el-text-color-secondary);
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .process-card__kind {
@@ -1204,8 +1179,9 @@ onBeforeUnmount(() => {
   max-height: 200px;
   box-sizing: border-box;
   margin: 0;
-  padding: 0 12px 12px;
+  padding: 10px 12px;
   overflow: auto;
+  background: color-mix(in srgb, var(--el-color-black) 7%, var(--el-fill-color-blank));
   color: var(--el-text-color-primary);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
@@ -1214,67 +1190,22 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.process-card__command {
-  display: flex;
-  max-height: 200px;
+.process-card--command .process-card__body {
+  color: var(--el-text-color-primary);
+}
+
+.model-interim-card {
+  max-width: min(760px, 100%);
   box-sizing: border-box;
-  flex-direction: column;
-  gap: 10px;
-  padding: 0 12px 12px;
-  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
 }
 
-.process-card__section {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.process-card__section-title {
-  margin: 0;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.process-card__body--command,
-.process-card__body--result {
-  max-height: none;
-  padding: 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--el-color-black) 5%, var(--el-fill-color-blank));
-}
-
-.process-card__timeline {
-  display: flex;
-  max-height: 200px;
-  box-sizing: border-box;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0 12px 12px 28px;
-  overflow: auto;
-}
-
-.process-card__timeline-item {
-  min-width: 0;
-  color: var(--el-text-color-regular);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.process-card__timeline-meta {
-  display: block;
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-}
-
-.process-card__timeline-text {
-  display: block;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.model-interim-card .markdown-body {
+  background: transparent;
 }
 
 .composer {

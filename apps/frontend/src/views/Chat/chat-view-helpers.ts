@@ -145,14 +145,14 @@ export interface ProcessMessageGroupRow {
     title: string;
     /** statusLabel: 当前聚合过程状态。 */
     statusLabel: string;
-    /** defaultOpen: 是否默认展开；运行中展开，完成和失败后折叠。 */
-    defaultOpen: boolean;
     /** traceId: 最近事件排查 ID。 */
     traceId: string;
     /** summary: 聚合摘要。 */
     summary: string;
     /** responseText: 工具卡片响应内容，开始时显示等待响应，完成后显示输出或失败原因。 */
     responseText: string;
+    /** terminalText: 终端风格正文，命令卡片第一行固定为真实命令，后续直接追加执行过程。 */
+    terminalText: string;
     /** orderSequence: 当前过程在轮次内首次出现的事件序号。 */
     orderSequence: number;
     /** logs: 同一过程内按 sequence 排列的日志。 */
@@ -166,6 +166,24 @@ export interface ProcessMessageGroupRow {
         /** occurredAt: 统一格式时间。 */
         occurredAt: string;
     }>;
+}
+
+/**
+ * ModelInterimMarkdownRow：模型在工具过程之间输出的中途 Markdown 卡片。
+ */
+export interface ModelInterimMarkdownRow {
+    /** rowId: 中途响应卡片唯一 ID。 */
+    rowId: string;
+    /** turnId: 所属轮次 ID，来源于模型流事件。 */
+    turnId: string | null;
+    /** taskId: 所属任务 ID，来源于模型流事件。 */
+    taskId: string | null;
+    /** contentMarkdown: 中途响应 Markdown 正文，按流式片段拼接。 */
+    contentMarkdown: string;
+    /** eventIds: 已归入该卡片的模型流事件 ID，用于避免临时最终回复重复消费。 */
+    eventIds: string[];
+    /** orderSequence: 当前卡片首个模型片段的事件序号。 */
+    orderSequence: number;
 }
 
 /**
@@ -236,6 +254,14 @@ export type ConversationRenderRow =
         rowId: string;
         /** process: 聚合后的过程卡片。 */
         process: ProcessMessageGroupRow;
+    }
+    | {
+        /** rowKind: 模型中途 Markdown 卡片。 */
+        rowKind: "model_interim";
+        /** rowId: 渲染行唯一 ID。 */
+        rowId: string;
+        /** interim: 中途响应内容。 */
+        interim: ModelInterimMarkdownRow;
     };
 
 /**
@@ -460,12 +486,16 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
                 : isRunning
                     ? "执行中"
                     : "已完成",
-            defaultOpen: isRunning,
             traceId: latestEvent.traceId,
             summary: resolveProcessSummary(latestEvent),
             responseText: resolveProcessResponseText(
                 sortedEvents,
                 latestEvent,
+            ),
+            terminalText: resolveProcessTerminalText(
+                sortedEvents,
+                title,
+                processKind,
             ),
             orderSequence: sortedEvents[0].sequence,
             logs: statusEntries.map((entry) => {
@@ -843,6 +873,54 @@ function resolveProcessResponseText(
     }
 
     const title = resolveProcessGroupTitle(latestEvent);
+    return `${title} 已开始，等待响应。`;
+}
+
+/**
+ * resolveProcessTerminalText：生成过程卡片的终端风格正文。
+ *
+ * 关键逻辑：命令卡片按用户要求模拟 bash，一行真实命令后直接追加执行过程；
+ * 其他工具卡片也只保留正文内容，不再在正文里渲染“请求/计划/时间线”这类 UI 小标题。
+ *
+ * @param sortedEvents 同一过程内按事件序号排列的事件。
+ * @param title 过程卡片标题，命令卡片标题就是展示命令。
+ * @param processKind 过程卡片类型。
+ * @returns 可以直接放入 pre 的正文。
+ */
+function resolveProcessTerminalText(
+    sortedEvents: EventRecord[],
+    title: string,
+    processKind: ProcessMessageGroupRow["processKind"],
+): string {
+    if (processKind === "command") {
+        const commandProcessParts = sortedEvents.map((event) => {
+            if (event.eventType === "tool.command.output"
+                || event.eventType.endsWith(".failed")
+                || event.eventType.endsWith(".completed")) {
+                return resolveProcessLogText(event);
+            }
+            return "";
+        }).filter((text) => {
+            return text.trim().length > 0;
+        });
+        const commandLine = title.trim().length > 0
+            ? `$ ${title}`
+            : "$";
+        return [
+            commandLine,
+            ...deduplicateProcessTextParts(commandProcessParts),
+        ].join("\n");
+    }
+
+    const textParts = sortedEvents.map((event) => {
+        return resolveProcessLogText(event);
+    }).filter((text) => {
+        return text.trim().length > 0;
+    });
+    const deduplicatedParts = deduplicateProcessTextParts(textParts);
+    if (deduplicatedParts.length > 0) {
+        return deduplicatedParts.join("\n");
+    }
     return `${title} 已开始，等待响应。`;
 }
 
@@ -1225,12 +1303,18 @@ export function createConversationRenderRows(
 ): ConversationRenderRow[] {
     const processRowsByTurn = groupRowsByTurn(processRows);
     const thinkingRowsByTurn = groupRowsByTurn(thinkingRows);
+    const modelInterimRowsByTurn = groupRowsByTurn(createModelInterimMarkdownRows(
+        events,
+        processRows,
+    ));
     const streamingAssistantRowsByTurn = groupRowsByTurn(createStreamingAssistantRows(
         messages,
         events,
+        modelInterimRowsByTurn,
     ));
     const consumedThinkingRowIds = new Set<string>();
     const consumedProcessRowIds = new Set<string>();
+    const consumedModelInterimRowIds = new Set<string>();
     const consumedStreamingAssistantRowIds = new Set<string>();
     const rows: ConversationRenderRow[] = [];
 
@@ -1246,9 +1330,11 @@ export function createConversationRenderRows(
                 message.turnId,
                 thinkingRowsByTurn,
                 processRowsByTurn,
+                modelInterimRowsByTurn,
                 streamingAssistantRowsByTurn,
                 consumedThinkingRowIds,
                 consumedProcessRowIds,
+                consumedModelInterimRowIds,
                 consumedStreamingAssistantRowIds,
             );
             continue;
@@ -1260,9 +1346,11 @@ export function createConversationRenderRows(
                 message.turnId,
                 thinkingRowsByTurn,
                 processRowsByTurn,
+                modelInterimRowsByTurn,
                 streamingAssistantRowsByTurn,
                 consumedThinkingRowIds,
                 consumedProcessRowIds,
+                consumedModelInterimRowIds,
                 consumedStreamingAssistantRowIds,
             );
         }
@@ -1277,16 +1365,18 @@ export function createConversationRenderRows(
         rows,
         thinkingRows,
         processRows,
+        modelInterimRowsByTurn,
         streamingAssistantRowsByTurn,
         consumedThinkingRowIds,
         consumedProcessRowIds,
+        consumedModelInterimRowIds,
         consumedStreamingAssistantRowIds,
     );
     return rows;
 }
 
 /**
- * createStreamingAssistantRows：从模型 SSE delta 事件派生运行中助手消息。
+ * createStreamingAssistantRows：从模型 SSE delta 事件派生临时最终助手消息。
  *
  * @param messages 当前会话固化消息。
  * @param events 当前会话事件数组。
@@ -1295,6 +1385,7 @@ export function createConversationRenderRows(
 function createStreamingAssistantRows(
     messages: ConversationMessage[],
     events: EventRecord[],
+    modelInterimRowsByTurn: Map<string, ModelInterimMarkdownRow[]>,
 ): StreamingAssistantRow[] {
     const assistantTurnIds = new Set(messages.filter((message) => {
         return message.role === "assistant" && message.turnId !== null;
@@ -1304,7 +1395,13 @@ function createStreamingAssistantRows(
     const groups = new Map<string, EventRecord[]>();
 
     for (const event of events) {
-        if (event.eventType !== "model.stream.delta" || !event.turnId || assistantTurnIds.has(event.turnId)) {
+        if (event.eventType !== "model.stream.delta"
+            || !event.turnId
+            || assistantTurnIds.has(event.turnId)
+            || isConsumedByModelInterimRow(
+                event,
+                modelInterimRowsByTurn,
+            )) {
             continue;
         }
         groups.set(
@@ -1350,6 +1447,131 @@ function createStreamingAssistantRows(
 }
 
 /**
+ * createModelInterimMarkdownRows：把工具过程之前或过程之间的模型文字拆为无标题 Markdown 卡片。
+ *
+ * 关键逻辑：如果同一轮后续还存在工具过程，当前模型文字就是中途解释；
+ * 如果模型文字后面没有工具过程，则保留给临时最终助手消息，避免最终回复被重复渲染。
+ *
+ * @param events 当前会话事件数组。
+ * @param processRows 已聚合工具过程，用于确定工具过程序号边界。
+ * @returns 模型中途 Markdown 卡片数组。
+ */
+function createModelInterimMarkdownRows(
+    events: EventRecord[],
+    processRows: ProcessMessageGroupRow[],
+): ModelInterimMarkdownRow[] {
+    const processOrderByTurn = new Map<string, number[]>();
+    for (const process of processRows) {
+        if (!process.turnId) {
+            continue;
+        }
+        processOrderByTurn.set(
+            process.turnId,
+            [
+                ...(processOrderByTurn.get(process.turnId) ?? []),
+                process.orderSequence,
+            ],
+        );
+    }
+
+    const groups = new Map<string, EventRecord[]>();
+    for (const event of events) {
+        if (event.eventType !== "model.stream.delta" || !event.turnId) {
+            continue;
+        }
+        const laterProcessSequence = resolveNextProcessSequence(
+            event,
+            processOrderByTurn,
+        );
+        if (laterProcessSequence === null) {
+            continue;
+        }
+        const groupKey = [
+            event.turnId,
+            laterProcessSequence,
+        ].join(":");
+        groups.set(
+            groupKey,
+            [
+                ...(groups.get(groupKey) ?? []),
+                event,
+            ],
+        );
+    }
+
+    return Array.from(groups.entries()).map(([
+        groupKey,
+        groupEvents,
+    ]) => {
+        const sortedEvents = [...groupEvents].sort((left, right) => {
+            return left.sequence - right.sequence;
+        });
+        const firstEvent = sortedEvents[0];
+        const contentMarkdown = sortedEvents.map((event) => {
+            return readEventText(
+                event,
+                "deltaText",
+            );
+        }).join("");
+        return {
+            rowId: `model-interim-${groupKey}`,
+            turnId: firstEvent.turnId,
+            taskId: firstEvent.taskId,
+            contentMarkdown,
+            eventIds: sortedEvents.map((event) => {
+                return event.eventId;
+            }),
+            orderSequence: firstEvent.sequence,
+        };
+    }).filter((row) => {
+        return row.contentMarkdown.trim().length > 0;
+    });
+}
+
+/**
+ * resolveNextProcessSequence：查找当前模型文字之后最近的工具过程序号。
+ *
+ * @param event 模型流式片段事件。
+ * @param processOrderByTurn 每个轮次内的过程首序号。
+ * @returns 后续过程序号；没有后续过程时返回 null。
+ */
+function resolveNextProcessSequence(
+    event: EventRecord,
+    processOrderByTurn: Map<string, number[]>,
+): number | null {
+    if (!event.turnId) {
+        return null;
+    }
+    const processOrders = processOrderByTurn.get(event.turnId) ?? [];
+    const laterOrders = processOrders.filter((orderSequence) => {
+        return orderSequence > event.sequence;
+    }).sort((left, right) => {
+        return left - right;
+    });
+    return laterOrders[0] ?? null;
+}
+
+/**
+ * isConsumedByModelInterimRow：判断模型流式片段是否已经归入中途 Markdown 卡片。
+ *
+ * @param event 模型流式片段事件。
+ * @param modelInterimRowsByTurn 中途 Markdown 卡片索引。
+ * @returns 已被中途卡片消费时返回 true。
+ */
+function isConsumedByModelInterimRow(
+    event: EventRecord,
+    modelInterimRowsByTurn: Map<string, ModelInterimMarkdownRow[]>,
+): boolean {
+    if (!event.turnId) {
+        return false;
+    }
+    const interimRows = modelInterimRowsByTurn.get(event.turnId) ?? [];
+    return interimRows.some((row) => {
+        return row.eventIds.includes(event.eventId);
+    });
+}
+
+/**
  * groupRowsByTurn：按轮次聚合过程行。
  *
  * @param rows 带 turnId 的过程行。
@@ -1384,9 +1606,11 @@ function appendTurnProcessRows(
     turnId: string | null,
     thinkingRowsByTurn: Map<string, ThinkingProcessRow[]>,
     processRowsByTurn: Map<string, ProcessMessageGroupRow[]>,
+    modelInterimRowsByTurn: Map<string, ModelInterimMarkdownRow[]>,
     streamingAssistantRowsByTurn: Map<string, StreamingAssistantRow[]>,
     consumedThinkingRowIds: Set<string>,
     consumedProcessRowIds: Set<string>,
+    consumedModelInterimRowIds: Set<string>,
     consumedStreamingAssistantRowIds: Set<string>,
 ): void {
     if (!turnId) {
@@ -1405,6 +1629,13 @@ function appendTurnProcessRows(
                 kind: "process" as const,
                 orderSequence: process.orderSequence,
                 row: process,
+            };
+        }),
+        ...(modelInterimRowsByTurn.get(turnId) ?? []).map((interim) => {
+            return {
+                kind: "model-interim" as const,
+                orderSequence: interim.orderSequence,
+                row: interim,
             };
         }),
         ...(streamingAssistantRowsByTurn.get(turnId) ?? []).map((assistant) => {
@@ -1428,6 +1659,19 @@ function appendTurnProcessRows(
                 rowKind: "thinking",
                 rowId: item.row.rowId,
                 thinking: item.row,
+            });
+            continue;
+        }
+
+        if (item.kind === "model-interim") {
+            if (consumedModelInterimRowIds.has(item.row.rowId)) {
+                continue;
+            }
+            consumedModelInterimRowIds.add(item.row.rowId);
+            rows.push({
+                rowKind: "model_interim",
+                rowId: item.row.rowId,
+                interim: item.row,
             });
             continue;
         }
@@ -1472,9 +1716,11 @@ function appendUnconsumedProcessRows(
     rows: ConversationRenderRow[],
     thinkingRows: ThinkingProcessRow[],
     processRows: ProcessMessageGroupRow[],
+    modelInterimRowsByTurn: Map<string, ModelInterimMarkdownRow[]>,
     streamingAssistantRowsByTurn: Map<string, StreamingAssistantRow[]>,
     consumedThinkingRowIds: Set<string>,
     consumedProcessRowIds: Set<string>,
+    consumedModelInterimRowIds: Set<string>,
     consumedStreamingAssistantRowIds: Set<string>,
 ): void {
     for (const thinking of thinkingRows) {
@@ -1486,6 +1732,18 @@ function appendUnconsumedProcessRows(
             rowId: thinking.rowId,
             thinking,
         });
+    }
+    for (const interimRows of modelInterimRowsByTurn.values()) {
+        for (const interim of interimRows) {
+            if (consumedModelInterimRowIds.has(interim.rowId)) {
+                continue;
+            }
+            rows.push({
+                rowKind: "model_interim",
+                rowId: interim.rowId,
+                interim,
+            });
+        }
     }
     for (const assistants of streamingAssistantRowsByTurn.values()) {
         for (const assistant of assistants) {

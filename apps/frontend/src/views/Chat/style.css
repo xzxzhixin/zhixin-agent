@@ -142,34 +142,6 @@
   margin: 0;
 }
 
-.chat-page-host .process-log-list {
-  display: flex;
-  max-height: 20vh;
-  flex-direction: column;
-  gap: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  border: 1px solid var(--zhixin-border);
-  background: var(--zhixin-panel-bg);
-}
-
-.chat-page-host .process-log-list p {
-  display: block;
-  margin: 0;
-  padding: 6px 8px;
-}
-
-.chat-page-host .process-log-list code {
-  display: block;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.chat-page-host .process-card header small {
-  flex: 0 0 auto;
-}
-
 .chat-page-host .active-turn-elapsed {
   width: 100%;
   box-sizing: border-box;
