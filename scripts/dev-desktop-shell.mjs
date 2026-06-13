@@ -25,6 +25,31 @@ const children = [];
 let isShuttingDown = false;
 
 /**
+ * ensureWindowsUtf8Console：让 Windows 开发控制台按 UTF-8 解码中心服务日志。
+ *
+ * 关键逻辑：中心服务和文件日志都保持 UTF-8 原文；Windows 终端如果仍是旧代码页，
+ * 会把 UTF-8 中文字节显示成 mojibake，因此启动桌面壳前只切换当前控制台代码页。
+ *
+ * @returns 没有返回值。
+ */
+function ensureWindowsUtf8Console() {
+  if (process.platform !== "win32") {
+    return;
+  }
+  spawnSync(
+    "chcp",
+    [
+      "65001",
+    ],
+    {
+      shell: true,
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+}
+
+/**
  * startProcess：启动一个可继承终端输出的子进程。
  *
  * @param label 进程标签，用于错误提示。
@@ -34,15 +59,19 @@ let isShuttingDown = false;
  * @returns 子进程对象。
  */
 function startProcess(label, command, args, env = {}) {
+  // childEnv: 继承用户环境但清理 Electron 调试残留变量；ELECTRON_RUN_AS_NODE 会让 electron . 被 Node 模式执行。
+  const childEnv = {
+    ...process.env,
+    ...env,
+  };
+  delete childEnv.ELECTRON_RUN_AS_NODE;
+
   // child: 使用当前终端展示输出，方便用户在 IDEA 运行窗口管理。
   const child = spawn(
     command,
     args,
     {
-      env: {
-        ...process.env,
-        ...env,
-      },
+      env: childEnv,
       shell: process.platform === "win32",
       stdio: "inherit",
     },
@@ -165,6 +194,8 @@ process.on("SIGTERM", () => {
 });
 
 try {
+  ensureWindowsUtf8Console();
+
   if (!await isFrontendAlreadyAvailable()) {
     throw new Error(`前端开发服务器未启动：请先运行 pnpm dev:frontend。目标地址：${frontendDevUrl}`);
   }

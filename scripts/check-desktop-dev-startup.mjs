@@ -152,6 +152,21 @@ assertIncludes(
 );
 assertIncludes(
   devScript,
+  "delete childEnv.ELECTRON_RUN_AS_NODE",
+  "桌面开发脚本启动 Electron 前必须清理 ELECTRON_RUN_AS_NODE，避免 Electron 被当成 Node 运行。",
+);
+assertIncludes(
+  devScript,
+  "chcp",
+  "Windows 桌面开发脚本必须切换当前控制台代码页，避免 UTF-8 中文日志显示为乱码。",
+);
+assertIncludes(
+  devScript,
+  "65001",
+  "Windows 桌面开发脚本必须使用 UTF-8 代码页 65001。",
+);
+assertIncludes(
+  devScript,
   "waitForFrontend()",
   "桌面开发脚本必须等待独立前端 URL 可访问后再启动 Electron。",
 );

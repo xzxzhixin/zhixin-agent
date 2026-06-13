@@ -14,8 +14,6 @@ interface TaskPanelRow {
   status: string;
   /** summary: 任务状态说明，说明当前对话内排队等边界。 */
   summary: string;
-  /** elapsed: 当前任务耗时，来源于任务创建和更新时间。 */
-  elapsed: string;
   /** traceId: 当前任务最近事件排查 ID。 */
   traceId: string;
   /** traceIdUnavailableReason: 没有真实排查 ID 时的固定原因说明。 */
@@ -34,8 +32,6 @@ interface TaskPanelRow {
     title: string;
     /** status: 步骤中文状态。 */
     status: string;
-    /** elapsed: 步骤耗时。 */
-    elapsed: string;
     /** traceId: 步骤所属任务最近事件排查 ID。 */
     traceId: string;
   }>;
@@ -69,7 +65,6 @@ const props = defineProps<{
         >
           <span class="composer-task-step-status">{{ step.status }}</span>
           <strong>{{ step.title }}</strong>
-          <span class="composer-task-step-meta">{{ task.elapsed }}</span>
         </article>
       </template>
     </section>
@@ -109,7 +104,7 @@ const props = defineProps<{
 
 .composer-task-step-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 3px 10px;
   padding: 7px 9px;
@@ -134,8 +129,4 @@ const props = defineProps<{
   white-space: nowrap;
 }
 
-.composer-task-step-meta {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
 </style>

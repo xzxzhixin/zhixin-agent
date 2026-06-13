@@ -460,15 +460,20 @@ assertIncludes(
   "composer-task-step-row",
   "任务详情弹框必须按拆解步骤渲染单行，而不是渲染任务容器行。",
 );
-assertIncludes(
+assertNotIncludes(
   taskDetailDialog,
   "task.elapsed",
-  "任务详情步骤右侧必须只显示本任务耗时。",
+  "任务详情步骤右侧不能继续显示本任务耗时。",
+);
+assertNotIncludes(
+  taskDetailDialog,
+  "composer-task-step-meta",
+  "任务浮窗右侧不能保留时间、耗时或序号信息容器。",
 );
 assertNotIncludes(
   taskDetailDialog,
   "step.positionText",
-  "任务浮窗右侧不能显示序号/总数，只能显示本任务耗时。",
+  "任务浮窗右侧不能显示序号/总数。",
 );
 assertNotIncludes(
   taskDetailDialog,

@@ -17,8 +17,6 @@ import type {
 import {
     createGroupedProcessRows,
     createMergedThinkingRows,
-    formatOptionalElapsed,
-    formatTaskElapsed,
     formatTaskStatus,
     resolveTaskStatusMeta,
     type ProcessMessageGroupRow,
@@ -43,8 +41,6 @@ export interface TaskPanelRow {
     status: string;
     /** summary: 任务状态说明，包含当前对话当前轮次作用域。 */
     summary: string;
-    /** elapsed: 任务耗时，来源于 createdAt/updatedAt。 */
-    elapsed: string;
     /** traceId: 最近任务事件排查 ID。 */
     traceId: string;
     /** traceIdUnavailableReason: 排查 ID 未出现时的固定说明。 */
@@ -63,8 +59,6 @@ export interface TaskPanelRow {
         title: string;
         /** status: 步骤状态中文文案。 */
         status: string;
-        /** elapsed: 步骤耗时。 */
-        elapsed: string;
         /** traceId: 步骤所属任务最近排查 ID。 */
         traceId: string;
     }>;
@@ -296,10 +290,6 @@ export function createTaskPanelRows(
                 title: normalizeTaskTitle(task.title),
                 status: formatTaskStatus(task.status),
                 summary: statusMeta.title,
-                elapsed: formatTaskElapsed(
-                    task.createdAt,
-                    task.updatedAt,
-                ),
                 traceId,
                 traceIdUnavailableReason: traceId === "等待中心服务事件"
                     ? "TRACE_ID_PENDING：该任务仍在等待中心服务写入事件排查 ID。"
@@ -316,10 +306,6 @@ export function createTaskPanelRows(
                         id: step.stepId,
                         title: step.title,
                         status: formatTaskStatus(visibleStepStatus),
-                        elapsed: formatOptionalElapsed(
-                            step.startedAt,
-                            step.endedAt,
-                        ),
                         traceId,
                     };
                 }),

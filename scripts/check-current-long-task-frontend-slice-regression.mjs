@@ -127,10 +127,15 @@ assertIncludes(
   "composer-task-step-row",
   "任务详情必须渲染步骤单行。",
 );
-assertIncludes(
+assertNotIncludes(
   taskDetailDialog,
   "task.elapsed",
-  "任务详情右侧必须只显示本任务耗时。",
+  "任务详情右侧不能继续显示本任务耗时。",
+);
+assertNotIncludes(
+  taskDetailDialog,
+  "composer-task-step-meta",
+  "任务详情右侧不能保留时间、耗时或序号信息容器。",
 );
 assertNotIncludes(
   taskDetailDialog,

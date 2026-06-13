@@ -2076,37 +2076,6 @@ export function formatDurationMs(durationMs: number | null | undefined): string 
 }
 
 /**
- * formatOptionalElapsed：格式化可空起止时间。
- *
- * @param startedAt 开始时间。
- * @param endedAt 结束时间。
- * @returns 耗时文案。
- */
-export function formatOptionalElapsed(
-    startedAt: string | null,
-    endedAt: string | null,
-): string {
-    if (!startedAt || !endedAt) {
-        return "进行中";
-    }
-    return formatDurationMs(Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime()));
-}
-
-/**
- * formatTaskElapsed：格式化任务更新时间差。
- *
- * @param createdAt 创建时间。
- * @param updatedAt 更新时间。
- * @returns 耗时文案。
- */
-export function formatTaskElapsed(
-    createdAt: string,
-    updatedAt: string,
-): string {
-    return formatDurationMs(Math.max(0, new Date(updatedAt).getTime() - new Date(createdAt).getTime()));
-}
-
-/**
  * formatContextWindowLimit：格式化模型窗口上限。
  *
  * @param tokens token 数值。
