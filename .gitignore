@@ -1,6 +1,7 @@
 # IDE 和编辑器本地配置
 .idea/
 .vscode/
+.worktrees/
 *.iml
 *.ipr
 *.iws
