@@ -152,7 +152,7 @@ const sessionRepository = readText("services/center/src/data-access/session-repo
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 const todoListTool = readText("services/center/src/tools/todo-list-tool.ts");
 const toolCapabilityRegistry = readText("services/center/src/tools/tool-capability-registry.ts");
-const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
+const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
 const realtime = readText("services/center/src/realtime.ts");
 const syncRoute = readText("services/center/src/api/sync-route.ts");
 const websocketClient = readText("packages/api-client/src/websocket-client.ts");
@@ -283,7 +283,7 @@ assertNotIncludes(
 );
 
 assertIncludes(
-  sessionDomain + langGraphRunner,
+  sessionDomain + deepAgentsRunner,
   "agent.loop.batch_limit_reached",
   "单批工具预算触顶必须写入 agent.loop.batch_limit_reached 事件。",
 );
@@ -293,17 +293,17 @@ assertNotIncludes(
   "工具循环上限不能直接作为失败错误暴露给用户。",
 );
 assertRegex(
-  sessionDomain + langGraphRunner,
+  sessionDomain + deepAgentsRunner,
   /automatic[A-Za-z0-9_]*Tool[A-Za-z0-9_]*Batch|auto[A-Za-z0-9_]*Continue|toolBatchCount|batchContinuation/iu,
   "长任务必须具备自动续跑或批次计数状态信号。",
 );
 assertIncludes(
-  sessionDomain + langGraphRunner,
+  sessionDomain + deepAgentsRunner,
   "task.plan.revised",
   "用户中途修改需求后必须写入 task.plan.revised 重规划事件。",
 );
 assertIncludes(
-  sessionDomain + langGraphRunner,
+  sessionDomain + deepAgentsRunner,
   "superseded",
   "任务步骤必须支持 superseded 状态以保留被新需求替换的旧步骤。",
 );

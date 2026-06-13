@@ -7,6 +7,7 @@
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
 import {spawn, type ChildProcessWithoutNullStreams} from "node:child_process";
+import {existsSync, readFileSync} from "node:fs";
 import {mkdtemp, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -33,6 +34,49 @@ function assert(condition: boolean, message: string): void {
   if (!condition) {
     throw new Error(message);
   }
+}
+/**
+ * assertDeepAgentsRunnerWiring：检查中心服务主执行路径已经切换到 Deep Agents runner。
+ *
+ * 用途：防止迁移后继续通过旧手写 LangGraph runner 作为主路径执行。
+ * 关键逻辑：检查新 runner 文件存在、旧 runner 文件已删除、会话域只引用新入口。
+ * 参数：无。
+ * 返回值：检查通过时没有返回值；不满足迁移口径时抛错。
+ */
+function assertDeepAgentsRunnerWiring(): void {
+  // runnerPath: Deep Agents 主执行适配层文件，来源于架构中的中心服务目录约定。
+  const runnerPath = join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "deepagents-runner.ts",
+  );
+  // legacyRunnerPath: 旧手写 LangGraph runner，迁移完成后不得再保留为主路径文件。
+  const legacyRunnerPath = join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "langgraph-runner.ts",
+  );
+  // sessionDomainPath: 会话发送主路径，必须调用 Deep Agents runner。
+  const sessionDomainPath = join(
+    process.cwd(),
+    "services",
+    "center",
+    "src",
+    "domain",
+    "session-domain.ts",
+  );
+  assert(existsSync(runnerPath), "缺少 Deep Agents runner 主路径文件");
+  assert(!existsSync(legacyRunnerPath), "旧 langgraph-runner.ts 已无真实调用方，必须删除");
+  const sessionDomainSource = readFileSync(
+    sessionDomainPath,
+    "utf-8",
+  );
+  assert(sessionDomainSource.includes("runDeepAgentsTurn"), "session-domain 未切换到 Deep Agents runner");
+  assert(!sessionDomainSource.includes("runLangGraphTurn"), "session-domain 仍引用旧 LangGraph runner");
 }
 
 /**
@@ -311,12 +355,39 @@ async function waitForTurnEvents(
   return latestEvents;
 }
 
+
+/**
+ * removeDirectoryWithRetry：Windows 日志文件句柄释放可能略晚，删除临时目录时做短重试。
+ *
+ * @param directoryPath 要删除的临时目录路径。
+ * @returns 删除完成后没有返回值。
+ */
+async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    try {
+      await rm(directoryPath, {
+        force: true,
+        recursive: true,
+      });
+      return;
+    } catch (error) {
+      if (attempt === 20) {
+        throw error;
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
+    }
+  }
+}
 /**
  * main：执行工具调用闭环检查。
  *
  * @returns 检查完成后没有返回值。
  */
 async function main(): Promise<void> {
+  assertDeepAgentsRunnerWiring();
+
   const tempRoot = await mkdtemp(join(tmpdir(), "zhixin-center-model-tool-loop-"));
   const centerDirectory = join(tempRoot, CENTER_DATA_DIR_NAME);
   const fakeModelServer = await startFakeModelServer();
@@ -436,9 +507,9 @@ async function main(): Promise<void> {
     await fakeModelServer.close().catch(() => {
       // ignore: 检查失败时继续清理临时资源。
     });
-    await rm(tempRoot, {
-      force: true,
-      recursive: true,
+    await removeDirectoryWithRetry(tempRoot).catch((error) => {
+      // warning: Windows 上 pino 日志文件句柄释放可能滞后；临时目录清理失败不代表工具闭环失败。
+      console.warn(`临时目录清理失败，已跳过：${String(error)}`);
     });
   }
 }

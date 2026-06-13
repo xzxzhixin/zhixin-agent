@@ -1,7 +1,7 @@
 /**
- * LangGraphJS、Mem0 和中心服务配置页回归检查。
+ * Deep Agents、LangGraphJS、Mem0 和中心服务配置页回归检查。
  *
- * 用途：确保本轮新增的核心执行图、语义记忆和中心目录迁移口径不会退化。
+ * 用途：确保本轮新增的 Deep Agents 执行内核、底层执行图、语义记忆和中心目录迁移口径不会退化。
  * 关键逻辑：静态检查依赖、运行器、记忆适配层、中心服务页面内编辑面板和文档计划同步。
  */
 import {
@@ -94,13 +94,19 @@ const appStore = readText("apps/frontend/src/stores/app.ts");
 const desktopMain = readText("apps/desktop-shell/src/main.ts");
 const requirements = readText("需求.md");
 const architecture = readText("架构.md");
-const plan = readText("计划.md");
+const design = readText("设计.md");
 
 assertIncludes(
   "services/center/package.json",
   centerPackage,
+  "\"deepagents\"",
+  "中心服务必须依赖 Deep Agents 作为主执行内核。",
+);
+assertIncludes(
+  "services/center/package.json",
+  centerPackage,
   "\"@langchain/langgraph\"",
-  "中心服务必须依赖 LangGraphJS 作为核心执行图。",
+  "中心服务必须依赖 LangGraphJS 作为 Deep Agents 底层执行图能力。",
 );
 assertIncludes(
   "services/center/package.json",
@@ -122,17 +128,18 @@ assertNotIncludes(
 );
 
 assertFileExists(
-  "services/center/src/langgraph-runner.ts",
-  "必须建立 LangGraphJS 核心执行图运行器。",
+  "services/center/src/deepagents-runner.ts",
+  "必须建立 Deep Agents 主执行内核适配层。",
 );
 assertFileExists(
   "services/center/src/memory-engine.ts",
   "必须建立 Mem0 记忆引擎适配层。",
 );
 
-if (existsSync(join(root, "services/center/src/langgraph-runner.ts"))) {
-  const langgraphRunner = readText("services/center/src/langgraph-runner.ts");
+if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
+  const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
   for (const signal of [
+    "createDeepAgent",
     "StateGraph",
     "START",
     "END",
@@ -144,10 +151,10 @@ if (existsSync(join(root, "services/center/src/langgraph-runner.ts"))) {
     "turnId",
   ]) {
     assertIncludes(
-      "services/center/src/langgraph-runner.ts",
-      langgraphRunner,
+      "services/center/src/deepagents-runner.ts",
+      deepAgentsRunner,
       signal,
-      `LangGraph runner 缺少核心信号：${signal}`,
+      `Deep Agents runner 缺少核心信号：${signal}`,
     );
   }
 }
@@ -156,14 +163,14 @@ if (existsSync(join(root, "services/center/src/domain/session-domain.ts"))) {
   const sessionDomain = readText("services/center/src/domain/session-domain.ts");
   for (const signal of [
     "export async function completeCreatedTurn",
-    "runLangGraphTurn(",
+    "runDeepAgentsTurn(",
     "payload: withTurnGraphCheckpoint",
   ]) {
     assertIncludes(
       "services/center/src/domain/session-domain.ts",
       sessionDomain,
       signal,
-      `会话域缺少 LangGraph 轮次闭环信号：${signal}`,
+      `会话域缺少 Deep Agents 轮次闭环信号：${signal}`,
     );
   }
 }
@@ -257,8 +264,29 @@ for (const [
     architecture,
   ],
   [
-    "计划.md",
-    plan,
+    "设计.md",
+    design,
+  ],
+]) {
+  assertIncludes(
+    file,
+    source,
+    "Deep Agents",
+    "文档和计划必须同步 Deep Agents 执行内核方案。",
+  );
+}
+
+for (const [
+  file,
+  source,
+] of [
+  [
+    "需求.md",
+    requirements,
+  ],
+  [
+    "架构.md",
+    architecture,
   ],
 ]) {
   assertIncludes(
@@ -276,11 +304,11 @@ for (const [
 }
 
 if (failures.length > 0) {
-  console.error("LangGraphJS、Mem0 和中心服务配置页回归检查失败：");
+  console.error("Deep Agents、LangGraphJS、Mem0 和中心服务配置页回归检查失败：");
   for (const failure of failures) {
     console.error(`- ${failure}`);
   }
   process.exit(1);
 }
 
-console.log("LangGraphJS、Mem0 和中心服务配置页回归检查通过。");
+console.log("Deep Agents、LangGraphJS、Mem0 和中心服务配置页回归检查通过。");

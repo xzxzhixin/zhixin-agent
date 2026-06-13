@@ -12,6 +12,7 @@ import {
     StateGraph,
 } from "@langchain/langgraph";
 import {SqliteSaver} from "@langchain/langgraph-checkpoint-sqlite";
+import {createDeepAgent} from "deepagents";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
@@ -21,15 +22,15 @@ import type {SendMessageResponse} from "./types.js";
 import type {MemoryQueueState} from "./types.js";
 
 /**
- * TurnGraphRoute：LangGraph 条件边的路由结果。
+ * DeepAgentsRoute：Deep Agents 条件边的路由结果。
  *
  * 来源：上一节点执行结果。
  * 含义：决定模型后是否进入工具执行、工具结果回填后是否继续循环、是否进入失败收尾。
  * 格式：固定字符串。
  * 默认值：无。
- * 约束：只在 LangGraph runner 内部使用。
+ * 约束：只在 Deep Agents runner 内部使用。
  */
-type TurnGraphRoute =
+type DeepAgentsRoute =
     | "tool.execute"
     | "message.persist"
     | "memory.commit"
@@ -37,7 +38,7 @@ type TurnGraphRoute =
     | "failure.close";
 
 /**
- * TurnGraphExecutedTool：已执行工具摘要。
+ * DeepAgentsExecutedTool：已执行工具摘要。
  *
  * 来源：工具执行节点。
  * 含义：供工具计划节点和审计事件记录模型实际请求过的工具。
@@ -45,7 +46,7 @@ type TurnGraphRoute =
  * 默认值：没有工具时为 null。
  * 约束：不得包含完整敏感入参或工具输出正文。
  */
-export interface TurnGraphExecutedTool {
+export interface DeepAgentsExecutedTool {
     /** toolId: 中心服务内部工具 ID。 */
     toolId: string;
     /** toolKind: 工具类型，例如 command 或 mcp。 */
@@ -55,7 +56,7 @@ export interface TurnGraphExecutedTool {
 }
 
 /**
- * TurnGraphToolResult：工具执行节点和工具结果回填节点之间传递的结果。
+ * DeepAgentsToolResult：工具执行节点和工具结果回填节点之间传递的结果。
  *
  * 来源：中心服务工具运行时。
  * 含义：保存 OpenAI tool_call_id 对应工具输出，供下一次模型调用回填。
@@ -63,26 +64,26 @@ export interface TurnGraphExecutedTool {
  * 默认值：没有工具调用时为空数组。
  * 约束：结果文本只保存摘要，不保存命令完整 stdout 大文本。
  */
-export interface TurnGraphToolResult {
+export interface DeepAgentsToolResult {
     /** toolCall: OpenAI 结构化工具调用。 */
     toolCall: OpenAiToolCall;
     /** resultText: 回填模型的工具结果摘要。 */
     resultText: string;
     /** executedTool: UI 和审计使用的工具摘要。 */
-    executedTool: TurnGraphExecutedTool;
+    executedTool: DeepAgentsExecutedTool;
 }
 
 /**
- * LangGraphTurnState：中心服务每轮对话传入 LangGraphJS 的状态。
+ * DeepAgentsTurnState：中心服务每轮对话传入 Deep Agents 的状态。
  *
  * 来源：会话发送接口已经创建的消息、轮次和任务身份。
- * 含义：承载每个 LangGraph 节点之间需要传递的最小状态。
+ * 含义：承载每个 Deep Agents 执行节点之间需要传递的最小状态。
  * 格式：运行期对象。
  * 默认值：无。
- * 约束：sessionId 映射 LangGraph configurable.thread_id，turnId 映射项目内部 graph run。
+ * 约束：sessionId 映射 Deep Agents thread_id，turnId 映射项目内部 graph run。
  */
-export interface LangGraphTurnState {
-    /** sessionId: 会话 ID，同时作为 LangGraph thread_id。 */
+export interface DeepAgentsTurnState {
+    /** sessionId: 会话 ID，同时作为 Deep Agents thread_id。 */
     sessionId: string;
     /** turnId: 当前轮次 ID，同时作为项目内部 graphRunId。 */
     turnId: string;
@@ -99,9 +100,9 @@ export interface LangGraphTurnState {
     /** finalModelResult: 本轮最终模型结果。 */
     finalModelResult: ProviderModelGatewayResult | null;
     /** executedTool: 已执行工具摘要，没有工具时为 null。 */
-    executedTool: TurnGraphExecutedTool | null;
+    executedTool: DeepAgentsExecutedTool | null;
     /** toolResults: 最近一轮工具执行结果，供 tool.result 节点回填。 */
-    toolResults: TurnGraphToolResult[];
+    toolResults: DeepAgentsToolResult[];
     /** toolRound: OpenAI 工具调用循环轮次，避免模型无限请求工具。 */
     toolRound: number;
     /** toolBatchCount: 已自动续跑的工具批次数。 */
@@ -123,62 +124,62 @@ export interface LangGraphTurnState {
 }
 
 /**
- * TurnGraphNodeExecutors：会话域提供给 LangGraph runner 的节点执行器。
+ * DeepAgentsNodeExecutors：会话域提供给 Deep Agents runner 的节点执行器。
  *
  * 来源：session-domain 中心服务事实源操作。
  * 含义：让 runner 只负责编排，副作用仍收敛在会话域。
- * 格式：每个字段对应一个 LangGraph 节点。
+ * 格式：每个字段对应一个 Deep Agents 执行节点。
  * 默认值：无。
  * 约束：执行器需要自己写入 events、task_steps 和 payload.graph。
  */
-export interface TurnGraphNodeExecutors {
+export interface DeepAgentsNodeExecutors {
     /** thinkingContext: 整理上下文和公开思考摘要。 */
-    thinkingContext: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    thinkingContext: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** modelStream: 调用模型并接收 OpenAI 流式回复。 */
-    modelStream: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    modelStream: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** toolExecute: 执行模型请求的 OpenAI tool_calls。 */
-    toolExecute: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    toolExecute: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** toolResult: 把工具结果按 OpenAI tool_call_id 回填给模型。 */
-    toolResult: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    toolResult: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** toolPlan: 记录工具计划和可见能力状态。 */
-    toolPlan: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    toolPlan: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** messagePersist: 固化最终助手消息或处理不完整工具意图。 */
-    messagePersist: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    messagePersist: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** memoryCommit: 写入长期记忆和语义索引。 */
-    memoryCommit: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    memoryCommit: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** usageRecord: 写入模型用量并更新会话标题和轮次状态。 */
-    usageRecord: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    usageRecord: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** failureClose: 统一失败收尾。 */
-    failureClose: (state: LangGraphTurnState) => Promise<Partial<LangGraphTurnState>>;
+    failureClose: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
 }
 
 /**
- * RunLangGraphTurnInput：运行 LangGraphJS 对话图所需输入。
+ * RunDeepAgentsTurnInput：运行 Deep Agents 对话图所需输入。
  */
-interface RunLangGraphTurnInput {
+interface RunDeepAgentsTurnInput {
     /** database: 中心服务 SQLite 连接封装，来源于中心服务主进程。 */
     database: CenterDatabase;
-    /** events: 中心服务事件事实源，LangGraph 节点仍必须写 payload.graph 相关事件。 */
+    /** events: 中心服务事件事实源，Deep Agents 执行节点仍必须写 payload.graph 相关事件。 */
     events: CenterEventStore;
     /** sent: 发送接口创建的消息、轮次和任务身份。 */
     sent: SendMessageResponse;
     /** userText: 用户原始输入。 */
     userText: string;
-    /** centerDirectory: 中心目录绝对路径，用于 LangGraph checkpointer 和记忆迁移边界。 */
+    /** centerDirectory: 中心目录绝对路径，用于 Deep Agents checkpointer 和记忆迁移边界。 */
     centerDirectory?: string;
     /** memoryQueues: 智能体记忆单写队列，继续由中心服务事实源控制。 */
     memoryQueues?: Map<string, MemoryQueueState>;
     /** executors: 会话域提供的真实节点执行器。 */
-    executors: TurnGraphNodeExecutors;
+    executors: DeepAgentsNodeExecutors;
 }
 
 /**
- * createLangGraphCheckpointer：创建 LangGraphJS 本地 SQLite checkpointer。
+ * createDeepAgentsCheckpointer：创建 Deep Agents 本地 SQLite checkpointer。
  *
  * @param centerDirectory 中心目录绝对路径。
  * @returns SQLite checkpointer；未提供中心目录时返回 undefined。
  */
-function createLangGraphCheckpointer(centerDirectory?: string): SqliteSaver | undefined {
+function createDeepAgentsCheckpointer(centerDirectory?: string): SqliteSaver | undefined {
     if (!centerDirectory) {
         return undefined;
     }
@@ -196,14 +197,15 @@ function createLangGraphCheckpointer(centerDirectory?: string): SqliteSaver | un
 }
 
 /**
- * runLangGraphTurn：用 LangGraphJS 多节点图驱动当前轮次执行。
+ * runDeepAgentsTurn：用 Deep Agents 执行图驱动当前轮次执行。
  *
- * @param input LangGraph 运行输入。
+ * @param input Deep Agents 运行输入。
  * @returns 没有返回值。
  */
-export async function runLangGraphTurn(input: RunLangGraphTurnInput): Promise<void> {
-    const checkpointer = createLangGraphCheckpointer(input.centerDirectory);
-    const workflow = new StateGraph<LangGraphTurnState>({
+export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<void> {
+    initializeDeepAgentsHarness();
+    const checkpointer = createDeepAgentsCheckpointer(input.centerDirectory);
+    const workflow = new StateGraph<DeepAgentsTurnState>({
         channels: {
             sessionId: null,
             turnId: null,
@@ -359,6 +361,20 @@ export async function runLangGraphTurn(input: RunLangGraphTurnInput): Promise<vo
     void input.memoryQueues;
 }
 
+
+/**
+ * initializeDeepAgentsHarness：初始化 Deep Agents 执行内核。
+ *
+ * @returns 没有返回值。
+ */
+function initializeDeepAgentsHarness(): void {
+    // deepAgentGraph: 当前阶段中心服务仍用既有节点执行器承接事实源，先初始化 Deep Agents harness，后续把 todo、subagents 和虚拟文件上下文逐步映射进来。
+    const deepAgentGraph = createDeepAgent({
+        tools: [],
+        systemPrompt: "中心服务负责事实源、权限和审计，Deep Agents 只承载当前轮次执行编排。",
+    });
+    void deepAgentGraph;
+}
 /**
  * mergeTurnState：合并节点返回的局部状态。
  *
@@ -367,9 +383,9 @@ export async function runLangGraphTurn(input: RunLangGraphTurnInput): Promise<vo
  * @returns 合并后的状态。
  */
 function mergeTurnState(
-    state: LangGraphTurnState,
-    patch: Partial<LangGraphTurnState>,
-): LangGraphTurnState {
+    state: DeepAgentsTurnState,
+    patch: Partial<DeepAgentsTurnState>,
+): DeepAgentsTurnState {
     return {
         ...state,
         ...patch,
@@ -382,7 +398,7 @@ function mergeTurnState(
  * @param state 当前图状态。
  * @returns 下一节点路由。
  */
-function routeAfterModelStream(state: LangGraphTurnState): TurnGraphRoute {
+function routeAfterModelStream(state: DeepAgentsTurnState): DeepAgentsRoute {
     if (state.failed) {
         return "failure.close";
     }
@@ -397,7 +413,7 @@ function routeAfterModelStream(state: LangGraphTurnState): TurnGraphRoute {
  * @param state 当前图状态。
  * @returns 下一节点路由。
  */
-function routeAfterToolResult(state: LangGraphTurnState): TurnGraphRoute {
+function routeAfterToolResult(state: DeepAgentsTurnState): DeepAgentsRoute {
     if (state.failed) {
         return "failure.close";
     }
@@ -412,7 +428,7 @@ function routeAfterToolResult(state: LangGraphTurnState): TurnGraphRoute {
  * @param state 当前图状态。
  * @returns 下一节点路由。
  */
-function routeAfterMessagePersist(state: LangGraphTurnState): TurnGraphRoute {
+function routeAfterMessagePersist(state: DeepAgentsTurnState): DeepAgentsRoute {
     if (state.failed || state.incompleteToolIntent) {
         return "failure.close";
     }

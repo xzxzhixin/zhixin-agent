@@ -118,7 +118,7 @@ const toolCapabilityRegistry = readProjectFile("services/center/src/tools/tool-c
 const toolEvents = readProjectFile("services/center/src/tools/tool-events.ts");
 const capabilityApi = readProjectFile("services/center/src/api/capability.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
-const langgraphRunner = readProjectFile("services/center/src/langgraph-runner.ts");
+const deepAgentsRunner = readProjectFile("services/center/src/deepagents-runner.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;
 const chatProcessAggregationSource = chatHelpers + chatConversation + chatConversationPanel;
 
@@ -237,11 +237,11 @@ for (const signal of [
   "model.tool.requested",
   "model.tool.result.appended",
   "requiredPermission",
-  "runLangGraphTurn",
+  "runDeepAgentsTurn",
   "StateGraph",
 ]) {
   assertIncludes(
-    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + modelGatewayRuntime + langgraphRunner,
+    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + modelGatewayRuntime + deepAgentsRunner,
     signal,
     `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
   );
