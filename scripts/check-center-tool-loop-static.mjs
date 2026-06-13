@@ -54,7 +54,7 @@ const toolRuntime = [
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
-const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
+const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
 const sharedTypes = readText("packages/shared/src/index.ts");
 
 assertIncludes(sharedTypes, "UnifiedToolRiskLevel", "共享协议缺少工具风险等级");
@@ -66,9 +66,9 @@ assertIncludes(modelGateway, "const tools = await listAvailableModelToolSpecsFor
 assertIncludes(modelGateway, "buildOpenAiChatPayload", "模型网关必须把工具定义传入 OpenAI Chat payload");
 assertIncludes(modelGateway, "tool_calls", "模型网关缺少 OpenAI tool_calls 解析");
 assertIncludes(modelGateway, "tool_call_id", "模型网关缺少 OpenAI tool_call_id 回填");
-assertIncludes(langGraphRunner, "tool.execute", "LangGraph 缺少工具执行节点");
-assertIncludes(langGraphRunner, "tool.result", "LangGraph 缺少工具结果回填节点");
-assertIncludes(langGraphRunner, ".addConditionalEdges(", "LangGraph 缺少 OpenAI tool_calls 条件边");
+assertIncludes(deepAgentsRunner, "tool.execute", "Deep Agents runner 缺少工具执行节点");
+assertIncludes(deepAgentsRunner, "tool.result", "Deep Agents runner 缺少工具结果回填节点");
+assertIncludes(deepAgentsRunner, ".addConditionalEdges(", "Deep Agents runner 缺少 OpenAI tool_calls 条件边");
 assertIncludes(sessionTurnEffects, "model.tool.requested", "会话工具执行缺少模型工具请求事件");
 assertIncludes(modelGateway, "continueProviderModelGatewayWithToolResults", "模型网关缺少多工具结果回填模型");
 assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时仍通过 node 文本硬编码触发工具");

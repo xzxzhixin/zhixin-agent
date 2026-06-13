@@ -15,11 +15,11 @@ import type {CenterEventStore} from "../events.js";
 import type {SendMessageResponse, TaskStepRecord} from "../types.js";
 import {SessionRepository} from "../data-access/session-repository.js";
 import {
-    runLangGraphTurn,
-    type LangGraphTurnState,
-    type TurnGraphNodeExecutors,
-    type TurnGraphToolResult,
-} from "../langgraph-runner.js";
+    runDeepAgentsTurn,
+    type DeepAgentsTurnState,
+    type DeepAgentsNodeExecutors,
+    type DeepAgentsToolResult,
+} from "../deepagents-runner.js";
 import type {MemoryQueueState} from "../types.js";
 import {
     handleWorkerMessage,
@@ -718,14 +718,14 @@ export async function completeCreatedTurn(
     centerDirectory?: string,
     memoryQueues?: Map<string, MemoryQueueState>,
 ): Promise<void> {
-    await runLangGraphTurn({
+    await runDeepAgentsTurn({
         database,
         events,
         sent,
         userText,
         centerDirectory,
         memoryQueues,
-        executors: createTurnGraphNodeExecutors(
+        executors: createDeepAgentsNodeExecutors(
             database,
             events,
             centerDirectory,
@@ -735,20 +735,20 @@ export async function completeCreatedTurn(
 }
 
 /**
- * createTurnGraphNodeExecutors：创建 LangGraphJS 多节点执行器。
+ * createDeepAgentsNodeExecutors：创建 Deep Agents 多节点执行器。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
  * @param centerDirectory 中心目录。
  * @param memoryQueues 智能体记忆单写队列。
- * @returns 每个 LangGraph 节点对应的执行函数。
+ * @returns 每个 Deep Agents 执行节点对应的执行函数。
  */
-function createTurnGraphNodeExecutors(
+function createDeepAgentsNodeExecutors(
     database: CenterDatabase,
     events: CenterEventStore,
     centerDirectory?: string,
     memoryQueues?: Map<string, MemoryQueueState>,
-): TurnGraphNodeExecutors {
+): DeepAgentsNodeExecutors {
     return {
         thinkingContext: async (state) => {
             const graphContext = createStateGraphContext(state);
@@ -914,7 +914,7 @@ function createTurnGraphNodeExecutors(
                 checkpoint,
             );
             return {
-                toolResults: toolResults.map((toolResult): TurnGraphToolResult => {
+                toolResults: toolResults.map((toolResult): DeepAgentsToolResult => {
                     return {
                         toolCall: toolResult.toolCall,
                         resultText: toolResult.resultText,
@@ -1239,13 +1239,13 @@ function createTurnGraphNodeExecutors(
  * appendToolPlanCreatedEvents：按模型工具调用结果写入工具计划事件。
  *
  * @param events 事件日志仓储。
- * @param state 当前 LangGraph 状态。
+ * @param state 当前 Deep Agents 状态。
  * @param checkpoint 工具计划节点检查点。
  * @returns 无返回值。
  */
 function appendToolPlanCreatedEvents(
     events: CenterEventStore,
-    state: LangGraphTurnState,
+    state: DeepAgentsTurnState,
     checkpoint: TurnGraphCheckpoint,
 ): void {
     if (state.toolResults.length === 0) {
@@ -1303,12 +1303,12 @@ function appendToolPlanCreatedEvents(
 }
 
 /**
- * createStateGraphContext：从 LangGraph 状态生成中心服务图上下文。
+ * createStateGraphContext：从 Deep Agents 状态生成中心服务图上下文。
  *
- * @param state 当前 LangGraph 状态。
+ * @param state 当前 Deep Agents 状态。
  * @returns 中心服务图上下文。
  */
-function createStateGraphContext(state: LangGraphTurnState): TurnGraphContext {
+function createStateGraphContext(state: DeepAgentsTurnState): TurnGraphContext {
     return createTurnGraphContext({
         sessionId: state.sessionId,
         turnId: state.turnId,
@@ -1317,9 +1317,9 @@ function createStateGraphContext(state: LangGraphTurnState): TurnGraphContext {
 }
 
 /**
- * createStateGraphCheckpoint：为 LangGraph 节点生成中心服务 checkpoint。
+ * createStateGraphCheckpoint：为 Deep Agents 执行节点生成中心服务 checkpoint。
  *
- * @param state 当前 LangGraph 状态。
+ * @param state 当前 Deep Agents 状态。
  * @param nodeId 节点 ID。
  * @param nodeKind 节点类型。
  * @param superstep 节点层级。
@@ -1329,7 +1329,7 @@ function createStateGraphContext(state: LangGraphTurnState): TurnGraphContext {
  * @returns 可写入事件载荷的图检查点。
  */
 function createStateGraphCheckpoint(
-    state: LangGraphTurnState,
+    state: DeepAgentsTurnState,
     nodeId: string,
     nodeKind: TurnGraphCheckpoint["nodeKind"],
     superstep: number,
@@ -1356,7 +1356,7 @@ function createStateGraphCheckpoint(
  * @param toolResults 当前工具执行结果列表。
  * @returns 全部工具结果都是命令参数缺失时返回助手回复，否则返回 null。
  */
-function resolveCommandInputFailureAssistantText(toolResults: TurnGraphToolResult[]): string | null {
+function resolveCommandInputFailureAssistantText(toolResults: DeepAgentsToolResult[]): string | null {
     if (toolResults.length === 0) {
         return null;
     }
@@ -1537,7 +1537,7 @@ export function recordModelUsageAfterTurn(
         taskId: sent.taskId,
         status: "completed",
         title: "用量图检查点",
-        summary: "模型用量记录已绑定当前 LangGraph 节点。",
+        summary: "模型用量记录已绑定当前 Deep Agents 执行节点。",
         payload: withOptionalGraphCheckpoint({
             usageId: usage.usageId,
             providerId: modelResult.providerId,

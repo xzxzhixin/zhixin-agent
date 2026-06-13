@@ -1,7 +1,7 @@
 /**
- * 本轮 OpenAI 协议、LangGraph 全量节点和供应商提示回归检查。
+ * 本轮 OpenAI 协议、Deep Agents 全量节点和供应商提示回归检查。
  *
- * 用途：作为 TDD 红灯/绿灯脚本，验证核心执行图、模型协议和供应商交互不再退回旧口径。
+ * 用途：作为 TDD 红灯/绿灯脚本，验证 Deep Agents 执行图、模型协议和供应商交互不再退回旧口径。
  * 关键逻辑：只做源码级协议检查，不运行 TypeScript 编译器，遵守项目质量门槛约束。
  */
 import {
@@ -90,7 +90,7 @@ function assertRegex(source, pattern, message) {
   }
 }
 
-const langGraphRunner = readText("services/center/src/langgraph-runner.ts");
+const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
@@ -169,11 +169,11 @@ assertNotIncludes(
   "tsconfig.base.json 仍保留 @zhixin/model-protocol 旧路径别名。",
 );
 
-const langGraphNodeMatches = [
-  ...langGraphRunner.matchAll(/\.addNode\(/gu),
+const deepAgentsNodeMatches = [
+  ...deepAgentsRunner.matchAll(/\.addNode\(/gu),
 ];
-if (langGraphNodeMatches.length < 8) {
-  fail("LangGraph runner 必须拆成至少 8 个真实 agent loop 节点，而不是单节点套壳。");
+if (deepAgentsNodeMatches.length < 8) {
+  fail("Deep Agents runner 必须拆成至少 8 个真实 agent loop 节点，而不是单节点套壳。");
 }
 
 for (const nodeName of [
@@ -186,22 +186,22 @@ for (const nodeName of [
   "usage.record",
 ]) {
   assertIncludes(
-    langGraphRunner,
+    deepAgentsRunner,
     nodeName,
-    `LangGraph runner 缺少 ${nodeName} 真实节点。`,
+    `Deep Agents runner 缺少 ${nodeName} 真实节点。`,
   );
 }
 
 assertRegex(
-  langGraphRunner,
+  deepAgentsRunner,
   /\.addConditionalEdges\(/u,
-  "LangGraph runner 必须用条件边处理 OpenAI tool_calls 循环。",
+  "Deep Agents runner 必须用条件边处理 OpenAI tool_calls 循环。",
 );
 
 assertNotIncludes(
-  langGraphRunner,
+  deepAgentsRunner,
   "completeCreatedTurn",
-  "LangGraph runner 不能继续通过 completeCreatedTurn 单节点包裹旧闭环。",
+  "Deep Agents runner 不能继续通过 completeCreatedTurn 单节点包裹旧闭环。",
 );
 
 for (const graphEvent of [
@@ -301,11 +301,11 @@ assertNotIncludes(
 );
 
 if (failures.length > 0) {
-  console.error("OpenAI/LangGraph/供应商回归检查失败：");
+  console.error("OpenAI/Deep Agents/供应商回归检查失败：");
   for (const failure of failures) {
     console.error(`- ${failure}`);
   }
   process.exit(1);
 }
 
-console.log("OpenAI/LangGraph/供应商回归检查通过。");
+console.log("OpenAI/Deep Agents/供应商回归检查通过。");

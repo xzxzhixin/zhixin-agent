@@ -355,6 +355,31 @@ async function waitForTurnEvents(
   return latestEvents;
 }
 
+
+/**
+ * removeDirectoryWithRetry：Windows 日志文件句柄释放可能略晚，删除临时目录时做短重试。
+ *
+ * @param directoryPath 要删除的临时目录路径。
+ * @returns 删除完成后没有返回值。
+ */
+async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    try {
+      await rm(directoryPath, {
+        force: true,
+        recursive: true,
+      });
+      return;
+    } catch (error) {
+      if (attempt === 20) {
+        throw error;
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
+    }
+  }
+}
 /**
  * main：执行工具调用闭环检查。
  *
@@ -482,9 +507,9 @@ async function main(): Promise<void> {
     await fakeModelServer.close().catch(() => {
       // ignore: 检查失败时继续清理临时资源。
     });
-    await rm(tempRoot, {
-      force: true,
-      recursive: true,
+    await removeDirectoryWithRetry(tempRoot).catch((error) => {
+      // warning: Windows 上 pino 日志文件句柄释放可能滞后；临时目录清理失败不代表工具闭环失败。
+      console.warn(`临时目录清理失败，已跳过：${String(error)}`);
     });
   }
 }
