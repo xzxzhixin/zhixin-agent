@@ -25,31 +25,6 @@ const children = [];
 let isShuttingDown = false;
 
 /**
- * ensureWindowsUtf8Console：让 Windows 开发控制台按 UTF-8 解码中心服务日志。
- *
- * 关键逻辑：中心服务和文件日志都保持 UTF-8 原文；Windows 终端如果仍是旧代码页，
- * 会把 UTF-8 中文字节显示成 mojibake，因此启动桌面壳前只切换当前控制台代码页。
- *
- * @returns 没有返回值。
- */
-function ensureWindowsUtf8Console() {
-  if (process.platform !== "win32") {
-    return;
-  }
-  spawnSync(
-    "chcp",
-    [
-      "65001",
-    ],
-    {
-      shell: true,
-      stdio: "ignore",
-      windowsHide: true,
-    },
-  );
-}
-
-/**
  * startProcess：启动一个可继承终端输出的子进程。
  *
  * @param label 进程标签，用于错误提示。
@@ -73,10 +48,26 @@ function startProcess(label, command, args, env = {}) {
     {
       env: childEnv,
       shell: process.platform === "win32",
-      stdio: "inherit",
+      stdio: [
+        "inherit",
+        "pipe",
+        "pipe",
+      ],
     },
   );
 
+  child.stdout?.on("data", (chunk) => {
+    forwardChildOutputChunk(
+      process.stdout,
+      chunk,
+    );
+  });
+  child.stderr?.on("data", (chunk) => {
+    forwardChildOutputChunk(
+      process.stderr,
+      chunk,
+    );
+  });
   child.on("exit", (code) => {
     if (!isShuttingDown && code !== 0) {
       console.error(`${label} 已退出，退出码：${code ?? "未知"}`);
@@ -86,6 +77,79 @@ function startProcess(label, command, args, env = {}) {
 
   children.push(child);
   return child;
+}
+
+/**
+ * forwardChildOutputChunk：把 Electron 和中心服务输出转为当前 Node 控制台可写文本。
+ *
+ * 关键逻辑：子进程仍按 UTF-8 输出中文；开发脚本接管 stdout/stderr 后写入 JS 字符串，
+ * 由 Node 控制台层按当前平台处理终端编码，避免把代码页切换命令暴露到用户启动命令。
+ *
+ * @param stream 当前脚本的 stdout 或 stderr。
+ * @param chunk 子进程输出字节。
+ * @returns 没有返回值。
+ */
+function forwardChildOutputChunk(
+  stream,
+  chunk,
+) {
+  stream.write(decodeChildOutputChunk(chunk));
+}
+
+/**
+ * decodeChildOutputChunk：把子进程输出字节解码为可显示文本。
+ *
+ * @param chunk 子进程 stdout 或 stderr 原始字节。
+ * @returns 解码后的文本。
+ */
+function decodeChildOutputChunk(chunk) {
+  // utf8Text: 中心服务日志事实源固定 UTF-8，优先按 UTF-8 解码。
+  const utf8Text = new TextDecoder("utf-8").decode(chunk);
+  if (process.platform !== "win32" || !utf8Text.includes("\uFFFD")) {
+    return utf8Text;
+  }
+
+  // gb18030Text: 少数 Windows 工具仍可能按系统代码页输出，出现替换字符时再降级识别。
+  const gb18030Text = decodeWithEncoding(
+    chunk,
+    "gb18030",
+  );
+  if (gb18030Text && countReplacementCharacters(gb18030Text) < countReplacementCharacters(utf8Text)) {
+    return gb18030Text;
+  }
+
+  return utf8Text;
+}
+
+/**
+ * decodeWithEncoding：按指定编码尝试解码输出。
+ *
+ * @param chunk 原始字节。
+ * @param encoding TextDecoder 支持的编码名。
+ * @returns 解码文本；当前 Node 不支持该编码时返回 null。
+ */
+function decodeWithEncoding(
+  chunk,
+  encoding,
+) {
+  try {
+    return new TextDecoder(encoding).decode(chunk);
+  } catch {
+    // catch: Node ICU 构建差异会影响 legacy encoding 支持，失败时继续使用 UTF-8。
+    return null;
+  }
+}
+
+/**
+ * countReplacementCharacters：统计解码替换字符数量。
+ *
+ * @param text 已解码文本。
+ * @returns Unicode 替换字符数量。
+ */
+function countReplacementCharacters(text) {
+  return Array.from(text).filter((character) => {
+    return character === "\uFFFD";
+  }).length;
 }
 
 /**
@@ -194,8 +258,6 @@ process.on("SIGTERM", () => {
 });
 
 try {
-  ensureWindowsUtf8Console();
-
   if (!await isFrontendAlreadyAvailable()) {
     throw new Error(`前端开发服务器未启动：请先运行 pnpm dev:frontend。目标地址：${frontendDevUrl}`);
   }

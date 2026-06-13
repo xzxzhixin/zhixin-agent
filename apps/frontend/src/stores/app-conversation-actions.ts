@@ -2,6 +2,10 @@ import type {
     SessionUpdatedPayload,
 } from "@zhixin/api-client";
 import {
+    markRaw,
+} from "vue";
+
+import {
     CenterApiError,
     ReconnectingWebSocketClient,
 } from "@zhixin/api-client";
@@ -303,6 +307,9 @@ export function createConversationActions() {
             if (!canSendComposerDraft(this.draft)) {
                 return;
             }
+            if (!this.ensureRealtimeOpenForUserAction("发送消息")) {
+                return;
+            }
 
             const contentMarkdown = this.buildDraftMarkdown();
             const attachments = [
@@ -425,6 +432,9 @@ export function createConversationActions() {
          * @returns 引导提交完成后没有返回值。
          */
         async submitQueuedMessageAsGuidance(queuedMessageId: string): Promise<void> {
+            if (!this.ensureRealtimeOpenForUserAction("提交引导")) {
+                return;
+            }
             const queuedMessage = this.queuedComposerMessages.find((message) => {
                 return message.queuedMessageId === queuedMessageId;
             });
@@ -465,6 +475,9 @@ export function createConversationActions() {
          */
         async stopActiveConversationTurn(): Promise<void> {
             if (!this.activeSessionId) {
+                return;
+            }
+            if (!this.ensureRealtimeOpenForUserAction("停止执行")) {
                 return;
             }
             await this.requireRealtimeRequest<{
@@ -727,6 +740,24 @@ export function createConversationActions() {
         },
 
         /**
+         * ensureRealtimeOpenForUserAction：用户主动动作发送前校验实时连接。
+         *
+         * 关键逻辑：已停止、连接中或重连中都不能创建会话、清空草稿或向中心服务发送请求；
+         * 本地未发送内容必须留在输入框或排队区，等待连接恢复后由用户再次明确发送。
+         *
+         * @param actionLabel 用户正在执行的动作名称。
+         * @returns 当前 WebSocket 已打开时返回 true。
+         */
+        ensureRealtimeOpenForUserAction(actionLabel: string): boolean {
+            if (this.connectionState === "open") {
+                this.lastError = "";
+                return true;
+            }
+            this.lastError = `实时连接未恢复，${actionLabel}未发送。`;
+            return false;
+        },
+
+        /**
          * loadPendingEditsForActiveSession：加载当前会话真实待确认编辑。
          *
          * @returns 加载完成后没有返回值。
@@ -875,6 +906,13 @@ export function createConversationActions() {
             agentName: string;
             contentMarkdown: string;
         }): Promise<AgentSubConversationDetail> {
+            if (!this.ensureRealtimeOpenForUserAction("发送智能体消息")) {
+                return this.loadAgentSubConversation({
+                    parentSessionId: payload.parentSessionId,
+                    agentId: payload.agentId,
+                    agentName: payload.agentName,
+                });
+            }
             return this.requireRealtimeRequest<AgentSubConversationDetail>(
                 "agent.sub_conversation.message.send",
                 payload,
@@ -892,8 +930,8 @@ export function createConversationActions() {
             }
 
             const webSocketUrl = this.runtime.centerBaseUrl.replace(/^http/u, "ws");
-            this.webSocketClient?.close();
-            this.webSocketClient = new ReconnectingWebSocketClient({
+            const previousWebSocketClient = this.webSocketClient;
+            const nextWebSocketClient = new ReconnectingWebSocketClient({
                 url: `${webSocketUrl}/api/sync`,
                 clientId: this.authorization.clientId,
                 clientType: this.runtime.clientType,
@@ -901,6 +939,9 @@ export function createConversationActions() {
                 maxRetries: 5,
                 retryIntervalMs: 2000,
                 onStateChange: (state) => {
+                    if (this.webSocketClient !== nextWebSocketClient) {
+                        return;
+                    }
                     this.connectionState = state;
                 },
                 onMessage: (message) => {
@@ -968,6 +1009,9 @@ export function createConversationActions() {
                     }
                 },
             });
+            // markRaw: WebSocket 客户端是带私有状态的运行期对象，不能被 Vue 代理，否则身份比较会失效。
+            this.webSocketClient = markRaw(nextWebSocketClient);
+            previousWebSocketClient?.close();
             this.webSocketClient.connect();
             await this.webSocketClient.waitUntilOpen();
         },

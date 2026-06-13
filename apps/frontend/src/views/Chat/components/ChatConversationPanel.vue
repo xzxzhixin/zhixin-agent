@@ -299,6 +299,10 @@ const composerPrimaryButtonText = computed(() => {
     ? "停止"
     : "发送";
 });
+// canUseRealtimeUserAction: 发送、停止和引导都必须等实时连接恢复后才能触发真实请求。
+const canUseRealtimeUserAction = computed(() => {
+  return appStore.connectionState === "open";
+});
 // draftText: 主对话和智能体子对话共用 textarea 模型。
 const draftText = computed({
   get() {
@@ -889,6 +893,7 @@ onBeforeUnmount(() => {
               <el-button
                   size="small"
                   type="primary"
+                  :disabled="!canUseRealtimeUserAction"
                   @click="appStore.submitQueuedMessageAsGuidance(message.queuedMessageId)"
               >
                 引导
@@ -1036,6 +1041,7 @@ onBeforeUnmount(() => {
               <el-button
                   class="composer-send"
                   type="primary"
+                  :disabled="!canUseRealtimeUserAction"
                   @click="handleComposerPrimaryAction"
               >
                 {{ composerPrimaryButtonText }}

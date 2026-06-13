@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  onBeforeUnmount,
+  onMounted,
   ref,
   watch,
 } from "vue";
@@ -20,6 +22,24 @@ const router = useRouter();
 const bootstrapped = ref(false);
 // authorizationSyncing：授权路由同步互斥标记，避免快速 hash 切换时多个 replace 并发覆盖结果。
 const authorizationSyncing = ref(false);
+
+/**
+ * recoverRealtimeConnection：页面生命周期触发的实时连接恢复。
+ *
+ * 关键逻辑：浏览器页面可能在中心服务重启期间完成本机授权但 WebSocket 停在 stopped；
+ * 这里只恢复连接和订阅，不发送草稿、不提交排队消息，避免自动恢复时把用户未确认内容发出去。
+ *
+ * @returns 没有返回值。
+ */
+function recoverRealtimeConnection(): void {
+  if (!appStore.authorization) {
+    return;
+  }
+  if (appStore.connectionState !== "stopped") {
+    return;
+  }
+  void appStore.connectRealtime();
+}
 
 /**
  * syncAuthorizationRoute：同步当前授权模式和顶层路由主体。
@@ -46,6 +66,7 @@ async function syncAuthorizationRoute(): Promise<void> {
       await appStore.bootstrap();
       bootstrapped.value = true;
     }
+    recoverRealtimeConnection();
 
     if (route.path === "/login") {
       await router.replace("/chat");
@@ -67,6 +88,28 @@ watch(
     immediate: true,
   },
 );
+
+onMounted(() => {
+  window.addEventListener(
+    "online",
+    recoverRealtimeConnection,
+  );
+  document.addEventListener(
+    "visibilitychange",
+    recoverRealtimeConnection,
+  );
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener(
+    "online",
+    recoverRealtimeConnection,
+  );
+  document.removeEventListener(
+    "visibilitychange",
+    recoverRealtimeConnection,
+  );
+});
 
 </script>
 

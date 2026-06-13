@@ -16,6 +16,12 @@ export class ReconnectingWebSocketClient {
     /** retryCount: 已重试次数。 */
     private retryCount = 0;
 
+    /** manualCloseRequested: 主动关闭标记，只有用户或上层替换连接时才进入 stopped。 */
+    private manualCloseRequested = false;
+
+    /** reconnectTimerId: 断线后的重连定时器，用于主动关闭时取消后续恢复。 */
+    private reconnectTimerId: number | null = null;
+
     /** openWaiters: 等待连接打开的回调列表。 */
     private readonly openWaiters: Array<{
         /** resolve: 连接打开时完成等待。 */
@@ -66,10 +72,12 @@ export class ReconnectingWebSocketClient {
      * @returns 没有返回值。
      */
     connect(): void {
+        this.manualCloseRequested = false;
         this.options.onStateChange("connecting");
         this.socket = new WebSocket(this.options.url);
         this.socket.addEventListener("open", () => {
             this.retryCount = 0;
+            this.reconnectTimerId = null;
             this.options.onStateChange("open");
             this.resolveOpenWaiters();
             this.sendHello();
@@ -84,6 +92,10 @@ export class ReconnectingWebSocketClient {
         this.socket.addEventListener("close", () => {
             this.rejectOpenWaiters("WEBSOCKET_CLOSED");
             this.rejectPendingRequests("WEBSOCKET_CLOSED");
+            if (this.manualCloseRequested) {
+                this.options.onStateChange("stopped");
+                return;
+            }
             this.scheduleReconnect();
         });
     }
@@ -94,7 +106,11 @@ export class ReconnectingWebSocketClient {
      * @returns 没有返回值。
      */
     close(): void {
-        this.retryCount = this.options.maxRetries;
+        this.manualCloseRequested = true;
+        if (this.reconnectTimerId !== null) {
+            window.clearTimeout(this.reconnectTimerId);
+            this.reconnectTimerId = null;
+        }
         this.rejectPendingRequests("WEBSOCKET_CLOSED");
         this.socket?.close();
         this.options.onStateChange("stopped");
@@ -268,14 +284,22 @@ export class ReconnectingWebSocketClient {
      * @returns 没有返回值。
      */
     private scheduleReconnect(): void {
-        if (this.retryCount >= this.options.maxRetries) {
-            this.options.onStateChange("stopped");
-            return;
-        }
         this.retryCount += 1;
         this.options.onStateChange("retrying");
-        window.setTimeout(() => {
+        // maxRetries: 只作为快速重试窗口的计数阈值；超过后仍持续重连，避免页面长期停在“已停止”。
+        const retryWindow = Math.max(
+            1,
+            this.options.maxRetries,
+        );
+        const retryBackoffMultiplier = this.retryCount <= retryWindow
+            ? 1
+            : Math.min(
+                6,
+                this.retryCount - retryWindow + 1,
+            );
+        this.reconnectTimerId = window.setTimeout(() => {
+            this.reconnectTimerId = null;
             this.connect();
-        }, this.options.retryIntervalMs);
+        }, this.options.retryIntervalMs * retryBackoffMultiplier);
     }
 }

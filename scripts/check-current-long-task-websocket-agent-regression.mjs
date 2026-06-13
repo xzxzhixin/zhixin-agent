@@ -158,6 +158,7 @@ const syncRoute = readText("services/center/src/api/sync-route.ts");
 const websocketClient = readText("packages/api-client/src/websocket-client.ts");
 const appStore = readText("apps/frontend/src/stores/app.ts");
 const conversationActions = readText("apps/frontend/src/stores/app-conversation-actions.ts");
+const appVue = readText("apps/frontend/src/App.vue");
 const projectActions = readText("apps/frontend/src/stores/app-project-actions.ts");
 const chatPanel = readText("apps/frontend/src/views/Chat/components/ChatConversationPanel.vue");
 const chatConversation = readText("apps/frontend/src/views/Chat/useChatConversation.ts");
@@ -391,6 +392,16 @@ assertIncludes(
   "WebSocket 客户端必须提供等待连接打开能力，避免初始化阶段回退 REST 或抛错。",
 );
 assertIncludes(
+  websocketClient,
+  "manualCloseRequested",
+  "WebSocket 客户端必须区分主动关闭和异常断线，避免服务重启后页面永久进入已停止。",
+);
+assertNotIncludes(
+  websocketClient,
+  "this.options.onStateChange(\"stopped\");\n            return;\n        }\n        this.retryCount += 1;",
+  "WebSocket 异常断线达到重试次数后不能进入永久 stopped，必须持续自动重连。",
+);
+assertIncludes(
   syncRoute + appStore,
   "session.create",
   "对话页发送前创建会话必须通过 WebSocket session.create。",
@@ -399,6 +410,51 @@ assertIncludes(
   syncRoute + conversationActions,
   "session.guidance.submit",
   "运行中补充引导必须通过 WebSocket 合并到当前任务。",
+);
+assertIncludes(
+  conversationActions,
+  "ensureRealtimeOpenForUserAction",
+  "对话用户动作发送前必须校验 WebSocket 已打开，避免已停止或重连中仍发出请求。",
+);
+assertIncludes(
+  conversationActions,
+  "markRaw(nextWebSocketClient)",
+  "WebSocket 客户端必须用 markRaw 保存，避免 Vue 代理导致身份比较失效。",
+);
+assertRegex(
+  conversationActions,
+  /const previousWebSocketClient = this\.webSocketClient;[\s\S]*this\.webSocketClient = markRaw\(nextWebSocketClient\);[\s\S]*previousWebSocketClient\?\.close\(\);[\s\S]*this\.webSocketClient\.connect\(\);/u,
+  "connectRealtime 必须先保存旧连接、赋值新连接，再关闭旧连接，避免旧 close 状态覆盖新连接恢复。",
+);
+assertIncludes(
+  appVue,
+  "recoverRealtimeConnection",
+  "页面生命周期必须在 stopped 状态下尝试恢复 WebSocket 连接。",
+);
+assertIncludes(
+  appVue,
+  "appStore.connectionState !== \"stopped\"",
+  "页面生命周期恢复只处理 stopped 状态，不能干扰正常 connecting/open/retrying。",
+);
+assertIncludes(
+  appVue,
+  "window.addEventListener(\n    \"online\"",
+  "浏览器恢复联网时必须尝试恢复实时连接。",
+);
+assertNotIncludes(
+  appVue,
+  "sendDraft",
+  "页面自动恢复连接不能自动发送草稿或排队消息。",
+);
+assertRegex(
+  conversationActions,
+  /async sendDraft\(\): Promise<void> \{[\s\S]*ensureRealtimeOpenForUserAction\("发送消息"\)[\s\S]*const contentMarkdown = this\.buildDraftMarkdown\(\);/u,
+  "sendDraft 必须在构建正文、清空草稿和创建会话前拦截非 open 连接。",
+);
+assertRegex(
+  conversationActions,
+  /async submitQueuedMessageAsGuidance[\s\S]*ensureRealtimeOpenForUserAction\("提交引导"\)[\s\S]*const queuedMessage = this\.queuedComposerMessages\.find/u,
+  "排队引导必须在移除本地排队消息前拦截非 open 连接。",
 );
 assertIncludes(
   syncRoute,

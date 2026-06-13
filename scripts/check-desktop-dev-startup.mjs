@@ -123,7 +123,7 @@ function assertNotIncludes(
 }
 
 if (packageJson.scripts?.["dev:desktop-shell"] !== "node scripts/dev-desktop-shell.mjs") {
-  fail("根 dev:desktop-shell 必须通过 scripts/dev-desktop-shell.mjs 统一编排。");
+  fail("根 dev:desktop-shell 必须保持用户启动命令简洁，并通过 scripts/dev-desktop-shell.mjs 统一编排。");
 }
 
 if (packageJson.scripts?.["dev:frontend"] !== "pnpm --filter @zhixin/frontend dev") {
@@ -155,15 +155,35 @@ assertIncludes(
   "delete childEnv.ELECTRON_RUN_AS_NODE",
   "桌面开发脚本启动 Electron 前必须清理 ELECTRON_RUN_AS_NODE，避免 Electron 被当成 Node 运行。",
 );
-assertIncludes(
+assertNotIncludes(
   devScript,
-  "chcp",
-  "Windows 桌面开发脚本必须切换当前控制台代码页，避免 UTF-8 中文日志显示为乱码。",
+  "chcp 65001",
+  "桌面开发脚本不能把代码页切换命令作为用户启动链路的一部分；中文输出必须在脚本内部接管并转发。",
 );
 assertIncludes(
   devScript,
-  "65001",
-  "Windows 桌面开发脚本必须使用 UTF-8 代码页 65001。",
+  "forwardChildOutputChunk",
+  "桌面开发脚本必须接管 Electron stdout/stderr，再按当前控制台输出文本，避免 VS Code 中文乱码。",
+);
+assertIncludes(
+  devScript,
+  "TextDecoder",
+  "桌面开发脚本必须显式解码子进程输出，避免 UTF-8 字节被终端按错误编码显示。",
+);
+assertIncludes(
+  devScript,
+  "\"pipe\"",
+  "桌面开发脚本必须使用 pipe 接管子进程输出，不能让中心服务直接继承终端导致中文乱码。",
+);
+assertNotIncludes(
+  desktopMain,
+  "desktop-center-runtime.log",
+  "桌面壳不能写 desktop-center-runtime.log；中心服务日志必须统一进入 center_YYYY_MM_DD_HH_mm_ss.log 轮转文件。",
+);
+assertNotIncludes(
+  desktopMain,
+  "writeCenterRuntimeLog",
+  "桌面壳不能维护固定运行日志函数，避免绕过中心服务统一日志设计。",
 );
 assertIncludes(
   devScript,
@@ -255,17 +275,6 @@ assertIncludes(
   "mainWindow.webContents.session.clearCache()",
   "桌面壳开发期加载 Vite 前端前必须清理 Electron 会话缓存，避免旧前端模块导致路由主体残留。",
 );
-assertIncludes(
-  desktopMain,
-  "window-load-url",
-  "桌面壳必须记录实际加载的前端 URL，方便验证开发期是否连接 Vite。",
-);
-assertIncludes(
-  desktopMain,
-  "did-navigate-in-page",
-  "桌面壳必须记录 hash 页内导航，方便排查菜单点击后 URL 与主体不同步。",
-);
-
 if (!existsSync(centerNativeBindingPath)) {
   fail(`中心服务缺少 better-sqlite3 原生绑定，请先执行 pnpm rebuild better-sqlite3 --filter @zhixin/center：${centerNativeBindingPath}`);
 }

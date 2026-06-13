@@ -6,7 +6,7 @@
  * 参数：无。
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -173,8 +173,20 @@ async function main(): Promise<void> {
   assert(missingResponse.statusCode === 200, "业务未知接口不应通过 HTTP 404 表达");
   assert(missing.error?.code === "API_NOT_FOUND", "未知接口错误码不正确");
 
+  const logFiles = await readdir(join(
+    centerDirectory,
+    "logs",
+  ));
+  const centerLogFile = logFiles.find((fileName) => {
+    return /^center_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}(?:-\d+)?\.log$/u.test(fileName);
+  });
+  assert(Boolean(centerLogFile), "中心服务未按 center_YYYY_MM_DD_HH_mm_ss.log 命名写入日志");
   const logContent = await readFile(
-    join(centerDirectory, "logs", "center.log"),
+    join(
+      centerDirectory,
+      "logs",
+      centerLogFile!,
+    ),
     "utf-8",
   );
   assert(logContent.includes("center.bootstrap.initialized"), "中心服务日志未写入初始化事件");

@@ -63,8 +63,6 @@ function assertNotMatches(source, pattern, message) {
 const requirementDoc = readText("需求.md");
 // architectureDoc: 架构事实源，必须记录本轮前端状态与事件来源边界。
 const architectureDoc = readText("架构.md");
-// planDoc: 计划事实源，必须记录本轮任务状态。
-const planDoc = readText("计划.md");
 // chatView: 对话页源码，承载输入区、排队提示和按钮状态。
 const chatView = readText("apps/frontend/src/views/Chat/RouterIndex.vue");
 // chatPanel: 对话内容组件，承载拆分后的输入区、排队提示和按钮状态。
@@ -110,12 +108,6 @@ assertIncludes(
   "架构.md 必须明确输入变化不触发 token 统计。",
 );
 assertIncludes(
-  planDoc,
-  "- [x] 补齐本轮排队发送、引导移除、发送按钮双态和执行期 token 统计回归",
-  "计划.md 必须新增并勾选本轮回归任务。",
-);
-
-assertIncludes(
   appTypes,
   "QueuedComposerMessage",
   "状态类型必须定义本地排队消息结构。",
@@ -136,9 +128,29 @@ assertIncludes(
   "对话 action 必须提供排队消息转引导并移除的方法。",
 );
 assertIncludes(
+  conversationActions,
+  "ensureRealtimeOpenForUserAction",
+  "对话 action 必须在用户主动发送、引导或停止前校验实时连接已恢复。",
+);
+assertIncludes(
+  conversationActions,
+  "实时连接未恢复",
+  "连接未恢复时必须给出本地错误提示，并保留输入内容不发送。",
+);
+assertIncludes(
   chatView + chatPanel,
   "pending-guidance-queue",
   "对话页输入区顶部必须渲染排队消息区域。",
+);
+assertIncludes(
+  chatView + chatPanel,
+  "canUseRealtimeUserAction",
+  "发送、停止和引导按钮必须根据实时连接状态禁用。",
+);
+assertIncludes(
+  chatView + chatPanel,
+  ":disabled=\"!canUseRealtimeUserAction\"",
+  "连接未恢复时用户主动发送按钮必须禁用，避免已停止仍发出问题。",
 );
 assertIncludes(
   chatView + chatPanel,

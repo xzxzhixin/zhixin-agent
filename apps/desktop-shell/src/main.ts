@@ -19,7 +19,6 @@ import {
   spawnSync,
 } from "node:child_process";
 import {
-  appendFileSync,
   readFileSync,
   writeFileSync,
   existsSync,
@@ -307,33 +306,6 @@ function writeDesktopConfig(config: DesktopConfigFile): void {
 
 // desktopConfig: 当前桌面壳本机配置缓存，中心服务配置和关闭按钮偏好共用同一个本机文件。
 let desktopConfig = readDesktopConfig();
-
-/**
- * writeCenterRuntimeLog：写入桌面壳管理中心服务的开发期运行日志。
- *
- * @param message 日志正文。
- * @returns 没有返回值。
- */
-function writeCenterRuntimeLog(message: string): void {
-  try {
-    // logPath: 日志放在中心目录下，方便和中心服务自身日志一起排查启动链路。
-    const logPath = join(
-      centerLaunchConfig.centerDirectory,
-      "logs",
-      "desktop-center-runtime.log",
-    );
-    mkdirSync(dirname(logPath), {
-      recursive: true,
-    });
-    appendFileSync(
-      logPath,
-      `[${new Date().toISOString()}] ${message}\n`,
-      "utf-8",
-    );
-  } catch {
-    // 日志写入失败不能阻断桌面壳启动；IPC 状态仍会返回 lastCenterError。
-  }
-}
 
 /**
  * normalizePort：把用户输入端口约束为合法 TCP 端口。
@@ -748,11 +720,8 @@ function startCenterService(): void {
   // resolvedCommand: 区分“命令已解析”和“中心服务实际监听”，避免命令缺失时静默显示运行中。
   const resolvedCommand = resolveCenterCommand();
   if (!resolvedCommand) {
-    writeCenterRuntimeLog(lastCenterError);
     return;
   }
-
-  writeCenterRuntimeLog(`start ${resolvedCommand.diagnostics}`);
 
   centerProcess = spawn(resolvedCommand.command, resolvedCommand.args, {
     cwd: resolvedCommand.cwd,
@@ -773,7 +742,7 @@ function startCenterService(): void {
 
   centerProcess.on("error", (error) => {
     lastCenterError = `中心服务启动失败：${error.message}\n${resolvedCommand.diagnostics}`;
-    writeCenterRuntimeLog(`error ${lastCenterError}`);
+    console.error(lastCenterError);
     centerProcess = null;
   });
   centerProcess.stderr.on("data", (chunk) => {
@@ -781,19 +750,16 @@ function startCenterService(): void {
       Buffer.from(chunk).toString("utf-8"),
       resolvedCommand.diagnostics,
     ].join("\n");
-    writeCenterRuntimeLog(`stderr ${lastCenterError}`);
     console.error(lastCenterError);
   });
   centerProcess.stdout.on("data", (chunk) => {
     const output = Buffer.from(chunk).toString("utf-8");
-    writeCenterRuntimeLog(`stdout ${output}`);
     console.log(output);
   });
   centerProcess.on("exit", (code) => {
     if (code && !lastCenterError) {
       lastCenterError = `中心服务退出，退出码：${code}\n${resolvedCommand.diagnostics}`;
     }
-    writeCenterRuntimeLog(`exit code=${code ?? "null"} error=${lastCenterError || ""}`);
     centerProcess = null;
   });
 }
@@ -915,7 +881,7 @@ function openExternalUrl(rawUrl: string): void {
     }
     void shell.openExternal(target.toString());
   } catch (error) {
-    writeCenterRuntimeLog(`external-link-open-failed ${rawUrl} ${error instanceof Error ? error.message : ""}`);
+    console.error(`外部链接打开失败：${rawUrl} ${error instanceof Error ? error.message : ""}`);
   }
 }
 
@@ -988,7 +954,6 @@ async function waitForCenterHealth(): Promise<void> {
         method: "GET",
       });
       if (response.ok) {
-        writeCenterRuntimeLog(`center-health-ready ${healthUrl}`);
         return;
       }
       lastErrorMessage = `健康检查返回 HTTP ${response.status}`;
@@ -1079,14 +1044,6 @@ async function createWindow(): Promise<void> {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   installExternalLinkGuards(mainWindow);
-  mainWindow.webContents.on("did-navigate", (_event, url) => {
-    // url: Electron 实际加载地址，写入日志用于区分 Vite 开发页和中心服务托管页。
-    writeCenterRuntimeLog(`window-did-navigate ${url}`);
-  });
-  mainWindow.webContents.on("did-navigate-in-page", (_event, url) => {
-    // url: hash 路由页内导航地址，用于排查菜单点击后 URL 与主体是否同步。
-    writeCenterRuntimeLog(`window-did-navigate-in-page ${url}`);
-  });
   // maximize: 默认最大化必须显式调用；width/height 仅作为无法最大化环境下的回退窗口尺寸。
   mainWindow.maximize();
   mainWindow.on("close", (event) => {
@@ -1103,13 +1060,11 @@ async function createWindow(): Promise<void> {
   const targetUrl = resolveDesktopWindowUrl();
   try {
     await waitForCenterHealth();
-    writeCenterRuntimeLog(`window-load-url ${targetUrl}`);
     await mainWindow.loadURL(targetUrl);
   } catch (error) {
     lastCenterError = error instanceof Error ? error.message : "桌面窗口加载中心服务页面失败";
-    writeCenterRuntimeLog(`window-load-failed ${lastCenterError}`);
     await mainWindow.loadURL(renderWindowLoadFailurePage(lastCenterError)).catch((loadError) => {
-      writeCenterRuntimeLog(`window-load-fallback-failed ${loadError instanceof Error ? loadError.message : "诊断页加载失败"}`);
+      console.error(`诊断页加载失败：${loadError instanceof Error ? loadError.message : "未知错误"}`);
     });
   }
 }
