@@ -71,9 +71,7 @@ const props = defineProps<{
         >
           <span class="composer-task-step-status">{{ step.status }}</span>
           <strong>{{ step.title }}</strong>
-          <span class="composer-task-step-meta">
-            {{ step.positionText }}{{ step.elapsed ? ` · ${step.elapsed}` : "" }}
-          </span>
+          <span class="composer-task-step-meta">{{ task.elapsed }}</span>
         </article>
       </template>
     </section>

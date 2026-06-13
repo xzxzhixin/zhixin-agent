@@ -474,18 +474,24 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         );
         const title = resolveProcessGroupTitle(representativeEvent);
         const processKind = resolveProcessKind(representativeEvent);
+        const groupTaskId = resolveStableProcessTaskId(sortedEvents);
+        const finalTaskStatus = resolveLaterFinalTaskStatus(
+            events,
+            latestEvent,
+            groupTaskId,
+        );
         return {
             rowId: `process-${groupKey}`,
             turnId: latestEvent.turnId,
-            taskId: latestEvent.taskId,
+            taskId: groupTaskId,
             kind: "tool",
             processKind,
             title,
-            statusLabel: hasFailed
-                ? "失败"
-                : isRunning
-                    ? "执行中"
-                    : "已完成",
+            statusLabel: resolveProcessGroupStatusLabel(
+                hasFailed,
+                isRunning,
+                finalTaskStatus,
+            ),
             traceId: latestEvent.traceId,
             summary: resolveProcessSummary(latestEvent),
             responseText: resolveProcessResponseText(
@@ -510,6 +516,117 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
             }),
         };
     });
+}
+
+/**
+ * resolveProcessGroupStatusLabel：按过程自身状态和任务终态生成卡片状态文案。
+ *
+ * @param hasFailed 当前过程是否已有失败事件。
+ * @param isRunning 当前过程是否仍在运行。
+ * @param finalTaskStatus 所属任务明确终态；没有任务终态时为 null。
+ * @returns 过程卡片状态文案。
+ */
+function resolveProcessGroupStatusLabel(
+    hasFailed: boolean,
+    isRunning: boolean,
+    finalTaskStatus: TaskStatus | null,
+): string {
+    if (hasFailed) {
+        return "失败";
+    }
+    if (finalTaskStatus) {
+        return formatTaskStatus(finalTaskStatus);
+    }
+    return isRunning
+        ? "执行中"
+        : "已完成";
+}
+
+/**
+ * resolveLaterFinalTaskStatus：查找同一任务在当前过程之后写入的终态。
+ *
+ * @param events 当前会话事件数组。
+ * @param latestEvent 当前过程组最新事件。
+ * @param taskId 当前过程组稳定任务 ID。
+ * @returns 后续任务终态；没有明确终态时返回 null。
+ */
+function resolveLaterFinalTaskStatus(
+    events: EventRecord[],
+    latestEvent: EventRecord,
+    taskId: string | null,
+): TaskStatus | null {
+    if (!latestEvent.turnId || !taskId) {
+        return null;
+    }
+    const finalTaskEvent = events.find((event) => {
+        if (event.eventType !== "task.updated"
+            || event.turnId !== latestEvent.turnId
+            || event.sequence <= latestEvent.sequence) {
+            return false;
+        }
+        return resolveTaskUpdatedEventTaskId(event) === taskId
+            && isFinalTaskStatus(resolveTaskUpdatedEventStatus(event));
+    });
+    return finalTaskEvent
+        ? resolveTaskUpdatedEventStatus(finalTaskEvent)
+        : null;
+}
+
+/**
+ * resolveStableProcessTaskId：从同一过程组事件中解析稳定任务 ID。
+ *
+ * @param events 同一过程组内按序排列的事件。
+ * @returns 组内明确任务 ID；没有任务 ID 时返回 null。
+ */
+function resolveStableProcessTaskId(events: EventRecord[]): string | null {
+    const taskIds = events.map((event) => {
+        return event.taskId;
+    }).filter((taskId): taskId is string => {
+        return typeof taskId === "string" && taskId.length > 0;
+    });
+    return taskIds[taskIds.length - 1] ?? null;
+}
+
+/**
+ * resolveTaskUpdatedEventTaskId：读取任务更新事件中的任务 ID。
+ *
+ * @param event 任务更新事件。
+ * @returns 任务 ID；缺失时返回空字符串。
+ */
+function resolveTaskUpdatedEventTaskId(event: EventRecord): string {
+    const payload = typeof event.payload === "object" && event.payload !== null
+        ? event.payload as Record<string, unknown>
+        : {};
+    return typeof payload.taskId === "string" && payload.taskId.length > 0
+        ? payload.taskId
+        : event.taskId ?? "";
+}
+
+/**
+ * resolveTaskUpdatedEventStatus：读取任务更新事件中的任务状态。
+ *
+ * @param event 任务更新事件。
+ * @returns 任务状态协议值；缺失时返回空字符串。
+ */
+function resolveTaskUpdatedEventStatus(event: EventRecord): string {
+    const payload = typeof event.payload === "object" && event.payload !== null
+        ? event.payload as Record<string, unknown>
+        : {};
+    return typeof payload.status === "string"
+        ? payload.status
+        : "";
+}
+
+/**
+ * isFinalTaskStatus：判断任务状态是否已经进入终态。
+ *
+ * @param status 任务状态协议值。
+ * @returns 是完成、失败或取消时返回 true。
+ */
+function isFinalTaskStatus(status: string): status is TaskStatus {
+    return status === "completed"
+        || status === "failed"
+        || status === "cancelled";
 }
 
 /**
