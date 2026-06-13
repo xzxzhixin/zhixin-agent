@@ -245,7 +245,12 @@ assertIncludes(
 assertIncludes(
   todoListTool,
   "createTaskStep(",
-  "todoList 执行器创建每个步骤时必须走领域层 createTaskStep 写入 task.step.started 事件。",
+  "todoList 执行器创建每个步骤时必须走领域层 createTaskStep 写入用户可见步骤。",
+);
+assertIncludes(
+  todoListTool,
+  "initialStatus: item.status",
+  "todoList 新建步骤必须按模型声明状态直接创建，不能先 running 再改回 queued。",
 );
 assertIncludes(
   todoListTool,
@@ -412,8 +417,13 @@ assertIncludes(
 );
 assertIncludes(
   chatConversation,
-  'step.source !== "graph"',
-  "前端任务入口必须排除 graph 内部图节点步骤，只展示真实拆解步骤。",
+  "visibleTaskStepSources.includes",
+  "前端任务入口必须使用用户可见步骤来源白名单，不能默认展示未知 source。",
+);
+assertIncludes(
+  readText("apps/frontend/src/views/Chat/chat-view-helpers.ts"),
+  "task.step.created",
+  "前端过程聚合必须消费 task.step.created，确保 queued 用户可见步骤能实时出现。",
 );
 assertIncludes(
   chatConversation,
@@ -452,8 +462,13 @@ assertIncludes(
 );
 assertIncludes(
   taskDetailDialog,
+  "task.elapsed",
+  "任务详情步骤右侧必须只显示本任务耗时。",
+);
+assertNotIncludes(
+  taskDetailDialog,
   "step.positionText",
-  "任务详情步骤右侧必须显示序号/总数。",
+  "任务浮窗右侧不能显示序号/总数，只能显示本任务耗时。",
 );
 assertNotIncludes(
   taskDetailDialog,

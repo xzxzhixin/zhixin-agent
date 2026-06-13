@@ -65,8 +65,6 @@ export interface TaskPanelRow {
         status: string;
         /** elapsed: 步骤耗时。 */
         elapsed: string;
-        /** positionText: 步骤序号，格式为 当前序号/总数。 */
-        positionText: string;
         /** traceId: 步骤所属任务最近排查 ID。 */
         traceId: string;
     }>;
@@ -184,7 +182,10 @@ export function useChatConversation(appStore: {
         return createMergedThinkingRows(events.value);
     });
     const processMessageRows = computed(() => {
-        return createGroupedProcessRows(events.value);
+        return createGroupedProcessRows(
+            events.value,
+            activeTasks.value,
+        );
     });
     const composerEditFiles = computed(() => {
         return appStore.composerEditFiles;
@@ -306,7 +307,7 @@ export function createTaskPanelRows(
                 failureReason: null,
                 scopeHint: "作用域：当前对话当前轮次；排队、等待用户和确认不会阻塞其他对话。",
                 currentTurnNotice,
-                steps: visibleSteps.map((step, stepIndex) => {
+                steps: visibleSteps.map((step) => {
                     const visibleStepStatus = normalizeStepStatusByTaskFinalState(
                         task.status,
                         step.status,
@@ -319,7 +320,6 @@ export function createTaskPanelRows(
                             step.startedAt,
                             step.endedAt,
                         ),
-                        positionText: `${stepIndex + 1}/${visibleSteps.length}`,
                         traceId,
                     };
                 }),
@@ -379,9 +379,16 @@ function filterVisibleDecompositionSteps(
         endedAt: string | null;
     }>,
 ) {
+    // visibleTaskStepSources: 后端约定只有这些来源代表用户可见拆解；未知来源默认不展示，避免内部过程混入任务浮窗。
+    const visibleTaskStepSources = [
+        "model",
+        "todoList",
+        "user",
+        "system",
+    ];
     const visibleSteps = taskSteps.filter((step) => {
         return step.taskId === taskId
-            && step.source !== "graph";
+            && visibleTaskStepSources.includes(step.source ?? "");
     });
     const latestPlanVersion = visibleSteps.reduce((current, step) => {
         return Math.max(

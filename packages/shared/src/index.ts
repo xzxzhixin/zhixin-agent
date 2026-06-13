@@ -613,7 +613,7 @@ export interface TaskRecord {
  * TaskStepRecord：任务步骤记录。
  *
  * 来源：SQLite `task_steps` 表。
- * 含义：保存任务执行过程中的单步状态。
+ * 含义：保存用户可见任务拆解步骤状态，内部执行图过程不进入该表。
  * 格式：JSON 对象。
  * 默认值：无。
  * 约束：只能通过所属任务的 `agentId` 间接归属到智能体 todoList。
@@ -627,7 +627,7 @@ export interface TaskStepRecord {
   planVersion: number;
   /** stepOrder: 同一任务内的步骤顺序，来源于 task_steps.step_order，从 1 开始。 */
   stepOrder: number;
-  /** source: 步骤来源，来源于 task_steps.source，旧图节点默认 graph。 */
+  /** source: 步骤来源，来源于 task_steps.source；graph 仅用于历史兼容，新执行图过程不再写入用户可见步骤。 */
   source: "graph" | "model" | "todoList" | "user" | "system";
   /** status: 步骤状态。 */
   status: TaskStatus;

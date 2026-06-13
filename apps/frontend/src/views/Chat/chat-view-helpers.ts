@@ -5,6 +5,7 @@ import type {
     ConversationMessage,
     ConversationTurn,
     EventRecord,
+    TaskRecord,
     TaskStatus,
     TurnGraphCheckpoint,
 } from "@zhixin/shared";
@@ -427,9 +428,13 @@ export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
  * createGroupedProcessRows：把流式、命令、MCP 和工具过程按同一任务与工具类型聚合。
  *
  * @param events 中心服务事件数组。
+ * @param tasks 当前会话任务快照，用于终态兜底。
  * @returns 聚合后的过程卡片数组。
  */
-export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageGroupRow[] {
+export function createGroupedProcessRows(
+    events: EventRecord[],
+    tasks: TaskRecord[] = [],
+): ProcessMessageGroupRow[] {
     const processEvents = events.filter((event) => {
         return isVisibleProcessEvent(event);
     });
@@ -478,6 +483,9 @@ export function createGroupedProcessRows(events: EventRecord[]): ProcessMessageG
         const finalTaskStatus = resolveLaterFinalTaskStatus(
             events,
             latestEvent,
+            groupTaskId,
+        ) ?? resolveSnapshotFinalTaskStatus(
+            tasks,
             groupTaskId,
         );
         return {
@@ -573,6 +581,28 @@ function resolveLaterFinalTaskStatus(
 }
 
 /**
+ * resolveSnapshotFinalTaskStatus：从当前任务快照读取终态。
+ *
+ * @param tasks 当前会话任务快照。
+ * @param taskId 当前过程组稳定任务 ID。
+ * @returns 任务已进入终态时返回终态，否则返回 null。
+ */
+function resolveSnapshotFinalTaskStatus(
+    tasks: TaskRecord[],
+    taskId: string | null,
+): TaskStatus | null {
+    if (!taskId) {
+        return null;
+    }
+    const task = tasks.find((item) => {
+        return item.taskId === taskId;
+    });
+    return task && isFinalTaskStatus(task.status)
+        ? task.status
+        : null;
+}
+
+/**
  * resolveStableProcessTaskId：从同一过程组事件中解析稳定任务 ID。
  *
  * @param events 同一过程组内按序排列的事件。
@@ -645,6 +675,15 @@ function resolveProcessGroupKey(event: EventRecord): string {
             event.taskId ?? "no-task",
             "task-step",
             event.stepId ?? event.scopeId ?? event.eventId,
+        ].join(":");
+    }
+    if (event.eventType.startsWith("graph.node.")) {
+        const graphCheckpoint = readEventGraphCheckpoint(event);
+        return [
+            event.turnId ?? "no-turn",
+            event.taskId ?? "no-task",
+            "graph-node",
+            graphCheckpoint?.checkpointId ?? event.eventId,
         ].join(":");
     }
     const toolCallProcessGroupId = resolveToolCallProcessGroupId(
@@ -735,6 +774,7 @@ function isVisibleProcessEvent(event: EventRecord): boolean {
         "tool.plan.created",
         "agent.loop.batch_limit_reached",
         "task.plan.revised",
+        "task.step.created",
         "task.step.started",
         "task.step.updated",
     ].includes(event.eventType)) {
@@ -1087,7 +1127,7 @@ function resolveProcessSummary(event: EventRecord): string {
     ) || readEventText(
         event,
         "reason",
-    ) || event.summary;
+    );
 }
 
 /**
@@ -1152,7 +1192,7 @@ function resolveProcessLogText(event: EventRecord): string {
     ) || readEventText(
         event,
         "reason",
-    ) || event.summary;
+    );
 }
 
 /**
@@ -1300,7 +1340,8 @@ function resolveProcessKind(event: EventRecord): ProcessMessageGroupRow["process
     if (event.eventType.startsWith("tool.skill.") || payload.toolKind === "skill") {
         return "skill";
     }
-    if (event.eventType.startsWith("task.") || event.eventType === "worker.task.failed") {
+    if (event.eventType.startsWith("task.")
+        || event.eventType === "worker.task.failed") {
         return "task";
     }
     if (event.eventType.startsWith("tool.agent.")

@@ -74,6 +74,22 @@ export interface DeepAgentsToolResult {
 }
 
 /**
+ * DeepAgentsToolPlanItem：模型请求过的工具计划摘要。
+ *
+ * 来源：工具执行节点收到的 OpenAI tool_calls。
+ * 含义：供最终工具计划审计事件使用，独立于 toolResults，避免回填模型后清空临时结果导致计划丢失。
+ * 格式：toolCallId 加可展示工具摘要。
+ * 默认值：没有工具调用时为空数组。
+ * 约束：不得包含完整敏感入参或工具输出正文。
+ */
+export interface DeepAgentsToolPlanItem {
+    /** toolCallId: OpenAI tool_call_id，用于把计划、执行和回填事件聚合。 */
+    toolCallId: string;
+    /** executedTool: UI 和审计使用的工具摘要。 */
+    executedTool: DeepAgentsExecutedTool;
+}
+
+/**
  * DeepAgentsTurnState：中心服务每轮对话传入 Deep Agents 的状态。
  *
  * 来源：会话发送接口已经创建的消息、轮次和任务身份。
@@ -103,6 +119,8 @@ export interface DeepAgentsTurnState {
     executedTool: DeepAgentsExecutedTool | null;
     /** toolResults: 最近一轮工具执行结果，供 tool.result 节点回填。 */
     toolResults: DeepAgentsToolResult[];
+    /** toolPlanItems: 本轮模型已请求工具计划摘要，供最终审计事件使用。 */
+    toolPlanItems: DeepAgentsToolPlanItem[];
     /** toolRound: OpenAI 工具调用循环轮次，避免模型无限请求工具。 */
     toolRound: number;
     /** toolBatchCount: 已自动续跑的工具批次数。 */
@@ -130,7 +148,7 @@ export interface DeepAgentsTurnState {
  * 含义：让 runner 只负责编排，副作用仍收敛在会话域。
  * 格式：每个字段对应一个 Deep Agents 执行节点。
  * 默认值：无。
- * 约束：执行器需要自己写入 events、task_steps 和 payload.graph。
+ * 约束：执行器需要自己写入 events 和 payload.graph；只有用户可见计划项才写 task_steps。
  */
 export interface DeepAgentsNodeExecutors {
     /** thinkingContext: 整理上下文和公开思考摘要。 */
@@ -184,7 +202,7 @@ function createDeepAgentsCheckpointer(centerDirectory?: string): SqliteSaver | u
         return undefined;
     }
 
-    // checkpointPath: 运行中图状态放入中心目录，随中心目录迁移；长期事实仍由 events、task_steps、Markdown 和 SQLite 主库承载。
+    // checkpointPath: 运行中图状态放入中心目录，随中心目录迁移；长期事实仍由 events、用户可见 task_steps、Markdown 和 SQLite 主库承载。
     const checkpointPath = join(
         centerDirectory,
         "db",
@@ -217,6 +235,7 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
             finalModelResult: null,
             executedTool: null,
             toolResults: null,
+            toolPlanItems: null,
             toolRound: null,
             toolBatchCount: null,
             totalToolRound: null,
@@ -333,6 +352,7 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
                 finalModelResult: null,
                 executedTool: null,
                 toolResults: [],
+                toolPlanItems: [],
                 toolRound: 0,
                 toolBatchCount: 0,
                 totalToolRound: 0,

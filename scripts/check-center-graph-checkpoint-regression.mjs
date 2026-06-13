@@ -118,14 +118,43 @@ for (const signal of [
   "appendToolVisibilityEvents",
   "\"message.persist\"",
   "\"tool.execute\"",
-  "task.step.started",
-  "task.step.updated",
+  "graph.node.started",
+  "graph.node.completed",
+  "graph.node.failed",
+  "runGraphNodeWithEvents",
+  "\"tool.execute\"",
+  "\"tool.result\"",
+  "\"message.persist\"",
+  "\"memory.commit\"",
+  "\"usage.record\"",
 ]) {
   assertIncludes(
     sessionDomain,
     signal,
     `会话执行链路缺少 graph/checkpoint 接入：${signal}`,
   );
+}
+
+for (const graphNodeName of [
+  "thinkingContext: async",
+  "modelStream: async",
+  "toolPlan: async",
+]) {
+  const graphNodeIndex = sessionDomain.indexOf(graphNodeName);
+  if (graphNodeIndex < 0) {
+    throw new Error(`Deep Agents 节点缺少实现：${graphNodeName}`);
+  }
+  const graphNodeBody = sessionDomain.slice(
+    graphNodeIndex,
+    sessionDomain.indexOf("},", graphNodeIndex),
+  );
+  if (graphNodeBody.includes("createTaskStep(") || graphNodeBody.includes("updateTaskStep(")) {
+    throw new Error(`${graphNodeName} 不能写入 task_steps；graph 节点只能写 graph.node.* 过程事件。`);
+  }
+}
+
+if (sessionDomain.includes("source ?? \"graph\"")) {
+  throw new Error("用户可见步骤创建入口不能默认 source=graph；graph 过程只能写 graph.node.* 事件。");
 }
 
 for (const signal of [
@@ -163,7 +192,6 @@ for (const signal of [
 for (const signal of [
   "graphCheckpoint",
   "withOptionalGraphCheckpoint",
-  "thinking.completed",
   "model.stream.completed",
 ]) {
   assertIncludes(

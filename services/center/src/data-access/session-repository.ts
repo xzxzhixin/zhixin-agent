@@ -732,9 +732,9 @@ export class SessionRepository {
     }
 
     /**
-     * createTaskStep：创建任务步骤并把任务置为运行中。
+     * createTaskStep：创建用户可见任务步骤。
      *
-     * @param input 步骤和任务字段。
+     * @param input 步骤字段；任务主状态由 worker/task 生命周期入口维护。
      * @returns 没有返回值。
      */
     createTaskStep(input: {
@@ -743,10 +743,13 @@ export class SessionRepository {
         planVersion: number;
         stepOrder: number;
         source: TaskStepRecord["source"];
+        status: TaskStepRecord["status"];
         title: string;
         dependsOn: string[];
         acceptance: string | null;
-        startedAt: string;
+        startedAt: string | null;
+        endedAt: string | null;
+        summary: string | null;
     }): void {
         this.database.connection()
             .prepare(`
@@ -764,7 +767,7 @@ export class SessionRepository {
                                         summary,
                                         superseded_by,
                                         superseded_reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
             `)
             .run(
                 input.stepId,
@@ -772,18 +775,14 @@ export class SessionRepository {
                 input.planVersion,
                 input.stepOrder,
                 input.source,
-                "running",
+                input.status,
                 input.title,
                 JSON.stringify(input.dependsOn),
                 input.acceptance,
                 input.startedAt,
+                input.endedAt,
+                input.summary,
             );
-
-        this.updateTaskStatus(
-            input.taskId,
-            "running",
-            input.startedAt,
-        );
     }
 
     /**

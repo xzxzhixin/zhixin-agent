@@ -151,8 +151,8 @@ for (const signal of [
   "startsWith(\"thinking.\")",
   "model.stream.delta",
   "process-card",
-  "process-log-list",
-  "max-height: 20vh;",
+  "process-card__body",
+  "max-height: 200px;",
   "thinking-block",
   "readEventText",
   "model.failed",
@@ -168,6 +168,7 @@ for (const signal of [
 }
 
 for (const signal of [
+  "task.step.created",
   "tool.plan.created",
   "agent.loop.batch_limit_reached",
   "task.step.started",
@@ -179,6 +180,23 @@ for (const signal of [
     chatProcessAggregationSource,
     signal,
     `主智能体对话过程聚合缺少正在做什么的事件信号：${signal}`,
+  );
+}
+
+for (const signal of [
+  "graph.node.started",
+  "graph.node.completed",
+  "graph.node.failed",
+]) {
+  assertIncludes(
+    sessionDomain,
+    signal,
+    `Deep Agents 内部执行图审计缺少事件信号：${signal}`,
+  );
+  assertNotIncludes(
+    chatProcessAggregationSource,
+    signal,
+    `graph.node.* 是内部执行图审计事件，不能进入用户可见过程聚合：${signal}`,
   );
 }
 

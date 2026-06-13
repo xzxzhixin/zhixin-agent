@@ -76,6 +76,8 @@ const helpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.
 const commandRuntime = readProjectFile("services/center/src/tools/command-tool.ts");
 // eventStore: 中心服务事件控制台输出，必须避免输出工具中间态刷屏。
 const eventStore = readProjectFile("services/center/src/events.ts");
+// logger: 中心服务控制台日志实现，必须保持中文原文。
+const logger = readProjectFile("services/center/src/logger.ts");
 // sessionDomain: LangGraph 会话执行器，不能用固定上下文整理事件冒充真实思考。
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 
@@ -87,12 +89,22 @@ assertIncludes(
 assertIncludes(
   helpers,
   "defaultOpen: isRunning",
-  "工具过程卡片必须运行中默认展开，完成或失败后默认折叠。",
+  "过程行必须保留运行态判定，避免终态后继续显示执行中。",
 );
 assertIncludes(
   helpers,
   "resolveToolCallProcessGroupId",
   "同一 toolCallId 的模型请求、工具计划、命令/MCP 执行和结果回填必须聚合到同一过程卡片。",
+);
+assertIncludes(
+  helpers,
+  "graphCheckpoint?.checkpointId",
+  "graph checkpoint 分组能力必须保留，供内部事件审计和历史兼容使用。",
+);
+assertNotIncludes(
+  helpers,
+  "\"graph.node.started\",\n        \"graph.node.completed\",\n        \"graph.node.failed\"",
+  "graph.node.* 是内部执行图审计事件，不能进入用户可见过程卡片。",
 );
 assertIncludes(
   helpers,
@@ -106,28 +118,18 @@ assertIncludes(
 );
 assertIncludes(
   panel,
-  "process-card__timeline",
-  "过程卡片内部必须渲染请求、计划、执行、输出、完成和回填日志。",
+  "process-card__body",
+  "过程卡片内部必须渲染聚合后的执行内容。",
 );
 assertIncludes(
   panel,
-  "row.process.logs",
-  "过程卡片内部必须按聚合日志展示完整工具调用过程。",
+  "row.process.terminalText",
+  "过程卡片内部必须按聚合文本展示完整工具调用过程。",
 );
 assertIncludes(
   panel,
   "process-card--command",
   "命令过程卡片必须有命令专属样式类。",
-);
-assertIncludes(
-  panel,
-  "<details",
-  "过程卡片必须使用 details 或等价折叠结构。",
-);
-assertIncludes(
-  panel,
-  ":open=\"row.process.defaultOpen\"",
-  "过程卡片默认展开状态必须来自聚合后的 defaultOpen。",
 );
 assertIncludes(
   panel,
@@ -184,6 +186,21 @@ assertIncludes(
   "event.eventType === \"tool.command.started\"",
   "中心服务控制台日志必须保留命令启动这一头日志。",
 );
+assertIncludes(
+  logger,
+  "Utf8ConsoleStream",
+  "中心服务控制台日志必须按 UTF-8 原文输出中文，不能再使用 ASCII 转义流。",
+);
+assertNotIncludes(
+  logger,
+  "escapeNonAscii",
+  "中心服务控制台日志不能把中文转义为 \\uXXXX；日志文件和控制台都应显示中文原文。",
+);
+assertNotIncludes(
+  logger,
+  "AsciiConsoleStream",
+  "中心服务控制台日志不能继续使用 ASCII 转义流。",
+);
 assertNotIncludes(
   sessionDomain,
   "appendThinkingEvents(",
@@ -191,8 +208,8 @@ assertNotIncludes(
 );
 assertIncludes(
   sessionDomain,
-  "for (const toolResult of state.toolResults)",
-  "工具计划事件必须按每个 toolCallId 分别写入，避免多工具同轮时只聚合第一个工具卡片。",
+  "for (const toolPlanItem of state.toolPlanItems)",
+  "工具计划事件必须使用独立计划摘要按每个 toolCallId 分别写入，避免模型回填后清空临时 toolResults 导致计划丢失。",
 );
 
 if (failures.length > 0) {

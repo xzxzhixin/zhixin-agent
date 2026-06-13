@@ -97,10 +97,10 @@ assertNotIncludes(
   "failureReason: failedStep?.summary",
   "任务行不能展示失败原因，失败原因应留给过程或事件详情。",
 );
-assertIncludes(
+assertNotIncludes(
   chatConversation,
   "positionText: `${stepIndex + 1}/${visibleSteps.length}`",
-  "步骤行必须生成序号/总数字段。",
+  "任务浮窗右侧不能继续生成序号/总数字段。",
 );
 assertIncludes(
   chatConversation,
@@ -129,8 +129,13 @@ assertIncludes(
 );
 assertIncludes(
   taskDetailDialog,
+  "task.elapsed",
+  "任务详情右侧必须只显示本任务耗时。",
+);
+assertNotIncludes(
+  taskDetailDialog,
   "step.positionText",
-  "任务详情右侧必须显示序号/总数。",
+  "任务详情右侧不能显示序号/总数。",
 );
 assertNotIncludes(
   taskDetailDialog,

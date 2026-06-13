@@ -50,7 +50,7 @@ interface CenterLogLine {
  * CenterConsoleLogger：中心服务开发控制台日志门面。
  *
  * 来源：pino 第三方日志包。
- * 含义：过滤运行中中间态，并把中文转义为 ASCII，降低 IDEA 控制台代码页不一致导致的乱码概率。
+ * 含义：过滤运行中中间态，并保持 UTF-8 原文输出，确保中文在开发控制台正确显示。
  * 格式：info/error 方法兼容现有调用点。
  * 默认值：输出到 stdout。
  * 约束：文件日志仍保留 UTF-8 原文，控制台只做开发排查摘要。
@@ -291,11 +291,11 @@ class RotatingCenterLogStream extends Writable {
 }
 
 /**
- * AsciiConsoleStream：把控制台输出转成 ASCII 安全文本。
+ * Utf8ConsoleStream：把 pino 控制台日志按 UTF-8 原文写入 stdout。
  */
-class AsciiConsoleStream extends Writable {
+class Utf8ConsoleStream extends Writable {
     /**
-     * _write：转义非 ASCII 字符后写入 stdout。
+     * _write：保持 pino 输出原文写入 stdout。
      *
      * @param chunk pino 输出内容。
      * @param _encoding Node 写入编码。
@@ -308,7 +308,7 @@ class AsciiConsoleStream extends Writable {
         callback: (error?: Error | null) => void,
     ): void {
         process.stdout.write(
-            escapeNonAscii(String(chunk)),
+            chunk,
             callback,
         );
     }
@@ -318,7 +318,7 @@ class AsciiConsoleStream extends Writable {
  * centerConsoleLogger：中心服务开发控制台结构化日志。
  *
  * 来源：pino 第三方日志包。
- * 含义：替代散落 console.info/error 的开发控制台日志，控制台使用 ASCII 转义避免中文乱码。
+ * 含义：替代散落 console.info/error 的开发控制台日志，控制台按 UTF-8 原文显示中文。
  * 默认值：输出到当前进程 stdout。
  * 约束：payload 不写敏感明文，running 中间态不输出，时间使用中心服务本机时间格式。
  */
@@ -338,7 +338,7 @@ function createCenterConsoleLogger(): CenterConsoleLogger {
                 return `,"occurredAt":"${formatCenterLocalDateTime()}"`;
             },
         },
-        new AsciiConsoleStream(),
+        new Utf8ConsoleStream(),
     );
 
     return {
@@ -375,21 +375,6 @@ function shouldSkipConsoleLog(line: CenterLogLine): boolean {
         return true;
     }
     return typeof payload.eventType === "string" && payload.eventType.endsWith(".started");
-}
-
-/**
- * escapeNonAscii：把非 ASCII 字符转义，避免 IDEA 控制台代码页不同造成中文乱码。
- *
- * @param text 原始控制台文本。
- * @returns ASCII 安全文本。
- */
-function escapeNonAscii(text: string): string {
-    return text.replace(/[^\x00-\x7F]/gu, (character) => {
-        const codePoint = character.codePointAt(0) ?? 0;
-        return codePoint <= 0xFFFF
-            ? `\\u${codePoint.toString(16).padStart(4, "0")}`
-            : `\\u{${codePoint.toString(16)}}`;
-    });
 }
 
 /**

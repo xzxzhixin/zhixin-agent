@@ -169,22 +169,7 @@ export function executeTodoListTool(
                 source: "todoList",
                 dependsOn: item.dependsOn,
                 acceptance: item.acceptance,
-            },
-        );
-        updateTaskStep(
-            database,
-            events,
-            createdStep.stepId,
-            item.status,
-            null,
-            undefined,
-            {
-                title: item.title,
-                planVersion: nextPlanVersion,
-                stepOrder,
-                source: "todoList",
-                dependsOn: item.dependsOn,
-                acceptance: item.acceptance,
+                initialStatus: item.status,
             },
         );
         createdStepIds.push(createdStep.stepId);

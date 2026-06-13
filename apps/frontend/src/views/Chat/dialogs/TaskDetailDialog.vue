@@ -36,8 +36,6 @@ interface TaskPanelRow {
     status: string;
     /** elapsed: 步骤耗时。 */
     elapsed: string;
-    /** positionText: 步骤序号，格式为 当前序号/总数。 */
-    positionText: string;
     /** traceId: 步骤所属任务最近事件排查 ID。 */
     traceId: string;
   }>;
