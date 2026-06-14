@@ -108,7 +108,8 @@ const toolRuntime = [
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 
 for (const signal of [
-  "thinking.context",
+  "model.stream",
+  "tool.execute",
   "appendProviderStreamDelta",
   "setTimeout",
   "broadcastEvents",
@@ -154,15 +155,16 @@ for (const signal of [
 }
 
 for (const signal of [
-  "planCommandToolForUserText",
+  "tool_calls",
+  "buildUnifiedToolCallIntentFromModelCall",
   "runCommandTool",
   "tool.command.started",
   "tool.command.completed",
 ]) {
   assertIncludes(
-    conversationActions + sessionDomain + toolRuntime,
+    conversationActions + sessionDomain + toolRuntime + modelGatewayRuntime,
     signal,
-    `Node 版本命令必须通过对话链路触发并进入工具过程：${signal}`,
+    `命令工具必须通过 Deep Agents 结构化工具调用链路进入工具过程：${signal}`,
   );
 }
 

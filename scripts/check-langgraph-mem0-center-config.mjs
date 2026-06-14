@@ -145,8 +145,8 @@ if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
     "StateGraph",
     "START",
     "END",
-    ".addNode(\"thinking.context\"",
     ".addNode(\"model.stream\"",
+    ".addNode(\"tool.execute\"",
     ".addConditionalEdges(",
     "thread_id",
     "sessionId",
@@ -159,6 +159,19 @@ if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
       `Deep Agents runner 缺少核心信号：${signal}`,
     );
   }
+  for (const legacySignal of [
+    ".addNode(\"thinking.context\"",
+    ".addNode(\"tool.result\"",
+    "thinkingContext:",
+    "toolResult:",
+  ]) {
+    assertNotIncludes(
+      "services/center/src/deepagents-runner.ts",
+      deepAgentsRunner,
+      legacySignal,
+      `思考节点和旧工具回填节点必须移除：${legacySignal}`,
+    );
+  }
 }
 
 if (existsSync(join(root, "services/center/src/domain/session-domain.ts"))) {
@@ -167,6 +180,8 @@ if (existsSync(join(root, "services/center/src/domain/session-domain.ts"))) {
     "export async function completeCreatedTurn",
     "runDeepAgentsTurn(",
     "payload: withTurnGraphCheckpoint",
+    "continueDeepAgentsToolNodeWithResults",
+    "continueProviderModelGatewayWithToolResults",
   ]) {
     assertIncludes(
       "services/center/src/domain/session-domain.ts",

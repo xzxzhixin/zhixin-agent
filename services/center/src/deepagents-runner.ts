@@ -57,7 +57,7 @@ export interface DeepAgentsExecutedTool {
 }
 
 /**
- * DeepAgentsToolResult：工具执行节点和工具结果回填节点之间传递的结果。
+ * DeepAgentsToolResult：Deep Agents 工具节点内部执行和回填之间传递的结果。
  *
  * 来源：中心服务工具运行时。
  * 含义：保存 OpenAI tool_call_id 对应工具输出，供下一次模型调用回填。
@@ -134,7 +134,7 @@ export interface DeepAgentsTurnState {
     finalModelResult: ProviderModelGatewayResult | null;
     /** executedTool: 已执行工具摘要，没有工具时为 null。 */
     executedTool: DeepAgentsExecutedTool | null;
-    /** toolResults: 最近一轮工具执行结果，供 tool.result 节点回填。 */
+    /** toolResults: 最近一轮工具执行结果，供 Deep Agents 工具节点内部回填模型。 */
     toolResults: DeepAgentsToolResult[];
     /** toolPlanItems: 本轮模型已请求工具计划摘要，供最终审计事件使用。 */
     toolPlanItems: DeepAgentsToolPlanItem[];
@@ -168,14 +168,10 @@ export interface DeepAgentsTurnState {
  * 约束：执行器需要自己写入 events 和 payload.graph；只有用户可见计划项才写 task_steps。
  */
 export interface DeepAgentsNodeExecutors {
-    /** thinkingContext: 整理上下文和公开思考摘要。 */
-    thinkingContext: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** modelStream: 调用模型并接收 OpenAI 流式回复。 */
     modelStream: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** toolExecute: 执行模型请求的 OpenAI tool_calls。 */
     toolExecute: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
-    /** toolResult: 把工具结果按 OpenAI tool_call_id 回填给模型。 */
-    toolResult: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** toolPlan: 记录工具计划和可见能力状态。 */
     toolPlan: (state: DeepAgentsTurnState) => Promise<Partial<DeepAgentsTurnState>>;
     /** messagePersist: 固化最终助手消息或处理不完整工具意图。 */
@@ -279,12 +275,6 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
             errorMessage: null,
         },
     })
-        .addNode("thinking.context", async (state) => {
-            return mergeTurnState(
-                state,
-                await input.executors.thinkingContext(state),
-            );
-        })
         .addNode("model.stream", async (state) => {
             return mergeTurnState(
                 state,
@@ -295,12 +285,6 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
             return mergeTurnState(
                 state,
                 await input.executors.toolExecute(state),
-            );
-        })
-        .addNode("tool.result", async (state) => {
-            return mergeTurnState(
-                state,
-                await input.executors.toolResult(state),
             );
         })
         .addNode("tool.plan", async (state) => {
@@ -333,8 +317,7 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
                 await input.executors.failureClose(state),
             );
         })
-        .addEdge(START, "thinking.context")
-        .addEdge("thinking.context", "model.stream")
+        .addEdge(START, "model.stream")
         .addConditionalEdges(
             "model.stream",
             routeAfterModelStream,
@@ -344,10 +327,9 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
                 "failure.close": "failure.close",
             },
         )
-        .addEdge("tool.execute", "tool.result")
         .addConditionalEdges(
-            "tool.result",
-            routeAfterToolResult,
+            "tool.execute",
+            routeAfterToolExecute,
             {
                 "tool.execute": "tool.execute",
                 "message.persist": "message.persist",
@@ -420,7 +402,7 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
  * @returns 没有返回值。
  */
 function initializeDeepAgentsHarness(): void {
-    // deepAgentGraph: 初始化 Deep Agents harness 并锁定 write_todos 原生协议；当前轮次仍由中心服务节点执行器承接事实源同步，避免 Deep Agents 直接写核心存储。
+    // deepAgentGraph: 初始化 Deep Agents harness 并锁定 write_todos 和工具调度协议；中心服务只保留事实源、安全和审计执行器，避免 Deep Agents 直接写核心存储。
     const deepAgentGraph = createDeepAgent({
         tools: [],
         systemPrompt: "中心服务负责事实源、权限和审计。长任务规划使用 Deep Agents 原生 write_todos 协议，并同步为当前智能体 task_steps。",
@@ -476,12 +458,12 @@ function routeAfterModelStream(state: DeepAgentsTurnState): DeepAgentsRoute {
 }
 
 /**
- * routeAfterToolResult：工具结果节点后按模型是否继续请求工具决定循环或固化。
+ * routeAfterToolExecute：Deep Agents 工具节点后按模型是否继续请求工具决定循环或固化。
  *
  * @param state 当前图状态。
  * @returns 下一节点路由。
  */
-function routeAfterToolResult(state: DeepAgentsTurnState): DeepAgentsRoute {
+function routeAfterToolExecute(state: DeepAgentsTurnState): DeepAgentsRoute {
     if (state.failed) {
         return "failure.close";
     }

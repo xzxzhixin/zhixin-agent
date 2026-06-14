@@ -67,10 +67,14 @@ assertIncludes(modelGateway, "buildOpenAiChatPayload", "模型网关必须把工
 assertIncludes(modelGateway, "tool_calls", "模型网关缺少 OpenAI tool_calls 解析");
 assertIncludes(modelGateway, "tool_call_id", "模型网关缺少 OpenAI tool_call_id 回填");
 assertIncludes(deepAgentsRunner, "tool.execute", "Deep Agents runner 缺少工具执行节点");
-assertIncludes(deepAgentsRunner, "tool.result", "Deep Agents runner 缺少工具结果回填节点");
+assertIncludes(sessionDomain, "continueDeepAgentsToolNodeWithResults", "会话域必须在 Deep Agents 工具节点执行器内承载工具结果回填");
+assertIncludes(sessionDomain, "continueProviderModelGatewayWithToolResults", "Deep Agents 工具节点执行器必须回填工具结果并继续模型执行");
 assertIncludes(deepAgentsRunner, ".addConditionalEdges(", "Deep Agents runner 缺少 OpenAI tool_calls 条件边");
 assertIncludes(sessionTurnEffects, "model.tool.requested", "会话工具执行缺少模型工具请求事件");
 assertIncludes(modelGateway, "continueProviderModelGatewayWithToolResults", "模型网关缺少多工具结果回填模型");
 assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时仍通过 node 文本硬编码触发工具");
 assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行时仍通过 python 文本硬编码触发工具");
 assertNotIncludes(sessionDomain, "const unifiedToolIntent = planUnifiedToolCallForUserText(userText);", "会话编排仍先按用户文本硬编码生成工具意图");
+assertNotIncludes(toolRuntime, "planUnifiedToolCallForUserText", "工具运行时不能继续保留按用户文本猜测工具调用的旧入口");
+assertNotIncludes(deepAgentsRunner, "thinking.context", "Deep Agents runner 不能继续保留独立思考上下文节点");
+assertNotIncludes(deepAgentsRunner, ".addNode(\"tool.result\"", "Deep Agents runner 不能继续保留旧工具结果回填节点");

@@ -112,7 +112,6 @@ for (const signal of [
 for (const signal of [
   "createTurnGraphContext",
   "withTurnGraphCheckpoint",
-  "\"thinking.context\"",
   "\"model.stream\"",
   "\"tool.plan\"",
   "appendToolVisibilityEvents",
@@ -123,7 +122,6 @@ for (const signal of [
   "graph.node.failed",
   "runGraphNodeWithEvents",
   "\"tool.execute\"",
-  "\"tool.result\"",
   "\"message.persist\"",
   "\"memory.commit\"",
   "\"usage.record\"",
@@ -136,8 +134,8 @@ for (const signal of [
 }
 
 for (const graphNodeName of [
-  "thinkingContext: async",
   "modelStream: async",
+  "toolExecute: async",
   "toolPlan: async",
 ]) {
   const graphNodeIndex = sessionDomain.indexOf(graphNodeName);
@@ -150,6 +148,16 @@ for (const graphNodeName of [
   );
   if (graphNodeBody.includes("createTaskStep(") || graphNodeBody.includes("updateTaskStep(")) {
     throw new Error(`${graphNodeName} 不能写入 task_steps；graph 节点只能写 graph.node.* 过程事件。`);
+  }
+}
+
+for (const legacyGraphNodeName of [
+  "thinkingContext: async",
+  "\"thinking.context\"",
+  "\"tool.result\"",
+]) {
+  if (sessionDomain.includes(legacyGraphNodeName)) {
+    throw new Error(`会话执行链路不能继续保留旧 Deep Agents 节点：${legacyGraphNodeName}`);
   }
 }
 

@@ -172,15 +172,13 @@ assertNotIncludes(
 const deepAgentsNodeMatches = [
   ...deepAgentsRunner.matchAll(/\.addNode\(/gu),
 ];
-if (deepAgentsNodeMatches.length < 8) {
-  fail("Deep Agents runner 必须拆成至少 8 个真实 agent loop 节点，而不是单节点套壳。");
+if (deepAgentsNodeMatches.length < 6) {
+  fail("Deep Agents runner 必须保留模型、工具、计划、消息、记忆、用量和失败收尾等真实 agent loop 节点，而不是单节点套壳。");
 }
 
 for (const nodeName of [
-  "thinking.context",
   "model.stream",
   "tool.execute",
-  "tool.result",
   "message.persist",
   "memory.commit",
   "usage.record",
@@ -189,6 +187,16 @@ for (const nodeName of [
     deepAgentsRunner,
     nodeName,
     `Deep Agents runner 缺少 ${nodeName} 真实节点。`,
+  );
+}
+for (const legacyNodeName of [
+  "thinking.context",
+  ".addNode(\"tool.result\"",
+]) {
+  assertNotIncludes(
+    deepAgentsRunner,
+    legacyNodeName,
+    `Deep Agents runner 不能继续保留旧节点：${legacyNodeName}`,
   );
 }
 

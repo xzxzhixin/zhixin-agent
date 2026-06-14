@@ -193,8 +193,8 @@ assertIncludes(
 );
 assertIncludes(
   "services/center/src/tools/index.ts",
-  "runCommandTool",
-  "通用命令工具必须使用统一运行入口。",
+  "buildUnifiedToolCallIntentFromModelCall",
+  "命令工具必须通过统一结构化工具调用意图进入运行入口。",
 );
 assertIncludes(
   "services/center/src/tools/index.ts",
@@ -217,9 +217,14 @@ assertIncludes(
   "命令工具真实执行结果必须回填模型后再生成助手最终回复。",
 );
 assertNotIncludes(
-  "services/center/src/domain/session-domain.ts",
-  "export function planCommandToolForUserText",
-  "session-domain 不得保留重复命令工具规划函数。",
+  "services/center/src/tools/command-tool.ts",
+  "planCommandToolForUserText",
+  "命令工具不得保留用户文本规划入口，必须通过模型结构化 tool_calls 调用。",
+);
+assertNotIncludes(
+  "services/center/src/tools/tool-openai-adapter.ts",
+  "planUnifiedToolCallForUserText",
+  "统一工具适配器不得保留用户文本规划入口，必须通过模型结构化 tool_calls 调用。",
 );
 assertIncludes(
   "services/center/src/data-access/schema.ts",

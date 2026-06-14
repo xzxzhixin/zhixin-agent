@@ -9,14 +9,12 @@ export {
     buildUnifiedToolCallIntentFromModelCall,
     listAvailableModelToolSpecs,
     listAvailableModelToolSpecsForCenter,
-    planUnifiedToolCallForUserText,
 } from "./tool-openai-adapter.js";
 export {
     appendToolVisibilityEvents,
 } from "./tool-events.js";
 export {
     commandRequestFromUnifiedToolIntent,
-    planCommandToolForUserText,
     runCommandTool,
 } from "./command-tool.js";
 export type {

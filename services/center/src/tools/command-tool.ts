@@ -7,9 +7,6 @@ import type {
 
 import type {CenterEventStore} from "../events.js";
 import {
-    planUnifiedToolCallForUserText,
-} from "./tool-openai-adapter.js";
-import {
     resolveUnifiedToolCapability,
 } from "./tool-capability-registry.js";
 import {
@@ -38,20 +35,6 @@ export interface CommandToolRequest {
     args: string[];
     /** inputSummary: 命令用途摘要。 */
     inputSummary: string;
-}
-
-/**
- * planCommandToolForUserText：兼容旧调用方的命令工具规划入口。
- *
- * @param userText 用户输入。
- * @returns 命令请求；没有命令意图时返回 null。
- */
-export function planCommandToolForUserText(userText: string): CommandToolRequest | null {
-    const intent = planUnifiedToolCallForUserText(userText);
-    if (!intent || intent.toolKind !== "command") {
-        return null;
-    }
-    return commandRequestFromUnifiedToolIntent(intent);
 }
 
 /**

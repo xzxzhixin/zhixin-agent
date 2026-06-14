@@ -904,49 +904,15 @@ function createDeepAgentsNodeExecutors(
     memoryQueues?: Map<string, MemoryQueueState>,
 ): DeepAgentsNodeExecutors {
     return {
-        thinkingContext: async (state) => {
-            const graphContext = createStateGraphContext(state);
-            const checkpoint = createStateGraphCheckpoint(
-                state,
-                "thinking.context",
-                "thinking",
-                1,
-                null,
-                [
-                    "model.stream",
-                ],
-                "整理会话、项目、记忆和可用能力上下文。",
-            );
-            startWorkerTask(database, events, state.taskId);
-            recordGraphNodeEvent(
-                events,
-                graphContext,
-                checkpoint,
-                "graph.node.started",
-                "running",
-                "思考与上下文整理",
-                "整理会话、项目、记忆和可用能力上下文。",
-            );
-            // 真实思考只能来自供应商明确公开的 reasoning/thinking 摘要；上下文整理节点只写内部 graph 审计事件，不写用户可见 thinking.* 正文事件。
-            recordGraphNodeEvent(
-                events,
-                graphContext,
-                checkpoint,
-                "graph.node.completed",
-                "completed",
-                "思考过程和上下文整理完成。",
-                "思考过程和上下文整理完成。",
-            );
-            return {};
-        },
         modelStream: async (state) => {
+            startWorkerTask(database, events, state.taskId);
             const graphContext = createStateGraphContext(state);
             const checkpoint = createStateGraphCheckpoint(
                 state,
                 "model.stream",
                 "model",
-                2,
-                "thinking.context",
+                1,
+                null,
                 [
                     "tool.execute",
                     "message.persist",
@@ -1024,11 +990,11 @@ function createDeepAgentsNodeExecutors(
                     "agent.loop.batch_limit_reached",
                     "tool",
                     3 + state.totalToolRound * 2,
-                    "tool.result",
+                    "tool.execute",
                     [
                         "tool.execute",
                     ],
-                    "单批工具循环达到内部预算，自动续跑同一轮次同一任务。",
+                    "单批工具循环达到内部预算，交由 Deep Agents 工具节点自动续跑同一轮次同一任务。",
                 );
                 events.append({
                     eventType: "agent.loop.batch_limit_reached",
@@ -1058,12 +1024,13 @@ function createDeepAgentsNodeExecutors(
                 state,
                 "tool.execute",
                 "tool",
-                3 + state.toolRound * 2,
+                2 + state.toolRound,
                 "model.stream",
                 [
-                    "tool.result",
+                    "tool.execute",
+                    "message.persist",
                 ],
-                "执行模型请求的命令或 MCP 工具并记录副作用结果。",
+                "由 Deep Agents 工具节点执行模型请求的命令或 MCP 工具，并把结果回填模型。",
             );
             const graphContext = createStateGraphContext(state);
             const toolResults = await runGraphNodeWithEvents(
@@ -1071,7 +1038,7 @@ function createDeepAgentsNodeExecutors(
                 graphContext,
                 checkpoint,
                 "工具执行",
-                "执行模型请求的命令或 MCP 工具并记录副作用结果。",
+                "由 Deep Agents 工具节点执行模型请求的命令或 MCP 工具，并把结果回填模型。",
                 "工具执行完成。",
                 async () => {
                     return executeModelRequestedTools(
@@ -1100,8 +1067,16 @@ function createDeepAgentsNodeExecutors(
                     executedTool: toolResult.executedTool,
                 };
             });
+            const nextState = await continueDeepAgentsToolNodeWithResults(
+                database,
+                events,
+                state,
+                mappedToolResults,
+                checkpoint,
+            );
             return {
-                toolResults: mappedToolResults,
+                ...nextState,
+                toolResults: [],
                 toolPlanItems: [
                     ...state.toolPlanItems,
                     ...mappedToolPlanItems,
@@ -1111,95 +1086,13 @@ function createDeepAgentsNodeExecutors(
                     : state.executedTool,
             };
         },
-        toolResult: async (state) => {
-            const graphContext = createStateGraphContext(state);
-            const checkpoint = createStateGraphCheckpoint(
-                state,
-                "tool.result",
-                "model",
-                4 + state.toolRound * 2,
-                "tool.execute",
-                [
-                    "tool.execute",
-                    "message.persist",
-                ],
-                "按 OpenAI tool_call_id 把工具结果回填模型生成后续回复。",
-            );
-            return runGraphNodeWithEvents(
-                events,
-                graphContext,
-                checkpoint,
-                "工具结果回填",
-                "按 OpenAI tool_call_id 把工具结果回填模型生成后续回复。",
-                "工具结果回填完成。",
-                async () => {
-                    if (state.toolResults.length === 0) {
-                        return {
-                            modelResult: state.modelResult,
-                            finalModelResult: state.modelResult,
-                            toolRound: state.toolRound + 1,
-                            totalToolRound: state.totalToolRound + 1,
-                            batchContinuation: false,
-                        };
-                    }
-                    const commandInputFailureText = resolveCommandInputFailureAssistantText(state.toolResults);
-                    if (commandInputFailureText && state.modelResult) {
-                        // 空命令参数已经是工具输入错误，继续回填给模型只会触发同一个空工具调用循环。
-                        const finalModelResult: ProviderModelGatewayResult = {
-                            ...state.modelResult,
-                            assistantText: commandInputFailureText,
-                            toolCall: null,
-                            toolCalls: [],
-                        };
-                        return {
-                            modelResult: finalModelResult,
-                            finalModelResult,
-                            toolResults: [],
-                            toolRound: state.toolRound + 1,
-                            totalToolRound: state.totalToolRound + 1,
-                            batchContinuation: false,
-                        };
-                    }
-                    const nextModelResult = await continueProviderModelGatewayWithToolResults(
-                        database,
-                        events,
-                        state.sessionId,
-                        state.taskId,
-                        state.turnId,
-                        state.userText,
-                        state.toolResults.map((toolResult) => {
-                            return {
-                                toolCall: toolResult.toolCall,
-                                resultText: toolResult.resultText,
-                            };
-                        }),
-                        checkpoint,
-                    );
-                    return {
-                        modelResult: nextModelResult,
-                        finalModelResult: nextModelResult.toolCalls.length === 0
-                            ? nextModelResult
-                            : state.finalModelResult,
-                        toolResults: [],
-                        toolRound: state.toolRound + 1,
-                        totalToolRound: state.totalToolRound + 1,
-                        batchContinuation: false,
-                    };
-                },
-            ).catch((error) => {
-                return {
-                    failed: true,
-                    errorMessage: error instanceof Error ? error.message : "UNKNOWN_TOOL_RESULT_MODEL_ERROR",
-                };
-            });
-        },
         toolPlan: async (state) => {
             const graphContext = createStateGraphContext(state);
             const checkpoint = createStateGraphCheckpoint(
                 state,
                 "tool.plan",
                 "tool",
-                5 + state.toolRound * 2,
+                3 + state.toolRound,
                 "memory.commit",
                 [
                     "usage.record",
@@ -1246,8 +1139,8 @@ function createDeepAgentsNodeExecutors(
                 state,
                 "message.persist",
                 "message",
-                6 + state.toolRound * 2,
-                state.executedTool ? "tool.result" : "model.stream",
+                4 + state.toolRound,
+                state.executedTool ? "tool.execute" : "model.stream",
                 [
                     "memory.commit",
                     "failure.close",
@@ -1669,6 +1562,84 @@ function markTurnIncompleteToolIntent(
     handleWorkerMessage(database, events, "task.failed", sent.taskId, {
         errorMessage: reason,
     });
+}
+
+/**
+ * continueDeepAgentsToolNodeWithResults：在 Deep Agents 工具节点内完成工具结果回填。
+ *
+ * @param database 中心服务数据库。
+ * @param events 事件追加器。
+ * @param state 当前 Deep Agents 图状态。
+ * @param toolResults 工具执行节点刚产生的结果。
+ * @param checkpoint 当前工具节点图检查点。
+ * @returns 需要合并回 Deep Agents 状态的局部状态。
+ */
+async function continueDeepAgentsToolNodeWithResults(
+    database: CenterDatabase,
+    events: CenterEventStore,
+    state: DeepAgentsTurnState,
+    toolResults: DeepAgentsToolResult[],
+    checkpoint: TurnGraphCheckpoint,
+): Promise<Partial<DeepAgentsTurnState>> {
+    if (toolResults.length === 0) {
+        return {
+            modelResult: state.modelResult,
+            finalModelResult: state.modelResult,
+            toolRound: state.toolRound + 1,
+            totalToolRound: state.totalToolRound + 1,
+            batchContinuation: false,
+        };
+    }
+
+    const commandInputFailureText = resolveCommandInputFailureAssistantText(toolResults);
+    if (commandInputFailureText && state.modelResult) {
+        // 空命令参数已经是工具输入错误，继续回填给模型只会触发同一个空工具调用循环。
+        const finalModelResult: ProviderModelGatewayResult = {
+            ...state.modelResult,
+            assistantText: commandInputFailureText,
+            toolCall: null,
+            toolCalls: [],
+        };
+        return {
+            modelResult: finalModelResult,
+            finalModelResult,
+            toolRound: state.toolRound + 1,
+            totalToolRound: state.totalToolRound + 1,
+            batchContinuation: false,
+        };
+    }
+
+    try {
+        const nextModelResult = await continueProviderModelGatewayWithToolResults(
+            database,
+            events,
+            state.sessionId,
+            state.taskId,
+            state.turnId,
+            state.userText,
+            toolResults.map((toolResult) => {
+                return {
+                    toolCall: toolResult.toolCall,
+                    resultText: toolResult.resultText,
+                };
+            }),
+            checkpoint,
+        );
+        return {
+            modelResult: nextModelResult,
+            finalModelResult: nextModelResult.toolCalls.length === 0
+                ? nextModelResult
+                : state.finalModelResult,
+            toolRound: state.toolRound + 1,
+            totalToolRound: state.totalToolRound + 1,
+            batchContinuation: false,
+        };
+    } catch (error) {
+        return {
+            failed: true,
+            errorMessage: error instanceof Error ? error.message : "UNKNOWN_TOOL_RESULT_MODEL_ERROR",
+        };
+    }
 }
 
 /**

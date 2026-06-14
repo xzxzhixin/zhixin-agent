@@ -217,8 +217,8 @@ for (const signal of [
 }
 
 for (const signal of [
-  "planCommandToolForUserText",
-  "planUnifiedToolCallForUserText",
+  "tool_calls",
+  "buildUnifiedToolCallIntentFromModelCall",
   "UNIFIED_TOOL_CAPABILITY_REGISTRY",
   "UnifiedToolCapability",
   "UnifiedToolCallIntent",
@@ -234,7 +234,7 @@ for (const signal of [
   assertIncludes(
     chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + capabilityApi + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents,
     signal,
-    `自动工具可见闭环缺少：${signal}`,
+    `Deep Agents 结构化工具可见闭环缺少：${signal}`,
   );
 }
 
@@ -280,8 +280,9 @@ if (!sessionTurnEffects.includes("model.tool.requested")
   process.exitCode = 1;
 }
 
-if (sessionDomain.includes("export function planCommandToolForUserText")) {
-  console.error("session-domain 不得保留重复命令工具规划函数，必须使用统一工具注册表入口。");
+if ((sessionDomain + toolRuntime).includes("planCommandToolForUserText")
+    || (sessionDomain + toolRuntime).includes("planUnifiedToolCallForUserText")) {
+  console.error("运行时不得保留用户文本命令规划函数，必须使用 Deep Agents 结构化工具调用入口。");
   process.exitCode = 1;
 }
 

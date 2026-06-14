@@ -63,17 +63,6 @@ export async function listAvailableModelToolSpecsForCenter(
 }
 
 /**
- * planUnifiedToolCallForUserText：兼容旧调用方的临时入口。
- *
- * @param userText 用户输入。
- * @returns 固定返回 null，避免继续通过用户文本硬编码触发工具。
- */
-export function planUnifiedToolCallForUserText(userText: string): UnifiedToolCallIntent | null {
-    void userText;
-    return null;
-}
-
-/**
  * buildUnifiedToolCallIntentFromModelCall：把模型工具调用转换为中心服务工具意图。
  *
  * @param toolCall OpenAI 返回的结构化工具调用。
