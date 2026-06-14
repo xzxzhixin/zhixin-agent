@@ -79,8 +79,8 @@ async function main(): Promise<void> {
 
   await assertNoIsoTimeInTargetFile("services/center/src/domain/agent-domain.ts");
   await assertNoIsoTimeInTargetFile("services/center/src/domain/workflow-domain.ts");
-  await assertNoIsoTimeInTargetFile("services/center/src/tools/create-agent-team-tool.ts");
-  await assertNoIsoTimeInTargetFile("services/center/src/tools/add-agent-team-member-tool.ts");
+  await assertNoIsoTimeInTargetFile("services/center/src/tools/CreateAgentTeamStructuredTool.ts");
+  await assertNoIsoTimeInTargetFile("services/center/src/tools/AddAgentTeamMemberStructuredTool.ts");
   await assertNoIsoTimeInTargetFile("services/center/src/events.ts");
 }
 

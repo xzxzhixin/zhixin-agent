@@ -53,12 +53,8 @@ export {
     RemoveAgentTeamMemberStructuredTool,
 } from "./RemoveAgentTeamMemberStructuredTool.js";
 export {
-    executeAddAgentTeamMemberForTool,
-    executeCreateAgentTeamForTool,
     executeCreateLongTermAgentForTool,
     executeCreateSubAgentForTool,
-    executeDisbandAgentTeamForTool,
-    executeRemoveAgentTeamMemberForTool,
 } from "./agent-team-tool-executors.js";
 export {
     DynamicMcpStructuredTool,

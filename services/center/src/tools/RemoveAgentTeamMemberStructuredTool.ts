@@ -1,6 +1,12 @@
 import {z} from "zod/v3";
 
-import {executeRemoveAgentTeamMemberForTool} from "./agent-team-tool-executors.js";
+import {createDataAccess} from "../data-access/index.js";
+import {
+    type AgentTeamToolScope,
+    appendAgentTeamToolEvent,
+    assertEnabledLongTermAgent,
+    assertMainAgentCreator,
+} from "./agent-team-tool-shared.js";
 import {
     CenterStructuredToolBase,
     type DeepAgentsToolExecutionContext,
@@ -47,9 +53,86 @@ export class RemoveAgentTeamMemberStructuredTool extends CenterStructuredToolBas
     protected override async executeTool(
         arg: z.output<typeof REMOVE_AGENT_TEAM_MEMBER_SCHEMA>,
     ): Promise<DeepAgentsToolExecutionResult> {
-        return executeRemoveAgentTeamMemberForTool(
+        const scope = createAgentTeamToolScope(
             this.context,
+        );
+        const result = executeRemoveAgentTeamMemberInStructuredTool(
+            scope,
             arg,
         );
+        return {
+            outputText: JSON.stringify(result),
+            status: "completed",
+        };
     }
+}
+
+/**
+ * createAgentTeamToolScope：从当前工具上下文生成 team 工具公共作用域。
+ *
+ * @param context 当前工具执行上下文。
+ * @returns team 工具公共作用域。
+ */
+function createAgentTeamToolScope(
+    context: DeepAgentsToolExecutionContext,
+): AgentTeamToolScope {
+    return {
+        database: context.input.database,
+        events: context.input.events,
+        sessionId: context.input.sent.sessionId,
+        turnId: context.input.sent.turnId,
+        taskId: context.input.sent.taskId,
+        creatorAgentId: "main",
+        toolCallId: null,
+    };
+}
+
+/**
+ * executeRemoveAgentTeamMemberInStructuredTool：在结构化工具内直接执行移除 team 成员。
+ *
+ * @param scope team 工具公共上下文。
+ * @param input 工具输入。
+ * @returns 移除结果。
+ */
+function executeRemoveAgentTeamMemberInStructuredTool(
+    scope: AgentTeamToolScope,
+    input: {
+        teamId: string;
+        agentId: string;
+    },
+): {
+    /** removed: 是否删除了成员关系。 */
+    removed: boolean;
+    /** agentName: 长期智能体名称。 */
+    agentName: string;
+} {
+    assertMainAgentCreator(scope.creatorAgentId);
+    const agentName = assertEnabledLongTermAgent(
+        scope.database,
+        input.agentId,
+    );
+    const removedCount = createDataAccess(scope.database).agentTeams.removeMember(
+        input.teamId,
+        input.agentId,
+    );
+    appendAgentTeamToolEvent(
+        scope,
+        {
+            eventType: "agent.team.member.removed",
+            title: `移除智能体：${agentName}`,
+            summary: removedCount > 0
+                ? "已从 team 移除该成员。"
+                : "该长期智能体不在 team 中。",
+            payload: {
+                teamId: input.teamId,
+                agentId: input.agentId,
+                agentName,
+                removed: removedCount > 0,
+            },
+        },
+    );
+    return {
+        removed: removedCount > 0,
+        agentName,
+    };
 }
