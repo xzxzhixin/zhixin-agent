@@ -144,7 +144,10 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
     const dynamicMcpNames = mcpSpecs
         .filter((item) => item.sourceToolId === "builtin.mcp.call")
         .map((item) => item.name);
-    const memoryEntries = await listMainAgentMemoryPromptEntries(context.input.database);
+    const memoryEntries = await listMainAgentMemoryPromptEntries(
+        context.input.database,
+        context.input.userText,
+    );
     const memoryPrompt = memoryEntries.map((memory, index) => {
         const source = memory.sourceSessionId && memory.sourceTurnId
             ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
@@ -160,10 +163,10 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
     }).join("\n");
 
     return [
-        "你运行在致心智能体中心服务的受控 Deep Agents 环境中。",
         "中心服务负责事实源、权限、安全、审计、消息持久化、记忆写入、用量记录和多端同步。",
         "你必须通过结构化工具执行命令、MCP 和智能体领域动作，不得在自然语言里伪造工具已执行。",
-        "当长期记忆里明确记录了用户对助手称呼、自称方式或长期偏好时，回答相关问题必须优先遵循这些记忆，而不是退回通用模型自我介绍。",
+        "当长期记忆或当前会话历史明确记录了用户对助手称呼、自称方式、身份偏好或稳定事实时，相关回答必须优先遵循这些记录。",
+        "如果用户询问你的名称、称呼、身份或用户自己的稳定身份，而记忆与会话历史里没有明确记录，只能如实说明当前没有可确认记录，不能自行编造通用自我介绍或名称。",
         "Deep Agents 自带 todoList、文件系统和 task 工具只作为执行内核能力，不得绕过中心服务事实源去宣称写入核心数据。",
         `当前模型：${context.runtime.modelSelection.model}`,
         context.runtime.modelSelection.reasoningEffort

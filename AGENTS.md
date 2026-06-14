@@ -32,6 +32,7 @@
 
 ### 包管理与构建
 - Node 版本使用用户系统环境，不符时提醒用户。
+- 构建、启动、脚本执行和命令行调用涉及 Node 时，统一使用用户系统环境中的 Node，不允许切换到仓库私有 Node、临时下载 Node 或写死绝对路径 Node。
 - TypeScript：不通过 `tsc` 或 `vue-tsc` 做项目级校验，仅用于 IDE 识别。禁止在 `package.json` 脚本中加入 `tsc --noEmit` 等类型检查命令。
 - 构建产物命名、打包规则以 `架构.md` 为准。
 
@@ -93,6 +94,7 @@
 ## 八、测试规范
 
 - 不编译 TS 源码再启动，直接用 `dev:desktop-shell` 等命令。
+- 启动 `dev:frontend`、`dev:desktop-shell` 或其他 Node 脚本时，必须继承用户系统环境中的 Node 和 PATH，不得手工替换为其他 Node 可执行文件。
 - 启动前先关闭之前进程，保证最新代码。
 - 测试启动时必须记录 `启动进程.md`：一行一个 `{pid} = {port} = {启动命令}`。
 - 打开的浏览器页面记录 `浏览器页面.md`：一行一个 `{pageId} = {pageUrl}`。

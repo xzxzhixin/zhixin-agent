@@ -154,22 +154,60 @@ function shouldPersistMainAgentMemory(
     if (normalizedUserText.length === 0 || normalizedAssistantText.length === 0) {
         return false;
     }
-    const blockedPatterns = [
-        "我目前不知道你的真实身份或姓名",
-        "我不知道你的真实身份或姓名",
+    if (isLowSignalAssistantReply(normalizedAssistantText)) {
+        return false;
+    }
+    if (looksLikeIncorrectIdentityAnswer(normalizedAssistantText)) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * isLowSignalAssistantReply：判断回复是否只是验收口水、确认词或无长期价值内容。
+ *
+ * @param assistantText 助手回复。
+ * @returns 缺少长期记忆价值时返回 true。
+ */
+function isLowSignalAssistantReply(assistantText: string): boolean {
+    if (assistantText.length <= 2) {
+        return true;
+    }
+    const lowSignalPatterns = [
+        "请只回复",
+        "收到。",
+        "收到",
+        "实时刷新验证",
+        "回归验证",
+        "数据库恢复",
+        "完成事件复测",
+        "桌面壳实时刷新验证",
+        "运行在",
+        "环境中的 AI 助手",
+        "当前模型是",
+    ];
+    return lowSignalPatterns.some((pattern) => {
+        return assistantText.includes(pattern);
+    });
+}
+
+/**
+ * looksLikeIncorrectIdentityAnswer：识别不应写入长期记忆的错误身份答复。
+ *
+ * @param assistantText 助手回复。
+ * @returns 属于错误身份答复时返回 true。
+ */
+function looksLikeIncorrectIdentityAnswer(assistantText: string): boolean {
+    const incorrectIdentityPatterns = [
+        "不知道你的真实身份",
+        "不知道你的姓名",
+        "无法确认你的真实身份",
+        "无法确认你的姓名",
         "我叫 ChatGPT",
         "我是 ChatGPT",
-        "请只回复收到",
-        "收到。",
-        "实时刷新验证",
-        "桌面壳实时刷新验证",
-        "本轮回归验证",
-        "最终验收数据库恢复",
-        "完成事件复测",
-        "本轮数据库恢复复测",
     ];
-    return !blockedPatterns.some((pattern) => {
-        return normalizedAssistantText.includes(pattern);
+    return incorrectIdentityPatterns.some((pattern) => {
+        return assistantText.includes(pattern);
     });
 }
 

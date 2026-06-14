@@ -9,20 +9,18 @@ import {
   spawnSync,
 } from "node:child_process";
 import {
-  resolve,
-} from "node:path";
-import {
-  fileURLToPath,
-} from "node:url";
-
+  existsSync,
+} from "node:fs";
 // frontendDevUrl: 桌面壳开发期固定连接本机前端服务。
 const frontendDevUrl = "http://127.0.0.1:5173";
-// repoRoot: 当前脚本位于仓库 scripts 目录，桌面壳启动以仓库根目录为事实源。
-const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 // children: 当前脚本拉起的子进程，退出时统一收尾。
 const children = [];
 // isShuttingDown: 防止多个退出信号重复收尾。
 let isShuttingDown = false;
+// preferredCenterNodeExecutable: 开发期优先复用用户本机可直接启动中心服务的 Node，可用时显式传给桌面壳。
+const preferredCenterNodeExecutable = existsSync("C:\\CODE\\node\\node.exe")
+  ? "C:\\CODE\\node\\node.exe"
+  : "";
 
 /**
  * startProcess：启动一个可继承终端输出的子进程。
@@ -273,7 +271,7 @@ try {
     ],
     {
       ZHIXIN_FRONTEND_DEV_URL: frontendDevUrl,
-      ZHIXIN_CENTER_NODE_EXECUTABLE: process.execPath,
+      ZHIXIN_CENTER_NODE_EXECUTABLE: preferredCenterNodeExecutable,
     },
   );
 } catch (error) {

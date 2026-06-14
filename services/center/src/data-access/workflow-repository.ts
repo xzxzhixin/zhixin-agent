@@ -202,4 +202,60 @@ export class WorkflowRepository {
             createdAt: string;
         }>;
     }
+
+    /**
+     * searchAgentMemorySummaries：按关键词和摘要模糊检索指定智能体长期记忆。
+     *
+     * @param agentId 智能体 ID。
+     * @param searchText 当前问题或检索文本。
+     * @param limit 最大返回数量。
+     * @returns 命中的长期记忆摘要数组。
+     */
+    searchAgentMemorySummaries(agentId: string, searchText: string, limit: number): Array<{
+        agentId: string;
+        keywords: string;
+        summary: string;
+        sourceSessionId: string | null;
+        sourceTurnId: string | null;
+        memoryPath: string;
+        createdAt: string;
+    }> {
+        const normalizedSearchText = searchText.trim();
+        if (normalizedSearchText.length === 0) {
+            return [];
+        }
+        const likePattern = `%${normalizedSearchText}%`;
+        return this.database.connection()
+            .prepare(`
+                SELECT agent_id AS agentId,
+                       keywords,
+                       summary,
+                       source_session_id AS sourceSessionId,
+                       source_turn_id AS sourceTurnId,
+                       memory_path AS memoryPath,
+                       created_at AS createdAt
+                FROM memory_index
+                WHERE agent_id = ?
+                  AND (
+                    keywords LIKE ?
+                    OR summary LIKE ?
+                  )
+                ORDER BY created_at DESC
+                LIMIT ?
+            `)
+            .all(
+                agentId,
+                likePattern,
+                likePattern,
+                limit,
+            ) as Array<{
+            agentId: string;
+            keywords: string;
+            summary: string;
+            sourceSessionId: string | null;
+            sourceTurnId: string | null;
+            memoryPath: string;
+            createdAt: string;
+        }>;
+    }
 }

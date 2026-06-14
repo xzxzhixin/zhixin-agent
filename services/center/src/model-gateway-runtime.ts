@@ -195,7 +195,10 @@ export async function invokeProviderModelGateway(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
-    const mainAgentMemories = await listMainAgentMemoryPromptEntries(database);
+    const mainAgentMemories = await listMainAgentMemoryPromptEntries(
+        database,
+        userText,
+    );
     const sessionHistoryMessages = listSessionHistoryPromptMessages(
         database,
         sessionId,
@@ -272,7 +275,10 @@ export async function continueProviderModelGatewayWithToolResults(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
-    const mainAgentMemories = await listMainAgentMemoryPromptEntries(database);
+    const mainAgentMemories = await listMainAgentMemoryPromptEntries(
+        database,
+        userText,
+    );
     const sessionHistoryMessages = listSessionHistoryPromptMessages(
         database,
         sessionId,
@@ -825,9 +831,13 @@ function buildSessionContextPrompt(sessionHistoryMessages: OpenAiChatMessage[]):
  * @param database 中心服务数据库。
  * @returns 可注入模型请求的主智能体记忆摘要。
  */
-export async function listMainAgentMemoryPromptEntries(database: CenterDatabase): Promise<AgentMemoryPromptEntry[]> {
+export async function listMainAgentMemoryPromptEntries(
+    database: CenterDatabase,
+    userText = "",
+): Promise<AgentMemoryPromptEntry[]> {
     const centerDirectory = extractCenterDirectory(database);
-    const indexedMemories = createDataAccess(database).workflow.listRecentAgentMemorySummaries(
+    const workflowRepository = createDataAccess(database).workflow;
+    const indexedMemories = workflowRepository.listRecentAgentMemorySummaries(
         "main",
         MAIN_AGENT_MEMORY_PROMPT_LIMIT,
     ).map((memory) => {
@@ -840,10 +850,14 @@ export async function listMainAgentMemoryPromptEntries(database: CenterDatabase)
             score: 0,
         };
     });
+    const searchedIndexedMemories = searchMainAgentIndexedMemories(
+        workflowRepository,
+        userText,
+    );
     const semanticMemories = centerDirectory
         ? await searchSemanticMemories(
             centerDirectory,
-            "用户偏好 长期事实 历史设定 常用称呼",
+            buildMainAgentMemorySearchQuery(userText),
         )
         : [];
     const semanticEntries = semanticMemories.map((memory) => {
@@ -861,6 +875,7 @@ export async function listMainAgentMemoryPromptEntries(database: CenterDatabase)
         };
     });
     return dedupeMainAgentMemoryPromptEntries([
+        ...searchedIndexedMemories,
         ...semanticEntries,
         ...indexedMemories,
     ]).filter((memory) => {
@@ -888,23 +903,13 @@ function shouldIncludeMainAgentMemoryPromptEntry(summary: string): boolean {
     if (normalizedSummary.length === 0) {
         return false;
     }
-    const blockedPatterns = [
-        "我目前不知道你的真实身份或姓名",
-        "我不知道你的真实身份或姓名",
-        "我叫 ChatGPT",
-        "我是 ChatGPT",
-        "请只回复收到",
-        "收到。",
-        "实时刷新验证",
-        "桌面壳实时刷新验证",
-        "本轮回归验证",
-        "最终验收数据库恢复",
-        "完成事件复测",
-        "本轮数据库恢复复测",
-    ];
-    return !blockedPatterns.some((pattern) => {
-        return normalizedSummary.includes(pattern);
-    });
+    if (normalizedSummary.length <= 2) {
+        return false;
+    }
+    if (isLowSignalMemorySummary(normalizedSummary)) {
+        return false;
+    }
+    return !looksLikeIncorrectIdentityAnswer(normalizedSummary);
 }
 
 /**
@@ -929,7 +934,235 @@ function scoreMainAgentMemoryPromptEntry(memory: {
     if (normalizedSummary.includes("作者") || normalizedSummary.includes("喜欢") || normalizedSummary.includes("称呼")) {
         score += 10;
     }
+    if (looksLikePreferenceMemory(normalizedSummary)) {
+        score += 25;
+    }
+    if (looksLikeIdentityMemory(normalizedSummary)) {
+        score += 25;
+    }
     return score + memory.score;
+}
+
+/**
+ * buildMainAgentMemorySearchQuery：为本轮问题构造长期记忆语义检索词。
+ *
+ * @param userText 用户本轮输入。
+ * @returns 兼顾当前问题和稳定长期事实的检索文本。
+ */
+function buildMainAgentMemorySearchQuery(userText: string): string {
+    const normalizedUserText = userText.replace(/\s+/gu, " ").trim();
+    if (normalizedUserText.length === 0) {
+        return "用户长期偏好 稳定事实 历史设定 常用称呼";
+    }
+    if (looksLikeIdentityQuestion(normalizedUserText)) {
+        return `${normalizedUserText} 用户长期偏好 稳定事实 常用称呼 自称方式 身份记录`;
+    }
+    return `${normalizedUserText} 用户长期偏好 稳定事实 历史上下文`;
+}
+
+/**
+ * searchMainAgentIndexedMemories：按当前问题检索 SQLite 记忆索引，避免只看最近几条把旧正确信息压下去。
+ *
+ * @param workflowRepository 执行链路仓储。
+ * @param userText 用户本轮输入。
+ * @returns 命中的主智能体长期记忆候选。
+ */
+function searchMainAgentIndexedMemories(
+    workflowRepository: ReturnType<typeof createDataAccess>["workflow"],
+    userText: string,
+): Array<{
+    keywords: string;
+    summary: string;
+    sourceSessionId: string | null;
+    sourceTurnId: string | null;
+    sourceKind: "index";
+    score: number;
+}> {
+    const searchTerms = buildMainAgentIndexedMemorySearchTerms(userText);
+    const result = searchTerms.flatMap((term) => {
+        return workflowRepository.searchAgentMemorySummaries(
+            "main",
+            term,
+            MAIN_AGENT_MEMORY_PROMPT_LIMIT,
+        ).map((memory) => {
+            return {
+                keywords: memory.keywords,
+                summary: memory.summary,
+                sourceSessionId: memory.sourceSessionId,
+                sourceTurnId: memory.sourceTurnId,
+                sourceKind: "index" as const,
+                score: scoreIndexedMemorySearchHit(
+                    term,
+                    memory.summary,
+                    memory.keywords,
+                ),
+            };
+        });
+    });
+    return dedupeMainAgentMemoryPromptEntries(result);
+}
+
+/**
+ * buildMainAgentIndexedMemorySearchTerms：为 SQLite 记忆索引生成检索词集合。
+ *
+ * @param userText 用户本轮输入。
+ * @returns 检索词数组。
+ */
+function buildMainAgentIndexedMemorySearchTerms(userText: string): string[] {
+    const normalizedUserText = userText.replace(/\s+/gu, " ").trim();
+    const terms = new Set<string>();
+    if (normalizedUserText.length > 0) {
+        terms.add(normalizedUserText);
+    }
+    if (looksLikeIdentityQuestion(normalizedUserText)) {
+        [
+            "你叫什么",
+            "我叫什么",
+            "我是谁",
+            "徐志翔",
+            "致心",
+            "更喜欢你叫",
+        ].forEach((term) => {
+            terms.add(term);
+        });
+    }
+    return Array.from(terms);
+}
+
+/**
+ * scoreIndexedMemorySearchHit：给 SQLite 记忆命中结果打分，优先保留和当前问题强相关的稳定事实。
+ *
+ * @param searchTerm 当前使用的检索词。
+ * @param summary 长期记忆摘要。
+ * @param keywords 长期记忆关键词。
+ * @returns 命中得分。
+ */
+function scoreIndexedMemorySearchHit(
+    searchTerm: string,
+    summary: string,
+    keywords: string,
+): number {
+    let score = 0;
+    if (summary.includes(searchTerm)) {
+        score += 30;
+    }
+    if (keywords.includes(searchTerm)) {
+        score += 20;
+    }
+    if (looksLikePreferenceMemory(summary)) {
+        score += 25;
+    }
+    if (looksLikeIdentityMemory(summary)) {
+        score += 25;
+    }
+    return score;
+}
+
+/**
+ * isLowSignalMemorySummary：识别无长期价值的低信号摘要。
+ *
+ * @param summary 长期记忆摘要。
+ * @returns 低信号时返回 true。
+ */
+function isLowSignalMemorySummary(summary: string): boolean {
+    const lowSignalPatterns = [
+        "请只回复",
+        "收到。",
+        "收到",
+        "实时刷新验证",
+        "回归验证",
+        "数据库恢复",
+        "完成事件复测",
+        "桌面壳实时刷新验证",
+    ];
+    return lowSignalPatterns.some((pattern) => {
+        return summary.includes(pattern);
+    });
+}
+
+/**
+ * looksLikeIncorrectIdentityAnswer：识别不应固化或继续召回的错误身份答复。
+ *
+ * @param summary 长期记忆摘要。
+ * @returns 明显属于错误或空洞身份答复时返回 true。
+ */
+function looksLikeIncorrectIdentityAnswer(summary: string): boolean {
+    const incorrectIdentityPatterns = [
+        "不知道你的真实身份",
+        "不知道你的姓名",
+        "无法确认你的真实身份",
+        "无法确认你的姓名",
+        "我叫 ChatGPT",
+        "我是 ChatGPT",
+    ];
+    return incorrectIdentityPatterns.some((pattern) => {
+        return summary.includes(pattern);
+    });
+}
+
+/**
+ * looksLikePreferenceMemory：识别用户对名称、称呼或偏好的长期记忆。
+ *
+ * @param summary 长期记忆摘要。
+ * @returns 与偏好或称呼直接相关时返回 true。
+ */
+function looksLikePreferenceMemory(summary: string): boolean {
+    const preferencePatterns = [
+        "我更喜欢",
+        "喜欢你叫",
+        "称呼",
+        "自称",
+        "名字",
+        "叫我",
+        "叫你",
+    ];
+    return preferencePatterns.some((pattern) => {
+        return summary.includes(pattern);
+    });
+}
+
+/**
+ * looksLikeIdentityMemory：识别用户或助手身份相关的长期记忆。
+ *
+ * @param summary 长期记忆摘要。
+ * @returns 与身份、姓名、自我介绍相关时返回 true。
+ */
+function looksLikeIdentityMemory(summary: string): boolean {
+    const identityPatterns = [
+        "我是谁",
+        "你是谁",
+        "你叫什么",
+        "我叫什么",
+        "名字",
+        "姓名",
+        "身份",
+    ];
+    return identityPatterns.some((pattern) => {
+        return summary.includes(pattern);
+    });
+}
+
+/**
+ * looksLikeIdentityQuestion：识别当前问题是否在询问身份、姓名或称呼。
+ *
+ * @param userText 用户本轮输入。
+ * @returns 属于身份类问题时返回 true。
+ */
+function looksLikeIdentityQuestion(userText: string): boolean {
+    const identityQuestionPatterns = [
+        "我是谁",
+        "你是谁",
+        "你叫什么",
+        "我叫什么",
+        "怎么称呼你",
+        "怎么叫你",
+        "叫什么名字",
+        "名字",
+        "称呼",
+    ];
+    return identityQuestionPatterns.some((pattern) => {
+        return userText.includes(pattern);
+    });
 }
 
 /**

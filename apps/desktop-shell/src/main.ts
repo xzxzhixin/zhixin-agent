@@ -140,8 +140,8 @@ const centerNativeBindingPath = join(
   "Release",
   "better_sqlite3.node",
 );
-// centerNodeExecutable: 开发期由启动编排显式传入的 Node 可执行文件，避免 PATH 里混入错误版本。
-const centerNodeExecutable = process.env.ZHIXIN_CENTER_NODE_EXECUTABLE || process.execPath;
+// centerNodeExecutable: 只有启动编排显式传入时才锁定 Node；否则复用用户系统环境 PATH 中的 node。
+const centerNodeExecutable = process.env.ZHIXIN_CENTER_NODE_EXECUTABLE || "";
 // desktopConfigPath: 桌面壳本机配置文件，保存中心服务端口和中心目录。
 const desktopConfigPath = join(app.getPath("userData"), "desktop-config.json");
 // DEFAULT_CLOSE_ACTION_PREFERENCE: 首次关闭窗口时必须询问用户，符合常见桌面应用关闭习惯。
@@ -169,6 +169,8 @@ let tray: Tray | null = null;
 let centerProcess: ChildProcessWithoutNullStreams | null = null;
 // lastCenterError: 最近一次中心服务启动或运行错误。
 let lastCenterError = "";
+// hasConsolePipeBroken: 开发期控制台或父进程日志管道断开后，避免继续写 console 导致主进程抛 EPIPE。
+let hasConsolePipeBroken = false;
 // isAppQuitting: 区分用户点击关闭按钮和应用真正退出，避免退出流程被隐藏托盘逻辑拦截。
 let isAppQuitting = false;
 // centerLaunchConfig: 当前中心服务启动参数。
@@ -474,7 +476,7 @@ function resolveCenterCommand(): CenterCommandResolution | null {
     cwd: centerPackageDirectory,
     diagnostics: [
       `command=${command}`,
-      `node=${centerNodeExecutable}`,
+      `node=${centerNodeExecutable || "PATH:node"}`,
       `entry=${centerEntryPath}`,
       `cwd=${centerPackageDirectory}`,
       `port=${centerLaunchConfig.port}`,
@@ -487,10 +489,13 @@ function resolveCenterCommand(): CenterCommandResolution | null {
  * resolveCenterProcessPath：生成中心服务子进程 PATH。
  *
  * @param basePath 当前桌面壳进程 PATH。
- * @returns 把中心服务 Node 可执行文件目录放到最前面的 PATH。
+ * @returns 显式指定 Node 时把其目录前置；否则原样复用现有 PATH。
  */
 function resolveCenterProcessPath(basePath: string | undefined): string {
-  // nodeDirectory: Windows 的 tsx.CMD 会按 PATH 查找 node，必须优先使用桌面壳显式传入的 Node 版本。
+  if (!centerNodeExecutable) {
+    return basePath ?? "";
+  }
+  // nodeDirectory: Windows 的 tsx.CMD 会按 PATH 查找 node，仅在显式指定时才前置目标 Node。
   const nodeDirectory = dirname(centerNodeExecutable);
   return [
     nodeDirectory,
@@ -742,7 +747,10 @@ function startCenterService(): void {
 
   centerProcess.on("error", (error) => {
     lastCenterError = `中心服务启动失败：${error.message}\n${resolvedCommand.diagnostics}`;
-    console.error(lastCenterError);
+    writeDesktopShellLog(
+      "error",
+      lastCenterError,
+    );
     centerProcess = null;
   });
   centerProcess.stderr.on("data", (chunk) => {
@@ -750,11 +758,17 @@ function startCenterService(): void {
       Buffer.from(chunk).toString("utf-8"),
       resolvedCommand.diagnostics,
     ].join("\n");
-    console.error(lastCenterError);
+    writeDesktopShellLog(
+      "error",
+      lastCenterError,
+    );
   });
   centerProcess.stdout.on("data", (chunk) => {
     const output = Buffer.from(chunk).toString("utf-8");
-    console.log(output);
+    writeDesktopShellLog(
+      "info",
+      output,
+    );
   });
   centerProcess.on("exit", (code) => {
     if (code && !lastCenterError) {
@@ -762,6 +776,36 @@ function startCenterService(): void {
     }
     centerProcess = null;
   });
+}
+
+/**
+ * writeDesktopShellLog：安全写桌面壳开发日志，避免父级控制台管道断开时抛出 EPIPE。
+ *
+ * @param level 日志级别。
+ * @param message 日志文本。
+ * @returns 没有返回值。
+ */
+function writeDesktopShellLog(
+  level: "info" | "error",
+  message: string,
+): void {
+  if (hasConsolePipeBroken) {
+    return;
+  }
+
+  try {
+    if (level === "error") {
+      console.error(message);
+      return;
+    }
+    console.log(message);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EPIPE") {
+      hasConsolePipeBroken = true;
+      return;
+    }
+    throw error;
+  }
 }
 
 /**
