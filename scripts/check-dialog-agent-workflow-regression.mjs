@@ -113,6 +113,7 @@ const deepAgentsAgent = readProjectFile("services/center/src/deepagents-agent.ts
 const toolRuntime = [
   readProjectFile("services/center/src/tools/index.ts"),
   readProjectFile("services/center/src/tools/deepagents-tool-runtime.ts"),
+  readProjectFile("services/center/src/tools/CenterStructuredToolBase.ts"),
   readProjectFile("services/center/src/tools/command-tool-executor.ts"),
   readProjectFile("services/center/src/tools/mcp-tool-executor.ts"),
   readProjectFile("services/center/src/tools/mcp-tool-specs.ts"),
@@ -266,7 +267,7 @@ for (const signal of [
 }
 
 const deepAgentEntryIndex = sessionDomain.indexOf("await runDeepAgentsAgentTurn({");
-const toolExecuteIndex = toolRuntime.indexOf("class CenterStructuredToolBase");
+const toolExecuteIndex = toolRuntime.indexOf("export abstract class CenterStructuredToolBase");
 if (deepAgentEntryIndex < 0 || toolExecuteIndex < 0) {
   console.error("结构化工具调用闭环必须由 Deep Agents 原生入口接收模型工具请求，再执行中心服务工具并回填模型。");
   process.exitCode = 1;

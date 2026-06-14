@@ -51,6 +51,7 @@ const toolRuntime = [
   "services/center/src/tools/tool-capability-registry.ts",
   "services/center/src/tools/tool-model-specs.ts",
   "services/center/src/tools/deepagents-tool-runtime.ts",
+  "services/center/src/tools/CenterStructuredToolBase.ts",
   "services/center/src/tools/deepagents-tool-middleware.ts",
 ].map((path) => readText(path)).join("\n");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");

@@ -1,13 +1,13 @@
 import {z} from "zod/v3";
 
+import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
 import {
     type CommandToolExecutionRequest,
     executeCommandTool,
 } from "./command-tool-executor.js";
-import {
-    CenterStructuredToolBase,
-    type DeepAgentsToolExecutionContext,
-    type DeepAgentsToolExecutionResult,
+import type {
+    DeepAgentsToolExecutionContext,
+    DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 import {toModelSafeToolName} from "./tool-capability-registry.js";
 

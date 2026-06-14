@@ -4,10 +4,10 @@ import type {
 } from "@langchain/core/tools";
 
 import type {AgentTeamToolScope} from "./agent-team-tool-shared.js";
-import {
-    CenterStructuredToolBase,
-    type DeepAgentsToolExecutionContext,
-    type DeepAgentsToolExecutionResult,
+import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
+import type {
+    DeepAgentsToolExecutionContext,
+    DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 
 /**

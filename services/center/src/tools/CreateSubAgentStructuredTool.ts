@@ -1,10 +1,10 @@
 import {z} from "zod/v3";
 
 import {executeCreateSubAgentForTool} from "./agent-creation-tool-executors.js";
-import {
-    CenterStructuredToolBase,
-    type DeepAgentsToolExecutionContext,
-    type DeepAgentsToolExecutionResult,
+import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
+import type {
+    DeepAgentsToolExecutionContext,
+    DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 import {toModelSafeToolName} from "./tool-capability-registry.js";
 

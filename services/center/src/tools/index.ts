@@ -18,6 +18,9 @@ export {
 export {
     createDeepAgentsToolExecutionContext,
 } from "./deepagents-tool-runtime.js";
+export {
+    CenterStructuredToolBase,
+} from "./CenterStructuredToolBase.js";
 export type {
     DeepAgentsAgentRunInput,
     DeepAgentsStructuredToolFactory,
@@ -26,7 +29,7 @@ export type {
 } from "./deepagents-tool-runtime.js";
 export {
     CommandStructuredTool,
-} from "./command-structured-tool.js";
+} from "./CommandStructuredTool.js";
 export type {
     CommandToolExecutionRequest,
     CommandToolExecutionResult,
@@ -61,7 +64,7 @@ export {
 } from "./agent-creation-tool-executors.js";
 export {
     DynamicMcpStructuredTool,
-} from "./mcp-structured-tool.js";
+} from "./DynamicMcpStructuredTool.js";
 export {
     executeMcpTool,
 } from "./mcp-tool-executor.js";

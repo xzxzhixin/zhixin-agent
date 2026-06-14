@@ -12,7 +12,7 @@ import {
 import {
     CreateSubAgentStructuredTool,
 } from "./CreateSubAgentStructuredTool.js";
-import {CommandStructuredTool} from "./command-structured-tool.js";
+import {CommandStructuredTool} from "./CommandStructuredTool.js";
 import type {
     DeepAgentsStructuredToolFactory,
     DeepAgentsToolExecutionContext,
@@ -24,7 +24,7 @@ import {
     listConfiguredMcpModelToolSpecs,
     readMcpDynamicToolName,
 } from "./mcp-tool-specs.js";
-import {DynamicMcpStructuredTool} from "./mcp-structured-tool.js";
+import {DynamicMcpStructuredTool} from "./DynamicMcpStructuredTool.js";
 import {
     RemoveAgentTeamMemberStructuredTool,
 } from "./RemoveAgentTeamMemberStructuredTool.js";

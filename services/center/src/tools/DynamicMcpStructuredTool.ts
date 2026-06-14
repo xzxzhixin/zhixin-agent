@@ -1,9 +1,9 @@
 import {z} from "zod/v3";
 
-import {
-    type DeepAgentsToolExecutionContext,
-    type DeepAgentsToolExecutionResult,
-    CenterStructuredToolBase,
+import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
+import type {
+    DeepAgentsToolExecutionContext,
+    DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 import {
     type McpToolExecutionRequest,
