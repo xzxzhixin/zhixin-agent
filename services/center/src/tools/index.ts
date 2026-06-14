@@ -38,6 +38,9 @@ export {
     AddAgentTeamMemberStructuredTool,
 } from "./AddAgentTeamMemberStructuredTool.js";
 export {
+    BaseAgentTeamStructuredTool,
+} from "./BaseAgentTeamStructuredTool.js";
+export {
     CreateAgentTeamStructuredTool,
 } from "./CreateAgentTeamStructuredTool.js";
 export {
@@ -55,7 +58,7 @@ export {
 export {
     executeCreateLongTermAgentForTool,
     executeCreateSubAgentForTool,
-} from "./agent-team-tool-executors.js";
+} from "./agent-creation-tool-executors.js";
 export {
     DynamicMcpStructuredTool,
 } from "./mcp-structured-tool.js";

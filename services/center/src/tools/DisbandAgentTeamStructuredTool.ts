@@ -7,11 +7,10 @@ import {
     assertMainAgentCreator,
 } from "./agent-team-tool-shared.js";
 import {
-    CenterStructuredToolBase,
     type DeepAgentsToolExecutionContext,
-    type DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 import {toModelSafeToolName} from "./tool-capability-registry.js";
+import {BaseAgentTeamStructuredTool} from "./BaseAgentTeamStructuredTool.js";
 
 /**
  * DISBAND_AGENT_TEAM_SCHEMA：解散 team 参数 schema。
@@ -23,7 +22,7 @@ export const DISBAND_AGENT_TEAM_SCHEMA = z.object({
 /**
  * DisbandAgentTeamStructuredTool：解散 team 结构化工具。
  */
-export class DisbandAgentTeamStructuredTool extends CenterStructuredToolBase<typeof DISBAND_AGENT_TEAM_SCHEMA> {
+export class DisbandAgentTeamStructuredTool extends BaseAgentTeamStructuredTool<typeof DISBAND_AGENT_TEAM_SCHEMA> {
     /** description: 工具说明。 */
     override description = "解散会话 team。";
     /** schema: 解散 team 参数。 */
@@ -48,41 +47,15 @@ export class DisbandAgentTeamStructuredTool extends CenterStructuredToolBase<typ
      * @param arg 工具参数。
      * @returns 工具结果。
      */
-    protected override async executeTool(
+    protected override executeAgentTeamTool(
+        scope: AgentTeamToolScope,
         arg: z.output<typeof DISBAND_AGENT_TEAM_SCHEMA>,
-    ): Promise<DeepAgentsToolExecutionResult> {
-        const scope = createAgentTeamToolScope(
-            this.context,
-        );
-        const result = executeDisbandAgentTeamInStructuredTool(
+    ): Record<string, unknown> {
+        return executeDisbandAgentTeamInStructuredTool(
             scope,
             arg,
         );
-        return {
-            outputText: JSON.stringify(result),
-            status: "completed",
-        };
     }
-}
-
-/**
- * createAgentTeamToolScope：从当前工具上下文生成 team 工具公共作用域。
- *
- * @param context 当前工具执行上下文。
- * @returns team 工具公共作用域。
- */
-function createAgentTeamToolScope(
-    context: DeepAgentsToolExecutionContext,
-): AgentTeamToolScope {
-    return {
-        database: context.input.database,
-        events: context.input.events,
-        sessionId: context.input.sent.sessionId,
-        turnId: context.input.sent.turnId,
-        taskId: context.input.sent.taskId,
-        creatorAgentId: "main",
-        toolCallId: null,
-    };
 }
 
 /**

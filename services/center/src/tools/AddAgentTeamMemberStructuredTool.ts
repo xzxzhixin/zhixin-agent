@@ -9,12 +9,11 @@ import {
     createTeamMemberId,
 } from "./agent-team-tool-shared.js";
 import {
-    CenterStructuredToolBase,
     type DeepAgentsToolExecutionContext,
-    type DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 import {formatCenterLocalDateTime} from "../time.js";
 import {toModelSafeToolName} from "./tool-capability-registry.js";
+import {BaseAgentTeamStructuredTool} from "./BaseAgentTeamStructuredTool.js";
 
 /**
  * ADD_AGENT_TEAM_MEMBER_SCHEMA：添加 team 成员参数 schema。
@@ -28,7 +27,7 @@ export const ADD_AGENT_TEAM_MEMBER_SCHEMA = z.object({
 /**
  * AddAgentTeamMemberStructuredTool：添加 team 成员结构化工具。
  */
-export class AddAgentTeamMemberStructuredTool extends CenterStructuredToolBase<typeof ADD_AGENT_TEAM_MEMBER_SCHEMA> {
+export class AddAgentTeamMemberStructuredTool extends BaseAgentTeamStructuredTool<typeof ADD_AGENT_TEAM_MEMBER_SCHEMA> {
     /** description: 工具说明。 */
     override description = "添加会话 team 成员。";
     /** schema: 添加 team 成员参数。 */
@@ -53,41 +52,15 @@ export class AddAgentTeamMemberStructuredTool extends CenterStructuredToolBase<t
      * @param arg 工具参数。
      * @returns 工具结果。
      */
-    protected override async executeTool(
+    protected override executeAgentTeamTool(
+        scope: AgentTeamToolScope,
         arg: z.output<typeof ADD_AGENT_TEAM_MEMBER_SCHEMA>,
-    ): Promise<DeepAgentsToolExecutionResult> {
-        const scope = createAgentTeamToolScope(
-            this.context,
-        );
-        const result = executeAddAgentTeamMemberInStructuredTool(
+    ): Record<string, unknown> {
+        return executeAddAgentTeamMemberInStructuredTool(
             scope,
             arg,
         );
-        return {
-            outputText: JSON.stringify(result),
-            status: "completed",
-        };
     }
-}
-
-/**
- * createAgentTeamToolScope：从当前工具上下文生成 team 工具公共作用域。
- *
- * @param context 当前工具执行上下文。
- * @returns team 工具公共作用域。
- */
-function createAgentTeamToolScope(
-    context: DeepAgentsToolExecutionContext,
-): AgentTeamToolScope {
-    return {
-        database: context.input.database,
-        events: context.input.events,
-        sessionId: context.input.sent.sessionId,
-        turnId: context.input.sent.turnId,
-        taskId: context.input.sent.taskId,
-        creatorAgentId: "main",
-        toolCallId: null,
-    };
 }
 
 /**
