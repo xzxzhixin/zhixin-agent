@@ -35,6 +35,30 @@ export async function commitMainAgentMemoryAfterTurn(
     assistantText: string,
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<void> {
+    // 只有可长期复用的稳定事实才进入长期记忆，回归口水、明显错误回复和空泛失败回复都必须跳过。
+    if (!shouldPersistMainAgentMemory(
+        userText,
+        assistantText,
+    )) {
+        events.append({
+            eventType: "memory.write.skipped",
+            scopeType: "agent",
+            scopeId: "main",
+            sessionId: sent.sessionId,
+            turnId: sent.turnId,
+            taskId: sent.taskId,
+            agentId: "main",
+            status: "completed",
+            title: "记忆写入跳过",
+            summary: "本轮回复不满足主智能体长期记忆固化条件，已跳过写入。",
+            payload: withOptionalGraphCheckpoint({
+                reason: "MEMORY_PERSIST_FILTERED",
+                userTextPreview: userText.slice(0, 80),
+                assistantTextPreview: assistantText.slice(0, 120),
+            }, graphCheckpoint),
+        });
+        return;
+    }
     // memoryInput: 记忆写入边界是一轮完整对话，索引必须绑定当前会话和轮次便于迁移后追溯。
     const memoryInput: MemoryWriteInput = {
         agentId: "main",
@@ -112,5 +136,40 @@ function summarizeMemoryText(
     return normalized.length > 0
         ? normalized.slice(0, 120)
         : "本轮对话已完成。";
+}
+
+/**
+ * shouldPersistMainAgentMemory：判断当前轮次是否允许固化到主智能体长期记忆。
+ *
+ * @param userText 用户本轮输入。
+ * @param assistantText 助手本轮回复。
+ * @returns 满足长期记忆条件时返回 true。
+ */
+function shouldPersistMainAgentMemory(
+    userText: string,
+    assistantText: string,
+): boolean {
+    const normalizedUserText = userText.replace(/\s+/gu, " ").trim();
+    const normalizedAssistantText = assistantText.replace(/\s+/gu, " ").trim();
+    if (normalizedUserText.length === 0 || normalizedAssistantText.length === 0) {
+        return false;
+    }
+    const blockedPatterns = [
+        "我目前不知道你的真实身份或姓名",
+        "我不知道你的真实身份或姓名",
+        "我叫 ChatGPT",
+        "我是 ChatGPT",
+        "请只回复收到",
+        "收到。",
+        "实时刷新验证",
+        "桌面壳实时刷新验证",
+        "本轮回归验证",
+        "最终验收数据库恢复",
+        "完成事件复测",
+        "本轮数据库恢复复测",
+    ];
+    return !blockedPatterns.some((pattern) => {
+        return normalizedAssistantText.includes(pattern);
+    });
 }
 

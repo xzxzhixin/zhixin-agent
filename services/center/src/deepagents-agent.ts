@@ -43,62 +43,69 @@ type CenterDeepAgentRunStream = DeepAgentRunStream<
  * @returns 没有返回值。
  */
 export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Promise<void> {
-    startWorkerTask(
-        input.database,
-        input.events,
-        input.sent.taskId,
-    );
+    try {
+        startWorkerTask(
+            input.database,
+            input.events,
+            input.sent.taskId,
+        );
 
-    const context = await createDeepAgentsToolExecutionContext(input);
-    appendToolVisibilityEvents(
-        input.events,
-        input.sent.sessionId,
-        input.sent.taskId,
-        input.sent.turnId,
-    );
+        const context = await createDeepAgentsToolExecutionContext(input);
+        appendToolVisibilityEvents(
+            input.events,
+            input.sent.sessionId,
+            input.sent.taskId,
+            input.sent.turnId,
+        );
 
-    const deepAgent = await createCenterDeepAgent(context);
-    const run = await deepAgent.streamEvents(
-        {
-            messages: [
-                {
-                    role: "user",
-                    content: input.userText,
-                },
-            ],
-        },
-        {
-            version: "v3",
-        },
-    ) as CenterDeepAgentRunStream;
+        const deepAgent = await createCenterDeepAgent(context);
+        const run = await deepAgent.streamEvents(
+            {
+                messages: [
+                    {
+                        role: "user",
+                        content: input.userText,
+                    },
+                ],
+            },
+            {
+                version: "v3",
+            },
+        ) as CenterDeepAgentRunStream;
 
-    const messageCollector = collectDeepAgentMessages(input, run);
-    const toolCollector = collectDeepAgentToolCalls(context, run);
+        const messageCollector = collectDeepAgentMessages(input, run);
+        const toolCollector = collectDeepAgentToolCalls(context, run);
 
-    const [
-        streamedAssistantText,
-        finalModelResult,
-    ] = await Promise.all([
-        messageCollector,
-        toolCollector,
-    ]);
+        const [
+            streamedAssistantText,
+            finalModelResult,
+        ] = await Promise.all([
+            messageCollector,
+            toolCollector,
+        ]);
 
-    const output = await run.output as {
-        messages?: Array<{
-            role?: string;
-            content?: unknown;
-        }>;
-    };
-    const assistantText = resolveFinalAssistantText(
-        output,
-        streamedAssistantText,
-    );
+        const output = await run.output as {
+            messages?: Array<{
+                role?: string;
+                content?: unknown;
+            }>;
+        };
+        const assistantText = resolveFinalAssistantText(
+            output,
+            streamedAssistantText,
+        );
 
-    await finalizeDeepAgentTurn(
-        input,
-        assistantText,
-        finalModelResult,
-    );
+        await finalizeDeepAgentTurn(
+            input,
+            assistantText,
+            finalModelResult,
+        );
+    } catch (error) {
+        await failDeepAgentTurn(
+            input,
+            error,
+        );
+    }
 }
 
 /**
@@ -137,7 +144,8 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
     const dynamicMcpNames = mcpSpecs
         .filter((item) => item.sourceToolId === "builtin.mcp.call")
         .map((item) => item.name);
-    const memoryPrompt = listMainAgentMemoryPromptEntries(context.input.database).map((memory, index) => {
+    const memoryEntries = await listMainAgentMemoryPromptEntries(context.input.database);
+    const memoryPrompt = memoryEntries.map((memory, index) => {
         const source = memory.sourceSessionId && memory.sourceTurnId
             ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
             : "来源未绑定";
@@ -155,6 +163,7 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
         "你运行在致心智能体中心服务的受控 Deep Agents 环境中。",
         "中心服务负责事实源、权限、安全、审计、消息持久化、记忆写入、用量记录和多端同步。",
         "你必须通过结构化工具执行命令、MCP 和智能体领域动作，不得在自然语言里伪造工具已执行。",
+        "当长期记忆里明确记录了用户对助手称呼、自称方式或长期偏好时，回答相关问题必须优先遵循这些记忆，而不是退回通用模型自我介绍。",
         "Deep Agents 自带 todoList、文件系统和 task 工具只作为执行内核能力，不得绕过中心服务事实源去宣称写入核心数据。",
         `当前模型：${context.runtime.modelSelection.model}`,
         context.runtime.modelSelection.reasoningEffort
@@ -413,6 +422,44 @@ async function finalizeDeepAgentTurn(
         input.events,
         input.sent.turnId,
         "completed",
+        input.sent.taskId,
+    );
+}
+
+/**
+ * failDeepAgentTurn：统一收尾 Deep Agents 运行异常，避免轮次长期停留在运行中。
+ *
+ * @param input 当前轮次运行输入。
+ * @param error 运行过程中抛出的异常。
+ * @returns 没有返回值。
+ */
+async function failDeepAgentTurn(
+    input: DeepAgentsAgentRunInput,
+    error: unknown,
+): Promise<void> {
+    // errorMessage: 失败收尾只写入稳定短文本，避免把堆栈或长输出直接推给前端。
+    const errorMessage = error instanceof Error
+        ? error.message
+        : "DEEPAGENT_TURN_FAILED";
+    input.events.append({
+        eventType: "message.turn.failed",
+        scopeType: "turn",
+        scopeId: input.sent.turnId,
+        sessionId: input.sent.sessionId,
+        turnId: input.sent.turnId,
+        taskId: input.sent.taskId,
+        status: "failed",
+        title: "对话执行失败",
+        summary: errorMessage,
+        payload: {
+            errorMessage,
+        },
+    });
+    updateTurnStatus(
+        input.database,
+        input.events,
+        input.sent.turnId,
+        "failed",
         input.sent.taskId,
     );
 }

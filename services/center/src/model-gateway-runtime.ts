@@ -30,6 +30,9 @@ import {
     readSecretValue,
     resolveProviderModelSelection,
 } from "./domain/provider-domain.js";
+import {
+    searchSemanticMemories,
+} from "./memory-engine.js";
 import {listAvailableModelToolSpecsForCenter} from "./tools/index.js";
 import {
     type TurnGraphCheckpoint,
@@ -164,8 +167,8 @@ interface AgentMemoryPromptEntry {
     sourceTurnId: string | null;
 }
 
-// MAIN_AGENT_MEMORY_PROMPT_LIMIT：模型请求只注入最近几条主智能体记忆，避免长期记忆无界占用上下文。
-const MAIN_AGENT_MEMORY_PROMPT_LIMIT = 5;
+// MAIN_AGENT_MEMORY_PROMPT_LIMIT：模型请求只注入有限主智能体记忆候选，避免长期记忆无界占用上下文。
+const MAIN_AGENT_MEMORY_PROMPT_LIMIT = 12;
 // MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS：记忆系统消息长度上限，防止历史摘要异常膨胀。
 const MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS = 1200;
 // SESSION_HISTORY_PROMPT_LIMIT：当前会话历史消息上限，避免模型请求被历史窗口无界撑大。
@@ -192,7 +195,7 @@ export async function invokeProviderModelGateway(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
-    const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
+    const mainAgentMemories = await listMainAgentMemoryPromptEntries(database);
     const sessionHistoryMessages = listSessionHistoryPromptMessages(
         database,
         sessionId,
@@ -269,7 +272,7 @@ export async function continueProviderModelGatewayWithToolResults(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<ProviderModelGatewayResult> {
     const runtime = resolveProviderModelRuntime(database, taskId);
-    const mainAgentMemories = listMainAgentMemoryPromptEntries(database);
+    const mainAgentMemories = await listMainAgentMemoryPromptEntries(database);
     const sessionHistoryMessages = listSessionHistoryPromptMessages(
         database,
         sessionId,
@@ -822,8 +825,9 @@ function buildSessionContextPrompt(sessionHistoryMessages: OpenAiChatMessage[]):
  * @param database 中心服务数据库。
  * @returns 可注入模型请求的主智能体记忆摘要。
  */
-export function listMainAgentMemoryPromptEntries(database: CenterDatabase): AgentMemoryPromptEntry[] {
-    return createDataAccess(database).workflow.listRecentAgentMemorySummaries(
+export async function listMainAgentMemoryPromptEntries(database: CenterDatabase): Promise<AgentMemoryPromptEntry[]> {
+    const centerDirectory = extractCenterDirectory(database);
+    const indexedMemories = createDataAccess(database).workflow.listRecentAgentMemorySummaries(
         "main",
         MAIN_AGENT_MEMORY_PROMPT_LIMIT,
     ).map((memory) => {
@@ -832,8 +836,122 @@ export function listMainAgentMemoryPromptEntries(database: CenterDatabase): Agen
             summary: memory.summary,
             sourceSessionId: memory.sourceSessionId,
             sourceTurnId: memory.sourceTurnId,
+            sourceKind: "index" as const,
+            score: 0,
         };
     });
+    const semanticMemories = centerDirectory
+        ? await searchSemanticMemories(
+            centerDirectory,
+            "用户偏好 长期事实 历史设定 常用称呼",
+        )
+        : [];
+    const semanticEntries = semanticMemories.map((memory) => {
+        return {
+            keywords: "mem0",
+            summary: memory.memory,
+            sourceSessionId: typeof memory.metadata.sourceSessionId === "string"
+                ? memory.metadata.sourceSessionId
+                : null,
+            sourceTurnId: typeof memory.metadata.sourceTurnId === "string"
+                ? memory.metadata.sourceTurnId
+                : null,
+            sourceKind: "mem0" as const,
+            score: memory.score ?? 0,
+        };
+    });
+    return dedupeMainAgentMemoryPromptEntries([
+        ...semanticEntries,
+        ...indexedMemories,
+    ]).filter((memory) => {
+        return shouldIncludeMainAgentMemoryPromptEntry(memory.summary);
+    }).sort((left, right) => {
+        return scoreMainAgentMemoryPromptEntry(right) - scoreMainAgentMemoryPromptEntry(left);
+    }).slice(0, MAIN_AGENT_MEMORY_PROMPT_LIMIT).map((memory) => {
+        return {
+            keywords: memory.keywords,
+            summary: memory.summary,
+            sourceSessionId: memory.sourceSessionId,
+            sourceTurnId: memory.sourceTurnId,
+        };
+    });
+}
+
+/**
+ * shouldIncludeMainAgentMemoryPromptEntry：过滤明显错误的主智能体长期记忆摘要，避免历史污染继续压过正确信息。
+ *
+ * @param summary 长期记忆摘要。
+ * @returns 可注入模型提示时返回 true。
+ */
+function shouldIncludeMainAgentMemoryPromptEntry(summary: string): boolean {
+    const normalizedSummary = summary.replace(/\s+/gu, " ").trim();
+    if (normalizedSummary.length === 0) {
+        return false;
+    }
+    const blockedPatterns = [
+        "我目前不知道你的真实身份或姓名",
+        "我不知道你的真实身份或姓名",
+        "我叫 ChatGPT",
+        "我是 ChatGPT",
+        "请只回复收到",
+        "收到。",
+        "实时刷新验证",
+        "桌面壳实时刷新验证",
+        "本轮回归验证",
+        "最终验收数据库恢复",
+        "完成事件复测",
+        "本轮数据库恢复复测",
+    ];
+    return !blockedPatterns.some((pattern) => {
+        return normalizedSummary.includes(pattern);
+    });
+}
+
+/**
+ * scoreMainAgentMemoryPromptEntry：给主智能体长期记忆候选打分，让 mem0 稳定事实优先、回归口水降权。
+ *
+ * @param memory 长期记忆候选。
+ * @returns 数值越高越应优先展示。
+ */
+function scoreMainAgentMemoryPromptEntry(memory: {
+    summary: string;
+    sourceKind: "mem0" | "index";
+    score: number;
+}): number {
+    const normalizedSummary = memory.summary.replace(/\s+/gu, " ").trim();
+    let score = 0;
+    if (memory.sourceKind === "mem0") {
+        score += 100;
+    }
+    if (normalizedSummary.includes("偏好") || normalizedSummary.includes("长期记忆")) {
+        score += 20;
+    }
+    if (normalizedSummary.includes("作者") || normalizedSummary.includes("喜欢") || normalizedSummary.includes("称呼")) {
+        score += 10;
+    }
+    return score + memory.score;
+}
+
+/**
+ * dedupeMainAgentMemoryPromptEntries：按摘要去重主智能体长期记忆候选，避免 mem0 与索引重复占位。
+ *
+ * @param entries 主智能体长期记忆候选。
+ * @returns 去重后的候选数组。
+ */
+function dedupeMainAgentMemoryPromptEntries<T extends {
+    summary: string;
+}>(entries: T[]): T[] {
+    const seenSummaries = new Set<string>();
+    const dedupedEntries: T[] = [];
+    for (const entry of entries) {
+        const summaryKey = entry.summary.replace(/\s+/gu, " ").trim();
+        if (summaryKey.length === 0 || seenSummaries.has(summaryKey)) {
+            continue;
+        }
+        seenSummaries.add(summaryKey);
+        dedupedEntries.push(entry);
+    }
+    return dedupedEntries;
 }
 
 /**

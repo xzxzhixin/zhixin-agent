@@ -196,6 +196,10 @@ function shouldWriteCenterEventToConsole(event: EventRecord): boolean {
     if (event.status === "failed" || event.errorCode) {
         return true;
     }
+    // 轮次边界需要固定输出一头一尾，便于控制台直接审计单轮开始和终态。
+    if (event.eventType === "turn.started" || event.eventType === "turn.updated") {
+        return true;
+    }
     if (event.eventType === "tool.command.output") {
         return false;
     }

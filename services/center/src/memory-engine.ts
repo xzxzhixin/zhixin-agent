@@ -1,5 +1,6 @@
 import {
     mkdirSync,
+    readdirSync,
 } from "node:fs";
 import {
     join,
@@ -8,6 +9,10 @@ import {
 import {Memory} from "mem0ai/oss";
 
 import type {CenterEventStore} from "./events.js";
+import {
+    readProviderConfig,
+    readSecretValue,
+} from "./domain/provider-domain.js";
 
 /**
  * Mem0MemorySource：同步到 Mem0 的来源追溯信息。
@@ -87,6 +92,18 @@ export interface Mem0MemoryEngine {
 }
 
 /**
+ * Mem0SearchMemoryRecord：中心服务消费的 Mem0 检索结果。
+ */
+export interface Mem0SearchMemoryRecord {
+    /** memory: Mem0 召回出的记忆正文。 */
+    memory: string;
+    /** score: Mem0 召回分数，没有时为 null。 */
+    score: number | null;
+    /** metadata: Mem0 记忆元数据。 */
+    metadata: Record<string, unknown>;
+}
+
+/**
  * createMem0MemoryEngine：创建 Mem0 OSS 本地语义记忆引擎。
  *
  * @param centerDirectory 中心目录绝对路径。
@@ -125,12 +142,45 @@ export function createMem0MemoryEngine(
         };
     }
 
+    const providerConfig = resolveMem0ProviderConfig(centerDirectory);
+    if (!providerConfig) {
+        return {
+            enabled: false,
+            mem0Directory,
+            historyDbPath,
+            vectorDbPath,
+            memory: null,
+        };
+    }
     const memory = new Memory({
-        historyDbPath,
+        embedder: {
+            provider: "openai",
+            config: {
+                apiKey: providerConfig.apiKey,
+                baseURL: providerConfig.baseUrl,
+                model: providerConfig.embeddingModel,
+                embeddingDims: 1536,
+            },
+        },
         vectorStore: {
             provider: "memory",
             config: {
                 dbPath: vectorDbPath,
+                dimension: 1536,
+            },
+        },
+        llm: {
+            provider: "openai",
+            config: {
+                apiKey: providerConfig.apiKey,
+                baseURL: providerConfig.baseUrl,
+                model: providerConfig.chatModel,
+            },
+        },
+        historyStore: {
+            provider: "sqlite",
+            config: {
+                historyDbPath,
             },
         },
     });
@@ -157,7 +207,75 @@ export async function syncTurnMemoryToMem0(
     centerDirectory: string,
     source: Mem0MemorySource,
 ): Promise<void> {
-    const engine = createMem0MemoryEngine(centerDirectory);
+    const engine = createMem0MemoryEngine(
+        centerDirectory,
+        true,
+    );
+    if (engine.memory) {
+        try {
+            await engine.memory.add(
+                source.sourceMemoryText,
+                {
+                    agentId: source.agentId,
+                    runId: source.sourceTurnId,
+                    metadata: {
+                        projectId: source.projectId,
+                        sourceSessionId: source.sourceSessionId,
+                        sourceTurnId: source.sourceTurnId,
+                        sourceMemoryPath: source.sourceMemoryPath,
+                    },
+                    infer: false,
+                },
+            );
+            events.append({
+                eventType: "memory.mem0.synced",
+                scopeType: "memory",
+                scopeId: source.sourceTurnId,
+                sessionId: source.sourceSessionId,
+                turnId: source.sourceTurnId,
+                taskId: null,
+                agentId: source.agentId,
+                projectId: source.projectId,
+                status: "completed",
+                title: "Mem0 语义记忆同步完成",
+                summary: "Markdown 长期记忆已同步到 Mem0 本地索引。",
+                payload: {
+                    mem0Directory: engine.mem0Directory,
+                    historyDbPath: engine.historyDbPath,
+                    vectorDbPath: engine.vectorDbPath,
+                    sourceSessionId: source.sourceSessionId,
+                    sourceTurnId: source.sourceTurnId,
+                    sourceMemoryPath: source.sourceMemoryPath,
+                },
+            });
+            return;
+        } catch (error) {
+            const errorMessage = error instanceof Error
+                ? error.message
+                : "MEM0_SYNC_FAILED";
+            events.append({
+                eventType: "memory.mem0.failed",
+                scopeType: "memory",
+                scopeId: source.sourceTurnId,
+                sessionId: source.sourceSessionId,
+                turnId: source.sourceTurnId,
+                taskId: null,
+                agentId: source.agentId,
+                projectId: source.projectId,
+                status: "failed",
+                title: "Mem0 语义记忆同步失败",
+                summary: errorMessage,
+                payload: {
+                    mem0Directory: engine.mem0Directory,
+                    historyDbPath: engine.historyDbPath,
+                    vectorDbPath: engine.vectorDbPath,
+                    sourceSessionId: source.sourceSessionId,
+                    sourceTurnId: source.sourceTurnId,
+                    sourceMemoryPath: source.sourceMemoryPath,
+                },
+            });
+        }
+    }
     events.append({
         eventType: "memory.mem0.skipped",
         scopeType: "memory",
@@ -196,17 +314,110 @@ export async function syncTurnMemoryToMem0(
 export async function searchSemanticMemories(
     centerDirectory: string,
     query: string,
-): Promise<unknown[]> {
-    const engine = createMem0MemoryEngine(centerDirectory);
+): Promise<Mem0SearchMemoryRecord[]> {
+    const engine = createMem0MemoryEngine(
+        centerDirectory,
+        true,
+    );
     if (!engine.memory) {
         return [];
     }
 
-    const result = await engine.memory.search(
-        query,
-        {
-            filters: {},
-        },
+    try {
+        const result = await engine.memory.search(
+            query,
+            {
+                filters: {
+                    agent_id: "main",
+                },
+                topK: 8,
+            },
+        );
+        return Array.isArray(result.results)
+            ? result.results.map((item) => {
+                const typedItem = item as {
+                    memory?: string;
+                    score?: number;
+                    metadata?: Record<string, unknown>;
+                };
+                return {
+                    memory: typedItem.memory ?? "",
+                    score: typeof typedItem.score === "number"
+                        ? typedItem.score
+                        : null,
+                    metadata: typedItem.metadata ?? {},
+                };
+            }).filter((item) => {
+                return item.memory.trim().length > 0;
+            })
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * resolveMem0ProviderConfig：从中心服务当前启用供应商构造 Mem0 所需的显式模型配置。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @returns 可用时返回模型配置；不可用时返回 null。
+ */
+function resolveMem0ProviderConfig(centerDirectory: string): {
+    apiKey: string;
+    baseUrl: string;
+    chatModel: string;
+    embeddingModel: string;
+} | null {
+    const providersDirectory = join(
+        centerDirectory,
+        "providers",
     );
-    return Array.isArray(result.results) ? result.results : [];
+    try {
+        const providerFiles = readdirSync(providersDirectory)
+            .filter((fileName: string) => {
+                return fileName.endsWith(".json")
+                    && !fileName.endsWith(".models.json")
+                    && !fileName.endsWith(".patch.json");
+            })
+            .sort();
+        for (const fileName of providerFiles) {
+            const providerId = fileName.replace(/\.json$/u, "");
+            const provider = readProviderConfig(
+                centerDirectory,
+                providerId,
+            );
+            if (!provider?.enabled) {
+                continue;
+            }
+            const apiKey = readSecretValue(
+                centerDirectory,
+                provider.apiKeySecretRef,
+            );
+            if (!apiKey) {
+                continue;
+            }
+            return {
+                apiKey,
+                baseUrl: normalizeMem0ProviderBaseUrl(provider.baseUrl),
+                chatModel: provider.defaultModel || "gpt-5-mini",
+                embeddingModel: "text-embedding-3-small",
+            };
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+/**
+ * normalizeMem0ProviderBaseUrl：把中心服务供应商地址规整为 Mem0 OpenAI 兼容配置。
+ *
+ * @param baseUrl 供应商基础地址。
+ * @returns 以 /v1 结尾的基础地址。
+ */
+function normalizeMem0ProviderBaseUrl(baseUrl: string): string {
+    const normalizedBaseUrl = baseUrl.replace(/\/$/u, "");
+    return normalizedBaseUrl.endsWith("/v1")
+        ? normalizedBaseUrl
+        : `${normalizedBaseUrl}/v1`;
 }
