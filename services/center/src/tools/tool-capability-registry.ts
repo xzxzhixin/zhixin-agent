@@ -330,53 +330,6 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         approvalRequired: false,
         displayText: "使用 skill",
     },
-    {
-        toolId: "builtin.deepagents.write_todos",
-        toolKind: "agent",
-        displayName: "Deep Agents todo",
-        requiredPermission: "project.write",
-        availability: "available",
-        unavailableReason: null,
-        description: "使用 Deep Agents 原生 write_todos 维护当前智能体自己的任务拆解；中心服务会同步写入 task_steps。",
-        inputSchema: {
-            type: "object",
-            required: [
-                "todos",
-            ],
-            properties: {
-                todos: {
-                    type: "array",
-                    description: "Deep Agents 原生 todo 条目。",
-                    items: {
-                        type: "object",
-                        required: [
-                            "content",
-                            "status",
-                        ],
-                        properties: {
-                            content: {
-                                type: "string",
-                                description: "todo 条目正文。",
-                            },
-                            status: {
-                                type: "string",
-                                enum: [
-                                    "pending",
-                                    "in_progress",
-                                    "completed",
-                                ],
-                                description: "Deep Agents 原生 todo 状态。",
-                            },
-                        },
-                    },
-                },
-            },
-        },
-        riskLevel: "low",
-        scope: "session",
-        approvalRequired: false,
-        displayText: "维护 Deep Agents todo",
-    },
 ];
 
 /**
@@ -409,9 +362,6 @@ export function resolveUnifiedToolCapability(toolId: string): UnifiedToolCapabil
  * @returns 只包含字母、数字、下划线或连字符的模型工具名。
  */
 export function toModelSafeToolName(toolId: string): string {
-    if (toolId === "builtin.deepagents.write_todos") {
-        return "write_todos";
-    }
     // safeName: OpenAI 兼容工具名不允许点号，统一替换成下划线并保留可读来源。
     return toolId.replace(/[^a-zA-Z0-9_-]/gu, "_");
 }

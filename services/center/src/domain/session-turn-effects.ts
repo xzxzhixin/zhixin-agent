@@ -4,10 +4,6 @@ import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
 import type {SendMessageResponse} from "../types.js";
 import type {MemoryQueueState} from "../types.js";
 import {
-    syncDeepAgentTodosToTaskSteps,
-    type DeepAgentTodoItem,
-} from "../deepagents-runner.js";
-import {
     writeAgentMemory,
     type MemoryWriteInput,
 } from "./agent-domain.js";
@@ -44,9 +40,6 @@ import {
 import {
     executeRemoveAgentTeamMemberTool,
 } from "../tools/remove-agent-team-member-tool.js";
-import {
-    executeDeepAgentsTodoTool,
-} from "../tools/deepagents-todo-tool.js";
 import type {SubAgentRuntimeRecord} from "../types.js";
 import {
     type TurnGraphCheckpoint,
@@ -199,7 +192,7 @@ export async function executeModelRequestedTools(
             continue;
         }
 
-        // 工具过程只写入工具事件和过程卡片；只有 todoList 或明确 stepId 才能改写可见任务步骤，避免“工具完成”被误判为拆解任务完成。
+        // 工具过程只写入工具事件和过程卡片；只有明确 stepId 才能改写可见任务步骤，避免“工具完成”被误判为拆解任务完成。
         const toolResult = unifiedToolIntent.toolKind === "agent"
             ? runAgentTool(
                 database,
@@ -277,41 +270,6 @@ function runAgentTool(
         const creatorAgentId = typeof intent.arguments.creatorAgentId === "string"
             ? intent.arguments.creatorAgentId
             : "main";
-        if (intent.toolId === "builtin.deepagents.write_todos") {
-            const currentTask = findTask(
-                database,
-                sent.taskId,
-            );
-            if (!currentTask) {
-                return {
-                    toolKind: "agent",
-                    status: "failed",
-                    outputSummary: "",
-                    failureReason: "TODO_LIST_TASK_NOT_FOUND",
-                    traceId: "",
-                };
-            }
-            const result = executeDeepAgentsTodoTool(
-                database,
-                events,
-                {
-                    sessionId: sent.sessionId,
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                    agentId: currentTask.agentId,
-                    toolCallId,
-                    items: syncDeepAgentTodosToTaskSteps(readDeepAgentTodoItems(intent.arguments.todos)),
-                },
-            );
-            return {
-                toolKind: "agent",
-                status: result.status,
-                outputSummary: result.outputSummary,
-                failureReason: result.failureReason,
-                traceId: "",
-            };
-        }
-
         const result = intent.toolId === "builtin.agent.createLongTerm"
             ? executeCreateLongTermAgentTool(
                 database,
@@ -472,46 +430,6 @@ function runAgentTool(
             traceId: "",
         };
     }
-}
-
-/**
- * readDeepAgentTodoItems：从 Deep Agents 原生 write_todos 参数中读取 todo 条目。
- *
- * @param value 模型传入的 todos 字段。
- * @returns Deep Agents 原生 todo 条目；格式不正确时返回空数组。
- */
-function readDeepAgentTodoItems(value: unknown): DeepAgentTodoItem[] {
-    if (!Array.isArray(value)) {
-        return [];
-    }
-    return value.map((item) => {
-        if (!item || typeof item !== "object") {
-            return {
-                content: "",
-                status: "pending",
-            };
-        }
-        const record = item as Record<string, unknown>;
-        return {
-            content: typeof record.content === "string"
-                ? record.content
-                : "",
-            status: readDeepAgentTodoStatus(record.status),
-        };
-    });
-}
-
-/**
- * readDeepAgentTodoStatus：规范化 Deep Agents 原生 todo 状态。
- *
- * @param status 模型传入的状态。
- * @returns Deep Agents 支持的 todo 状态。
- */
-function readDeepAgentTodoStatus(status: unknown): DeepAgentTodoItem["status"] {
-    if (status === "completed" || status === "in_progress") {
-        return status;
-    }
-    return "pending";
 }
 
 /**

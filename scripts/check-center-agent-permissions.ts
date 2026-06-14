@@ -60,12 +60,15 @@ async function main(): Promise<void> {
   assert(!mainAgent.getCreationTools().includes("todo-list"), "主智能体创建类工具不能包含 todoList");
   assert(!longTermAgent.getCreationTools().includes("todo-list"), "长期智能体创建类工具不能包含 todoList");
   assert(!subAgent.getCreationTools().includes("todo-list"), "todoList 不是创建类工具，不能出现在 getCreationTools 中");
-  assert(subAgent.canUseToolCapability("builtin.deepagents.write_todos"), "子智能体仍可通过 Deep Agents 原生 write_todos 维护自己的 todoList");
+  assert(subAgent.shouldCreateTodoListForTask({
+    taskSummary: "需要多步骤处理的检查任务",
+    plannedStepCount: 2,
+  }), "子智能体仍可通过 Deep Agents 自带 todoList 维护自己的多步骤任务状态");
+  assert(!subAgent.canUseToolCapability("builtin.deepagents.write_todos"), "中心服务不能再把 Deep Agents write_todos 包装成模型可见工具");
   assert(mapToolCapabilityToAgentToolName("mcp_global_files_read") === "mcp-call", "MCP 动态工具必须继承 MCP 权限边界");
-  assert(listUnifiedToolCapabilities().some((capability) => {
-    return capability.toolId === "builtin.deepagents.write_todos"
-      && capability.availability === "available";
-  }), "统一工具注册表必须包含可用的 builtin.deepagents.write_todos 能力");
+  assert(!listUnifiedToolCapabilities().some((capability) => {
+    return capability.toolId === "builtin.deepagents.write_todos";
+  }), "统一工具注册表不能继续保留 builtin.deepagents.write_todos 包装工具");
   assert(!listUnifiedToolCapabilities().some((capability) => {
     return capability.toolId === "builtin.todo.list";
   }), "统一工具注册表不能继续保留旧 builtin.todo.list 能力");

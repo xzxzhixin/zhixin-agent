@@ -140,8 +140,6 @@ if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
   const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
   for (const signal of [
     "createDeepAgent",
-    "syncDeepAgentTodosToTaskSteps",
-    "write_todos",
     "StateGraph",
     "START",
     "END",
@@ -164,6 +162,8 @@ if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
     ".addNode(\"tool.result\"",
     "thinkingContext:",
     "toolResult:",
+    "syncDeepAgentTodosToTaskSteps",
+    "builtin.deepagents.write_todos",
   ]) {
     assertNotIncludes(
       "services/center/src/deepagents-runner.ts",
