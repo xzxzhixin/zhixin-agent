@@ -457,6 +457,9 @@ export function createGroupedProcessRows(
         const sortedEvents = [...groupEvents].sort((left, right) => {
             return left.sequence - right.sequence;
         });
+        if (shouldHideProcessGroup(sortedEvents)) {
+            return null;
+        }
         const latestEvent = sortedEvents[sortedEvents.length - 1];
         const statusEntries = sortedEvents.map((event) => {
             return {
@@ -523,6 +526,8 @@ export function createGroupedProcessRows(
                 return log.text.trim().length > 0;
             }),
         };
+    }).filter((row): row is ProcessMessageGroupRow => {
+        return row !== null;
     });
 }
 
@@ -771,12 +776,7 @@ function isVisibleProcessEvent(event: EventRecord): boolean {
         "model.tool.requested",
         "model.tool.rejected",
         "model.tool.result.appended",
-        "tool.plan.created",
         "agent.loop.batch_limit_reached",
-        "task.plan.revised",
-        "task.step.created",
-        "task.step.started",
-        "task.step.updated",
     ].includes(event.eventType)) {
         return true;
     }
@@ -888,6 +888,42 @@ function resolveToolCallProcessGroupId(
 }
 
 /**
+ * shouldHideProcessGroup：过滤只属于执行内核内部状态、没有真实外部执行动作的过程组。
+ *
+ * @param sortedEvents 同一过程内按事件序号排列的事件。
+ * @returns 需要从消息流移除时返回 true。
+ */
+function shouldHideProcessGroup(sortedEvents: EventRecord[]): boolean {
+    const hasRealExecutionEvent = sortedEvents.some((event) => {
+        return event.eventType.startsWith("tool.command.")
+            || event.eventType.startsWith("tool.mcp.")
+            || event.eventType.startsWith("tool.call.")
+            || event.eventType.startsWith("tool.skill.")
+            || event.eventType.startsWith("tool.plugin.")
+            || event.eventType.startsWith("tool.agent.")
+            || event.eventType.startsWith("agent.team.");
+    });
+    if (hasRealExecutionEvent) {
+        return false;
+    }
+    const toolNames = sortedEvents.map((event) => {
+        return readEventText(
+            event,
+            "toolName",
+        ).trim().toLowerCase();
+    }).filter((toolName) => {
+        return toolName.length > 0;
+    });
+    if (toolNames.length === 0) {
+        return false;
+    }
+    // todoList 是 Deep Agents 执行内核内部状态工具，不属于用户消息流中的真实外部动作。
+    return toolNames.every((toolName) => {
+        return toolName.includes("todo");
+    });
+}
+
+/**
  * resolveProcessGroupTitle：生成过程卡片标题。
  *
  * @param event 同组最新事件。
@@ -915,20 +951,8 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             "toolName",
         ) || event.title || "模型工具请求";
     }
-    if (event.eventType === "tool.plan.created") {
-        return "工具计划";
-    }
     if (event.eventType.startsWith("agent.loop.")) {
         return event.title || "智能体自动续跑";
-    }
-    if (event.eventType.startsWith("task.step.")) {
-        return readEventText(
-            event,
-            "title",
-        ) || event.title || "任务步骤";
-    }
-    if (event.eventType === "task.plan.revised") {
-        return "任务计划重规划";
     }
     if (event.eventType.startsWith("tool.agent.") || event.eventType.startsWith("agent.team.")) {
         return readEventText(
@@ -1029,8 +1053,7 @@ function resolveProcessResponseText(
         return deduplicateProcessTextParts(responseParts).join("\n");
     }
 
-    const title = resolveProcessGroupTitle(latestEvent);
-    return `${title} 已开始，等待响应。`;
+    return "";
 }
 
 /**
@@ -1078,7 +1101,7 @@ function resolveProcessTerminalText(
     if (deduplicatedParts.length > 0) {
         return deduplicatedParts.join("\n");
     }
-    return `${title} 已开始，等待响应。`;
+    return "";
 }
 
 /**

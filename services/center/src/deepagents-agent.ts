@@ -6,10 +6,8 @@ import {createDeepAgent, type DeepAgentRunStream} from "deepagents";
 
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
-    createTaskStep,
     recordModelUsageAfterTurn,
     updateSessionTitleAfterTurn,
-    updateTaskStep,
     updateTurnStatus,
 } from "./domain/session-domain.js";
 import {commitMainAgentMemoryAfterTurn} from "./domain/session-turn-effects.js";
@@ -59,22 +57,6 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         input.sent.turnId,
     );
 
-    const assistantStep = createTaskStep(
-        input.database,
-        input.events,
-        {
-            taskId: input.sent.taskId,
-            sessionId: input.sent.sessionId,
-            turnId: input.sent.turnId,
-        },
-        "Deep Agents 原生执行",
-        {
-            source: "system",
-            initialStatus: "running",
-            summary: "当前轮次已切入 Deep Agents 原生 agent。",
-        },
-    );
-
     const deepAgent = await createCenterDeepAgent(context);
     const run = await deepAgent.streamEvents(
         {
@@ -116,14 +98,6 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         input,
         assistantText,
         finalModelResult,
-    );
-
-    updateTaskStep(
-        input.database,
-        input.events,
-        assistantStep.stepId,
-        "completed",
-        "Deep Agents 原生 agent 已完成当前轮次执行。",
     );
 }
 

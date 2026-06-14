@@ -211,21 +211,24 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
      * @returns 关闭完成后没有返回值。
      */
     async function close(): Promise<void> {
-        const shutdownRecovered = finalizeDanglingConversationTurns(
-            database,
-            events,
-            {
-                reason: "中心服务关闭，已收尾当前进程未结束的运行中轮次。",
-                source: "shutdown_recovery",
-            },
-        );
-        await logger.info("center.shutdown.finalized_running_turns", {
-            centerDirectory: config.centerDirectory,
-            processStartedAt,
-            shutdownRecovered,
-        });
-        database.close();
-        await directory.close();
+        if (initialized) {
+            const shutdownRecovered = finalizeDanglingConversationTurns(
+                database,
+                events,
+                {
+                    reason: "中心服务关闭，已收尾当前进程未结束的运行中轮次。",
+                    source: "shutdown_recovery",
+                },
+            );
+            await logger.info("center.shutdown.finalized_running_turns", {
+                centerDirectory: config.centerDirectory,
+                processStartedAt,
+                shutdownRecovered,
+            });
+            database.close();
+            await directory.close();
+            initialized = false;
+        }
         if (lockAcquired) {
             await startupLock.release();
             lockAcquired = false;

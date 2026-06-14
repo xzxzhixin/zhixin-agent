@@ -172,11 +172,7 @@ for (const signal of [
 }
 
 for (const signal of [
-  "task.step.created",
-  "tool.plan.created",
   "agent.loop.batch_limit_reached",
-  "task.step.started",
-  "task.step.updated",
   "model.tool.requested",
   "model.tool.result.appended",
 ]) {
@@ -184,6 +180,18 @@ for (const signal of [
     chatProcessAggregationSource,
     signal,
     `主智能体对话过程聚合缺少正在做什么的事件信号：${signal}`,
+  );
+}
+
+for (const signal of [
+  "task.step.created",
+  "task.step.started",
+  "task.step.updated",
+]) {
+  assertNotIncludes(
+    chatProcessAggregationSource,
+    signal,
+    `task.step.* 属于内部任务步骤事件，不能继续进入主对话过程聚合：${signal}`,
   );
 }
 
