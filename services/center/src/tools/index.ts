@@ -25,20 +25,59 @@ export type {
     DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
 export {
-    runCommandTool,
-} from "./command-tool.js";
+    CommandStructuredTool,
+} from "./command-structured-tool.js";
 export type {
-    CommandToolRequest,
-    CommandToolResult,
-} from "./command-tool.js";
+    CommandToolExecutionRequest,
+    CommandToolExecutionResult,
+} from "./command-tool-executor.js";
 export {
+    executeCommandTool,
+} from "./command-tool-executor.js";
+export {
+    AddAgentTeamMemberStructuredTool,
+} from "./AddAgentTeamMemberStructuredTool.js";
+export {
+    CreateAgentTeamStructuredTool,
+} from "./CreateAgentTeamStructuredTool.js";
+export {
+    CreateLongTermAgentStructuredTool,
+} from "./CreateLongTermAgentStructuredTool.js";
+export {
+    CreateSubAgentStructuredTool,
+} from "./CreateSubAgentStructuredTool.js";
+export {
+    DisbandAgentTeamStructuredTool,
+} from "./DisbandAgentTeamStructuredTool.js";
+export {
+    RemoveAgentTeamMemberStructuredTool,
+} from "./RemoveAgentTeamMemberStructuredTool.js";
+export {
+    executeAddAgentTeamMemberForTool,
+    executeCreateAgentTeamForTool,
+    executeCreateLongTermAgentForTool,
+    executeCreateSubAgentForTool,
+    executeDisbandAgentTeamForTool,
+    executeRemoveAgentTeamMemberForTool,
+} from "./agent-team-tool-executors.js";
+export {
+    DynamicMcpStructuredTool,
+} from "./mcp-structured-tool.js";
+export {
+    executeMcpTool,
+} from "./mcp-tool-executor.js";
+export type {
+    McpToolExecutionRequest,
+    McpToolExecutionResult,
+} from "./mcp-tool-executor.js";
+export {
+    listConfiguredMcpModelToolSpecs,
     listConfiguredMcpToolViews,
     listConfiguredMcpToolViewsByServer,
     listMcpToolViewsForServerConfig,
     readMcpDynamicToolName,
-    runMcpTool,
-} from "./mcp-tool.js";
-export type {
-    McpToolRequest,
-    McpToolResult,
-} from "./mcp-tool.js";
+    readAllMcpServerConfigs,
+    readMcpServerConfig,
+    readMcpServerConfigFromValue,
+    toDynamicMcpModelToolName,
+} from "./mcp-tool-specs.js";

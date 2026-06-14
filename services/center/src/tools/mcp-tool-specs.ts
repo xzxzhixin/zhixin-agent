@@ -3,175 +3,30 @@ import type {ChildProcessWithoutNullStreams} from "node:child_process";
 import {existsSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
-import type {
-    UnifiedToolCallIntent,
-    UnifiedToolCapability,
-} from "@zhixin/shared";
-
-import type {CenterEventStore} from "../events.js";
 import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
-import {resolveUnifiedToolCapability} from "./tool-capability-registry.js";
-import {
-    type TurnGraphCheckpoint,
-    withOptionalGraphCheckpoint,
-} from "../domain/turn-graph-domain.js";
 
 /**
- * McpToolRequest：MCP 工具调用请求。
- *
- * 来源：模型工具调用闭环。
- * 含义：中心服务按已保存的 MCP 配置连接指定 Server 并调用工具。
- * 格式：serverId、toolName 和 arguments。
- * 默认值：无。
- * 约束：只能调用中心目录 MCP 配置中明确存在的 Server。
+ * McpToolView：MCP 管理页工具展示行。
  */
-export interface McpToolRequest {
-    /** toolCallId: 模型工具调用 ID，用于 UI 聚合同一次 MCP 调用；非模型触发时为 null。 */
-    toolCallId?: string | null;
-    /** transportType: MCP 传输类型；运行时读取配置后补齐。 */
-    transportType?: "http" | "stdio" | null;
-    /** serverId: MCP Server ID，来源于 mcp/global.json 或项目级 MCP 配置。 */
-    serverId: string;
-    /** toolName: MCP Server 暴露的工具名称。 */
-    toolName: string;
-    /** arguments: MCP 工具参数对象。 */
-    arguments: Record<string, unknown>;
-    /** inputSummary: MCP 调用用途摘要。 */
-    inputSummary: string;
-}
-
-/**
- * McpToolResult：MCP 工具调用结果。
- *
- * 来源：MCP Server 的 tools/call 返回。
- * 含义：供模型回填和对话过程卡片展示。
- * 格式：JSON 对象。
- * 默认值：无。
- * 约束：只返回文本摘要，不在事件中保存敏感认证信息。
- */
-export interface McpToolResult {
-    /** toolKind: 固定 MCP 工具类型。 */
-    toolKind: "mcp";
+export interface McpToolView {
     /** serverId: MCP Server ID。 */
     serverId: string;
+    /** transportType: MCP 传输类型。 */
+    transportType: "http" | "stdio";
     /** toolName: MCP 工具名称。 */
     toolName: string;
-    /** status: MCP 调用状态。 */
-    status: "completed" | "failed";
-    /** outputSummary: MCP 工具输出摘要。 */
-    outputSummary: string;
-    /** failureReason: 失败原因，成功时为 null。 */
-    failureReason: string | null;
-    /** traceId: 完成或失败事件排查 ID。 */
-    traceId: string;
+    /** description: MCP 工具描述。 */
+    description: string;
+    /** inputSchema: MCP 工具输入 schema。 */
+    inputSchema: Record<string, unknown>;
+    /** errorMessage: 读取失败时的错误消息。 */
+    errorMessage: string | null;
 }
 
 /**
- * mcpRequestFromUnifiedToolIntent：把统一工具意图转换为 MCP 调用请求。
- *
- * @param intent 统一工具调用意图。
- * @returns MCP 工具请求。
+ * HttpMcpServerConfig：HTTP MCP Server 配置。
  */
-export function mcpRequestFromUnifiedToolIntent(intent: UnifiedToolCallIntent): McpToolRequest {
-    const serverId = typeof intent.arguments.serverId === "string"
-        ? intent.arguments.serverId
-        : "";
-    const toolName = typeof intent.arguments.toolName === "string"
-        ? intent.arguments.toolName
-        : "";
-    const toolArguments = isRecord(intent.arguments.arguments)
-        ? intent.arguments.arguments
-        : {};
-    return {
-        serverId,
-        toolName,
-        arguments: toolArguments,
-        inputSummary: intent.inputSummary,
-    };
-}
-
-/**
- * runMcpTool：通过中心服务保存的 MCP 配置调用远端 MCP Server。
- *
- * @param events 事件日志仓储。
- * @param centerDirectory 中心目录绝对路径。
- * @param sessionId 会话 ID。
- * @param taskId 任务 ID。
- * @param turnId 轮次 ID。
- * @param request MCP 调用请求。
- * @param graphCheckpoint 对话图节点检查点。
- * @returns MCP 工具输出摘要。
- */
-export async function runMcpTool(
-    events: CenterEventStore,
-    centerDirectory: string,
-    sessionId: string,
-    taskId: string,
-    turnId: string,
-    request: McpToolRequest,
-    graphCheckpoint?: TurnGraphCheckpoint,
-): Promise<McpToolResult> {
-    const capability = resolveUnifiedToolCapability("builtin.mcp.call");
-    const serverConfig = readMcpServerConfig(centerDirectory, request.serverId);
-    request.transportType = serverConfig.type;
-    events.append({
-        eventType: "tool.mcp.started",
-        scopeType: "tool",
-        scopeId: taskId,
-        sessionId,
-        turnId,
-        taskId,
-        status: "running",
-        title: "MCP 调用开始",
-        summary: request.inputSummary,
-        payload: withOptionalGraphCheckpoint({
-            toolId: capability?.toolId ?? "builtin.mcp.call",
-            toolKind: "mcp",
-            transportType: serverConfig.type,
-            toolCallId: request.toolCallId ?? null,
-            requiredPermission: capability?.requiredPermission ?? "mcp.call",
-            serverId: request.serverId,
-            toolName: request.toolName,
-            inputSummary: request.inputSummary,
-        }, graphCheckpoint),
-    });
-
-    try {
-        const outputSummary = await callMcpTool(
-            serverConfig,
-            request.toolName,
-            request.arguments,
-        );
-        return appendMcpToolResult(
-            events,
-            capability,
-            request,
-            sessionId,
-            taskId,
-            turnId,
-            "completed",
-            outputSummary,
-            null,
-            graphCheckpoint,
-        );
-    } catch (error) {
-        const failureReason = error instanceof Error ? error.message : "MCP_TOOL_CALL_FAILED";
-        return appendMcpToolResult(
-            events,
-            capability,
-            request,
-            sessionId,
-            taskId,
-            turnId,
-            "failed",
-            "",
-            failureReason,
-            graphCheckpoint,
-        );
-    }
-}
-
-interface HttpMcpServerConfig {
+export interface HttpMcpServerConfig {
     /** serverId: MCP Server ID，来源于 mcpServers 对象 key。 */
     serverId: string;
     /** type: MCP HTTP Streamable transport。 */
@@ -180,7 +35,10 @@ interface HttpMcpServerConfig {
     url: string;
 }
 
-interface StdioMcpServerConfig {
+/**
+ * StdioMcpServerConfig：stdio MCP Server 配置。
+ */
+export interface StdioMcpServerConfig {
     /** serverId: MCP Server ID，来源于 mcpServers 对象 key。 */
     serverId: string;
     /** type: MCP stdio transport。 */
@@ -195,21 +53,10 @@ interface StdioMcpServerConfig {
     cwd: string | null;
 }
 
-type McpServerConfig = HttpMcpServerConfig | StdioMcpServerConfig;
-
-interface JsonRpcResponse {
-    /** id: JSON-RPC 请求 ID。 */
-    id?: string | number | null;
-    /** result: JSON-RPC 成功结果。 */
-    result?: unknown;
-    /** error: JSON-RPC 错误对象。 */
-    error?: {
-        /** code: MCP Server 返回的错误码。 */
-        code?: number;
-        /** message: MCP Server 返回的错误消息。 */
-        message?: string;
-    };
-}
+/**
+ * McpServerConfig：MCP Server 配置联合类型。
+ */
+export type McpServerConfig = HttpMcpServerConfig | StdioMcpServerConfig;
 
 /**
  * listConfiguredMcpModelToolSpecs：把已配置 MCP Server 暴露的工具转换成模型工具定义。
@@ -221,7 +68,6 @@ export async function listConfiguredMcpModelToolSpecs(centerDirectory: string): 
     const specs: OpenAiToolSpec[] = [];
     for (const serverConfig of readAllMcpServerConfigs(centerDirectory)) {
         const tools = await listMcpTools(serverConfig).catch(() => {
-            // catch: MCP Server 不可达时不阻断模型调用，静态 builtin.mcp.call 仍可返回失败事件。
             return [];
         });
         for (const tool of tools) {
@@ -245,22 +91,8 @@ export async function listConfiguredMcpModelToolSpecs(centerDirectory: string): 
  * @param centerDirectory 中心目录绝对路径。
  * @returns 已发现工具列表；单个 Server 失败时返回一条错误行。
  */
-export async function listConfiguredMcpToolViews(centerDirectory: string): Promise<Array<{
-    serverId: string;
-    transportType: "http" | "stdio";
-    toolName: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-    errorMessage: string | null;
-}>> {
-    const rows: Array<{
-        serverId: string;
-        transportType: "http" | "stdio";
-        toolName: string;
-        description: string;
-        inputSchema: Record<string, unknown>;
-        errorMessage: string | null;
-    }> = [];
+export async function listConfiguredMcpToolViews(centerDirectory: string): Promise<McpToolView[]> {
+    const rows: McpToolView[] = [];
     for (const serverConfig of readAllMcpServerConfigs(centerDirectory)) {
         try {
             const tools = await listMcpTools(serverConfig);
@@ -275,17 +107,11 @@ export async function listConfiguredMcpToolViews(centerDirectory: string): Promi
                 });
             }
         } catch (error) {
-            rows.push({
-                serverId: serverConfig.serverId,
-                transportType: serverConfig.type,
-                toolName: "",
-                description: "",
-                inputSchema: {
-                    type: "object",
-                    properties: {},
-                },
-                errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
-            });
+            rows.push(createMcpToolViewFailureRow(
+                serverConfig.serverId,
+                serverConfig.type,
+                error,
+            ));
         }
     }
     return rows;
@@ -301,14 +127,7 @@ export async function listConfiguredMcpToolViews(centerDirectory: string): Promi
 export async function listConfiguredMcpToolViewsByServer(
     centerDirectory: string,
     serverId: string,
-): Promise<Array<{
-    serverId: string;
-    transportType: "http" | "stdio";
-    toolName: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-    errorMessage: string | null;
-}>> {
+): Promise<McpToolView[]> {
     const serverConfig = readMcpServerConfig(
         centerDirectory,
         serverId,
@@ -324,19 +143,12 @@ export async function listConfiguredMcpToolViewsByServer(
             errorMessage: null,
         }));
     } catch (error) {
-        // errorMessage: 管理页按需查看工具时要能看到失败原因，但不能让单个 Server 失败导致整页不可用。
         return [
-            {
-                serverId: serverConfig.serverId,
-                transportType: serverConfig.type,
-                toolName: "",
-                description: "",
-                inputSchema: {
-                    type: "object",
-                    properties: {},
-                },
-                errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
-            },
+            createMcpToolViewFailureRow(
+                serverConfig.serverId,
+                serverConfig.type,
+                error,
+            ),
         ];
     }
 }
@@ -351,14 +163,7 @@ export async function listConfiguredMcpToolViewsByServer(
 export async function listMcpToolViewsForServerConfig(
     serverId: string,
     rawConfig: unknown,
-): Promise<Array<{
-    serverId: string;
-    transportType: "http" | "stdio";
-    toolName: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-    errorMessage: string | null;
-}>> {
+): Promise<McpToolView[]> {
     const serverConfig = readMcpServerConfigFromValue(
         serverId,
         rawConfig,
@@ -390,19 +195,12 @@ export async function listMcpToolViewsForServerConfig(
             errorMessage: null,
         }));
     } catch (error) {
-        // errorMessage: 按需加载只影响当前行，错误返回给 UI 展示，不中断整个 MCP 页面。
         return [
-            {
-                serverId: serverConfig.serverId,
-                transportType: serverConfig.type,
-                toolName: "",
-                description: "",
-                inputSchema: {
-                    type: "object",
-                    properties: {},
-                },
-                errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
-            },
+            createMcpToolViewFailureRow(
+                serverConfig.serverId,
+                serverConfig.type,
+                error,
+            ),
         ];
     }
 }
@@ -437,7 +235,7 @@ export function readMcpDynamicToolName(modelToolName: string): {
  * @param toolName MCP 工具名。
  * @returns 只包含字母、数字和下划线的模型工具名。
  */
-function toDynamicMcpModelToolName(
+export function toDynamicMcpModelToolName(
     serverId: string,
     toolName: string,
 ): string {
@@ -450,7 +248,7 @@ function toDynamicMcpModelToolName(
  * @param value 原始文本。
  * @returns 十六进制文本。
  */
-function encodeHexUtf8(value: string): string {
+export function encodeHexUtf8(value: string): string {
     return Buffer.from(value, "utf-8").toString("hex");
 }
 
@@ -460,17 +258,17 @@ function encodeHexUtf8(value: string): string {
  * @param value 十六进制文本。
  * @returns 还原后的文本。
  */
-function decodeHexUtf8(value: string): string {
+export function decodeHexUtf8(value: string): string {
     return Buffer.from(value, "hex").toString("utf-8");
 }
 
 /**
- * readAllMcpServerConfigs：读取全局 MCP 配置中的 HTTP Server。
+ * readAllMcpServerConfigs：读取全局 MCP 配置中的 Server。
  *
  * @param centerDirectory 中心目录绝对路径。
  * @returns 可执行 MCP Server 配置列表。
  */
-function readAllMcpServerConfigs(centerDirectory: string): McpServerConfig[] {
+export function readAllMcpServerConfigs(centerDirectory: string): McpServerConfig[] {
     const globalConfig = readMcpConfigJson(join(centerDirectory, "mcp", "global.json"));
     const servers = isRecord(globalConfig.mcpServers)
         ? globalConfig.mcpServers
@@ -481,13 +279,13 @@ function readAllMcpServerConfigs(centerDirectory: string): McpServerConfig[] {
 }
 
 /**
- * readMcpServerConfig：按 Server ID 读取单个 MCP HTTP 配置。
+ * readMcpServerConfig：按 Server ID 读取单个 MCP 配置。
  *
  * @param centerDirectory 中心目录绝对路径。
  * @param serverId MCP Server ID。
  * @returns MCP Server 配置。
  */
-function readMcpServerConfig(
+export function readMcpServerConfig(
     centerDirectory: string,
     serverId: string,
 ): McpServerConfig {
@@ -513,13 +311,13 @@ function readMcpConfigJson(filePath: string): Record<string, unknown> {
 }
 
 /**
- * readMcpServerConfigFromValue：从 mcpServers 条目解析 HTTP MCP 配置。
+ * readMcpServerConfigFromValue：从 mcpServers 条目解析 MCP 配置。
  *
  * @param serverId MCP Server ID。
  * @param rawConfig 原始配置对象。
  * @returns 可执行配置；不支持时返回 null。
  */
-function readMcpServerConfigFromValue(
+export function readMcpServerConfigFromValue(
     serverId: string,
     rawConfig: unknown,
 ): McpServerConfig | null {
@@ -582,33 +380,6 @@ async function listMcpTools(serverConfig: McpServerConfig): Promise<Array<{
 }
 
 /**
- * callMcpTool：按 MCP transport 分发工具调用请求。
- *
- * @param serverConfig MCP Server 配置。
- * @param toolName MCP 工具名。
- * @param toolArguments MCP 工具参数。
- * @returns 工具输出摘要。
- */
-async function callMcpTool(
-    serverConfig: McpServerConfig,
-    toolName: string,
-    toolArguments: Record<string, unknown>,
-): Promise<string> {
-    if (serverConfig.type === "http") {
-        return callHttpMcpTool(
-            serverConfig,
-            toolName,
-            toolArguments,
-        );
-    }
-    return callStdioMcpTool(
-        serverConfig,
-        toolName,
-        toolArguments,
-    );
-}
-
-/**
  * normalizeMcpToolsResult：把 tools/list result 转换为内部工具定义。
  *
  * @param result MCP tools/list result。
@@ -664,40 +435,14 @@ async function listStdioMcpTools(serverConfig: StdioMcpServerConfig): Promise<Ar
     });
 }
 
-/**
- * callStdioMcpTool：通过 stdio MCP tools/call 执行指定工具。
- *
- * @param serverConfig stdio MCP Server 配置。
- * @param toolName MCP 工具名。
- * @param toolArguments MCP 工具参数。
- * @returns 工具输出摘要。
- */
-async function callStdioMcpTool(
-    serverConfig: StdioMcpServerConfig,
-    toolName: string,
-    toolArguments: Record<string, unknown>,
-): Promise<string> {
-    return withStdioMcpSession(serverConfig, async (session) => {
-        await session.initialize();
-        const result = await session.request(
-            "tools/call",
-            {
-                name: toolName,
-                arguments: toolArguments,
-            },
-        );
-        return summarizeMcpToolResult(result);
-    });
-}
-
 class StdioMcpSession {
     /** child: 当前 stdio MCP Server 子进程。 */
     private readonly child: ChildProcessWithoutNullStreams;
-    /** buffer: stdout 累积缓冲，用于解析换行 JSON 或 Content-Length 帧。 */
+    /** buffer: stdout 累积缓冲。 */
     private buffer = "";
-    /** stderrChunks: 子进程 stderr 诊断摘要，失败时用于定位启动问题。 */
+    /** stderrChunks: 子进程 stderr 诊断摘要。 */
     private readonly stderrChunks: string[] = [];
-    /** pending: JSON-RPC 请求等待表，按 id 关联响应。 */
+    /** pending: JSON-RPC 请求等待表。 */
     private readonly pending = new Map<string, {
         resolve: (value: unknown) => void;
         reject: (error: Error) => void;
@@ -725,7 +470,6 @@ class StdioMcpSession {
             this.handleStdout(chunk.toString("utf-8"));
         });
         this.child.stderr.on("data", (chunk: Buffer) => {
-            // stderr: MCP Server 调试日志不进入 JSON-RPC 协议流，只在启动或调用失败时作为短摘要返回。
             const text = chunk.toString("utf-8").trim();
             if (text) {
                 this.stderrChunks.push(text);
@@ -772,13 +516,12 @@ class StdioMcpSession {
      */
     request(method: string, params: Record<string, unknown>): Promise<unknown> {
         const id = randomMcpRequestId(method);
-        const body = {
+        this.writeJsonRpc({
             jsonrpc: "2.0",
             id,
             method,
             params,
-        };
-        this.writeJsonRpc(body);
+        });
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.pending.delete(id);
@@ -832,7 +575,6 @@ class StdioMcpSession {
      * @returns 没有返回值。
      */
     private writeJsonRpc(body: Record<string, unknown>): void {
-        // JSON 行协议：chrome-devtools-mcp 等 Node stdio MCP Server 接受每行一个 JSON-RPC 消息。
         this.child.stdin.write(`${JSON.stringify(body)}\n`);
     }
 
@@ -957,10 +699,10 @@ function createStdioProcessEnv(extraEnv: Record<string, string>): Record<string,
 }
 
 /**
- * resolveStdioCommandExecutable：修正 Windows 下 npm 系命令需要 .cmd 才能 spawn 的问题。
+ * resolveStdioExecution：修正 Windows 下 npm 系命令需要通过 cmd 启动的问题。
  *
- * @param command MCP 配置中的命令。
- * @returns 可传给 spawn 的命令。
+ * @param serverConfig stdio MCP Server 配置。
+ * @returns 可传给 spawn 的命令和参数。
  */
 function resolveStdioExecution(serverConfig: StdioMcpServerConfig): {
     command: string;
@@ -1014,7 +756,7 @@ async function withStdioMcpSession<T>(
  * @param serverConfig MCP Server 配置。
  * @returns 工具定义列表。
  */
-async function listHttpMcpTools(serverConfig: McpServerConfig): Promise<Array<{
+async function listHttpMcpTools(serverConfig: HttpMcpServerConfig): Promise<Array<{
     name: string;
     description: string;
     inputSchema: Record<string, unknown>;
@@ -1032,60 +774,7 @@ async function listHttpMcpTools(serverConfig: McpServerConfig): Promise<Array<{
         "tools/list",
         {},
     );
-    const tools = isRecord(result) && Array.isArray(result.tools)
-        ? result.tools
-        : [];
-    return tools.map((tool) => {
-        if (!isRecord(tool) || typeof tool.name !== "string") {
-            return null;
-        }
-        return {
-            name: tool.name,
-            description: typeof tool.description === "string" ? tool.description : "",
-            inputSchema: isRecord(tool.inputSchema)
-                ? tool.inputSchema
-                : {
-                    type: "object",
-                    properties: {},
-                },
-        };
-    }).filter((tool): tool is {
-        name: string;
-        description: string;
-        inputSchema: Record<string, unknown>;
-    } => tool !== null);
-}
-
-/**
- * callHttpMcpTool：通过 MCP tools/call 执行指定工具。
- *
- * @param serverConfig MCP Server 配置。
- * @param toolName MCP 工具名。
- * @param toolArguments MCP 工具参数。
- * @returns 工具输出摘要。
- */
-async function callHttpMcpTool(
-    serverConfig: McpServerConfig,
-    toolName: string,
-    toolArguments: Record<string, unknown>,
-): Promise<string> {
-    const session = await initializeHttpMcpSession(serverConfig);
-    await sendHttpMcpNotification(
-        serverConfig,
-        session.sessionId,
-        "notifications/initialized",
-        {},
-    );
-    const result = await sendHttpMcpRequest(
-        serverConfig,
-        session.sessionId,
-        "tools/call",
-        {
-            name: toolName,
-            arguments: toolArguments,
-        },
-    );
-    return summarizeMcpToolResult(result);
+    return normalizeMcpToolsResult(result);
 }
 
 /**
@@ -1094,7 +783,7 @@ async function callHttpMcpTool(
  * @param serverConfig MCP Server 配置。
  * @returns MCP Session ID，Server 未返回时为 null。
  */
-async function initializeHttpMcpSession(serverConfig: McpServerConfig): Promise<{
+async function initializeHttpMcpSession(serverConfig: HttpMcpServerConfig): Promise<{
     sessionId: string | null;
 }> {
     const response = await postHttpMcpJsonRpc(
@@ -1114,7 +803,6 @@ async function initializeHttpMcpSession(serverConfig: McpServerConfig): Promise<
             },
         },
     );
-    assertJsonRpcSuccess(response.body);
     return {
         sessionId: response.sessionId,
     };
@@ -1130,7 +818,7 @@ async function initializeHttpMcpSession(serverConfig: McpServerConfig): Promise<
  * @returns 没有返回值。
  */
 async function sendHttpMcpNotification(
-    serverConfig: McpServerConfig,
+    serverConfig: HttpMcpServerConfig,
     sessionId: string | null,
     method: string,
     params: Record<string, unknown>,
@@ -1156,7 +844,7 @@ async function sendHttpMcpNotification(
  * @returns JSON-RPC result。
  */
 async function sendHttpMcpRequest(
-    serverConfig: McpServerConfig,
+    serverConfig: HttpMcpServerConfig,
     sessionId: string | null,
     method: string,
     params: Record<string, unknown>,
@@ -1183,12 +871,18 @@ async function sendHttpMcpRequest(
  * @returns 解析后的 JSON-RPC 响应和 Session ID。
  */
 async function postHttpMcpJsonRpc(
-    serverConfig: McpServerConfig,
+    serverConfig: HttpMcpServerConfig,
     sessionId: string | null,
     body: Record<string, unknown>,
 ): Promise<{
     sessionId: string | null;
-    body: JsonRpcResponse | null;
+    body: {
+        result?: unknown;
+        error?: {
+            code?: number;
+            message?: string;
+        };
+    } | null;
 }> {
     const headers: Record<string, string> = {
         "content-type": "application/json",
@@ -1221,10 +915,16 @@ async function postHttpMcpJsonRpc(
  * @param text HTTP 响应文本。
  * @returns JSON-RPC 响应对象。
  */
-function parseMcpHttpResponse(text: string): JsonRpcResponse {
+function parseMcpHttpResponse(text: string): {
+    result?: unknown;
+    error?: {
+        code?: number;
+        message?: string;
+    };
+} {
     const directJson = tryParseRecord(text);
     if (directJson) {
-        return directJson as JsonRpcResponse;
+        return directJson;
     }
     const dataLine = text.split(/\r?\n/u).find((line) => line.startsWith("data:"));
     if (!dataLine) {
@@ -1234,7 +934,7 @@ function parseMcpHttpResponse(text: string): JsonRpcResponse {
     if (!sseJson) {
         throw new Error("MCP_SSE_RESPONSE_NOT_JSON");
     }
-    return sseJson as JsonRpcResponse;
+    return sseJson;
 }
 
 /**
@@ -1243,7 +943,13 @@ function parseMcpHttpResponse(text: string): JsonRpcResponse {
  * @param response JSON-RPC 响应。
  * @returns result 字段。
  */
-function assertJsonRpcSuccess(response: JsonRpcResponse | null): unknown {
+function assertJsonRpcSuccess(response: {
+    result?: unknown;
+    error?: {
+        code?: number;
+        message?: string;
+    };
+} | null): unknown {
     if (!response) {
         return null;
     }
@@ -1254,90 +960,28 @@ function assertJsonRpcSuccess(response: JsonRpcResponse | null): unknown {
 }
 
 /**
- * summarizeMcpToolResult：把 MCP tools/call 结果压缩为模型可读文本。
+ * createMcpToolViewFailureRow：创建管理页工具读取失败行。
  *
- * @param result MCP tools/call result。
- * @returns 输出摘要。
+ * @param serverId MCP Server ID。
+ * @param transportType MCP 传输类型。
+ * @param error 失败原因。
+ * @returns 错误展示行。
  */
-function summarizeMcpToolResult(result: unknown): string {
-    if (!isRecord(result)) {
-        return stringifyMcpValue(result);
-    }
-    if (result.isError === true) {
-        throw new Error(`MCP_TOOL_RETURNED_ERROR:${stringifyMcpValue(result.content)}`);
-    }
-    const content = Array.isArray(result.content)
-        ? result.content
-        : [];
-    const textParts = content.map((item) => {
-        if (!isRecord(item)) {
-            return stringifyMcpValue(item);
-        }
-        if (typeof item.text === "string") {
-            return item.text;
-        }
-        return stringifyMcpValue(item);
-    });
-    return textParts.join("\n").trim() || stringifyMcpValue(result);
-}
-
-/**
- * appendMcpToolResult：根据 MCP 调用状态追加完成或失败事件。
- *
- * @param events 事件日志仓储。
- * @param capability MCP 工具能力定义。
- * @param request MCP 工具请求。
- * @param sessionId 会话 ID。
- * @param taskId 任务 ID。
- * @param turnId 轮次 ID。
- * @param status 调用状态。
- * @param outputSummary 输出摘要。
- * @param failureReason 失败原因。
- * @param graphCheckpoint 对话图检查点。
- * @returns MCP 工具结果。
- */
-function appendMcpToolResult(
-    events: CenterEventStore,
-    capability: UnifiedToolCapability | null,
-    request: McpToolRequest,
-    sessionId: string,
-    taskId: string,
-    turnId: string,
-    status: "completed" | "failed",
-    outputSummary: string,
-    failureReason: string | null,
-    graphCheckpoint?: TurnGraphCheckpoint,
-): McpToolResult {
-    const event = events.append({
-        eventType: status === "completed" ? "tool.mcp.completed" : "tool.mcp.failed",
-        scopeType: "tool",
-        scopeId: taskId,
-        sessionId,
-        turnId,
-        taskId,
-        status,
-        title: status === "completed" ? "MCP 调用完成" : "MCP 调用失败",
-        summary: status === "completed" ? outputSummary : failureReason ?? "MCP_TOOL_CALL_FAILED",
-        payload: withOptionalGraphCheckpoint({
-            toolId: capability?.toolId ?? "builtin.mcp.call",
-            toolKind: "mcp",
-            transportType: request.transportType ?? null,
-            toolCallId: request.toolCallId ?? null,
-            requiredPermission: capability?.requiredPermission ?? "mcp.call",
-            serverId: request.serverId,
-            toolName: request.toolName,
-            outputSummary,
-            failureReason,
-        }, graphCheckpoint),
-    });
+function createMcpToolViewFailureRow(
+    serverId: string,
+    transportType: "http" | "stdio",
+    error: unknown,
+): McpToolView {
     return {
-        toolKind: "mcp",
-        serverId: request.serverId,
-        toolName: request.toolName,
-        status,
-        outputSummary,
-        failureReason,
-        traceId: event.traceId,
+        serverId,
+        transportType,
+        toolName: "",
+        description: "",
+        inputSchema: {
+            type: "object",
+            properties: {},
+        },
+        errorMessage: error instanceof Error ? error.message.slice(0, 500) : "MCP_TOOLS_LIST_FAILED",
     };
 }
 
@@ -1364,16 +1008,6 @@ function tryParseRecord(text: string): Record<string, unknown> | null {
     } catch {
         return null;
     }
-}
-
-/**
- * stringifyMcpValue：把 MCP 返回值转为稳定文本。
- *
- * @param value MCP 返回值。
- * @returns 文本摘要。
- */
-function stringifyMcpValue(value: unknown): string {
-    return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 /**

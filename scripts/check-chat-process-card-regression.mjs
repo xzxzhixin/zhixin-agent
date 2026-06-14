@@ -73,7 +73,7 @@ const panel = readProjectFile("apps/frontend/src/views/Chat/components/ChatConve
 // helpers: 对话事件聚合逻辑，负责过程卡片类型和默认折叠状态。
 const helpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 // commandRuntime: 中心服务命令运行器，负责 stdout 和 stderr 解码。
-const commandRuntime = readProjectFile("services/center/src/tools/command-tool.ts");
+const commandRuntime = readProjectFile("services/center/src/tools/command-tool-executor.ts");
 // eventStore: 中心服务事件控制台输出，必须避免输出工具中间态刷屏。
 const eventStore = readProjectFile("services/center/src/events.ts");
 // logger: 中心服务控制台日志实现，必须保持中文原文。

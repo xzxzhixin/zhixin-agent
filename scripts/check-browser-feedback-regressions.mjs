@@ -103,7 +103,7 @@ const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-r
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const toolRuntime = [
   readProjectFile("services/center/src/tools/index.ts"),
-  readProjectFile("services/center/src/tools/command-tool.ts"),
+  readProjectFile("services/center/src/tools/command-tool-executor.ts"),
 ].join("\n");
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 

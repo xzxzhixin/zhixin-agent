@@ -1,9 +1,6 @@
 import {spawn} from "node:child_process";
 
-import type {
-    UnifiedToolCallIntent,
-    UnifiedToolCapability,
-} from "@zhixin/shared";
+import type {UnifiedToolCapability} from "@zhixin/shared";
 
 import type {CenterEventStore} from "../events.js";
 import {
@@ -16,7 +13,7 @@ import {
 import {centerConsoleLogger} from "../logger.js";
 
 /**
- * CommandToolRequest：通用命令工具请求。
+ * CommandToolExecutionRequest：命令工具执行请求。
  *
  * 来源：Agent 工具规划结果。
  * 含义：中心服务按明确命令执行，并把过程写入事件日志。
@@ -24,7 +21,7 @@ import {centerConsoleLogger} from "../logger.js";
  * 默认值：无。
  * 约束：只能由对话编排触发，浏览器端不直接调用。
  */
-export interface CommandToolRequest {
+export interface CommandToolExecutionRequest {
     /** toolCallId: 模型工具调用 ID，用于 UI 把每次调用拆成独立命令框；非模型触发时为 null。 */
     toolCallId?: string | null;
     /** shellCommand: 需要 shell 语法时的完整命令行；优先于 executablePath 和 args。 */
@@ -38,30 +35,7 @@ export interface CommandToolRequest {
 }
 
 /**
- * commandRequestFromUnifiedToolIntent：把统一工具意图转换为命令执行请求。
- *
- * @param intent 统一工具调用意图。
- * @returns 命令工具请求。
- */
-export function commandRequestFromUnifiedToolIntent(intent: UnifiedToolCallIntent): CommandToolRequest {
-    const shellCommand = typeof intent.arguments.shellCommand === "string"
-        ? intent.arguments.shellCommand
-        : null;
-    const executablePath = typeof intent.arguments.executablePath === "string"
-        ? intent.arguments.executablePath
-        : "";
-    return {
-        shellCommand,
-        executablePath,
-        args: Array.isArray(intent.arguments.args)
-            ? intent.arguments.args.map((arg) => String(arg))
-            : [],
-        inputSummary: intent.inputSummary,
-    };
-}
-
-/**
- * CommandToolResult：通用命令工具结果。
+ * CommandToolExecutionResult：命令工具执行结果。
  *
  * 来源：中心服务命令运行器。
  * 含义：供过程卡片展示命令、状态、输出、失败原因和排查 ID。
@@ -69,7 +43,7 @@ export function commandRequestFromUnifiedToolIntent(intent: UnifiedToolCallInten
  * 默认值：无。
  * 约束：完整输出后续进入命令审计模块，当前只返回摘要。
  */
-export interface CommandToolResult {
+export interface CommandToolExecutionResult {
     /** toolKind: 固定命令工具类型。 */
     toolKind: "command";
     /** command: 展示用命令摘要。 */
@@ -85,7 +59,7 @@ export interface CommandToolResult {
 }
 
 /**
- * runCommandTool：通过中心服务执行通用命令。
+ * executeCommandTool：通过中心服务执行通用命令。
  *
  * @param events 事件日志仓储。
  * @param sessionId 会话 ID。
@@ -94,14 +68,14 @@ export interface CommandToolResult {
  * @param request 命令请求。
  * @returns 命令输出摘要。
  */
-export async function runCommandTool(
+export async function executeCommandTool(
     events: CenterEventStore,
     sessionId: string,
     taskId: string,
     turnId: string,
-    request: CommandToolRequest,
+    request: CommandToolExecutionRequest,
     graphCheckpoint?: TurnGraphCheckpoint,
-): Promise<CommandToolResult> {
+): Promise<CommandToolExecutionResult> {
     const capability = resolveUnifiedToolCapability("builtin.command.run");
     const execution = tryResolveCommandExecution(request);
     if (!execution) {
@@ -147,7 +121,7 @@ export async function runCommandTool(
             inputSummary: request.inputSummary,
         }, graphCheckpoint),
     });
-    return new Promise<CommandToolResult>((resolve) => {
+    return new Promise<CommandToolExecutionResult>((resolve) => {
         const chunks: string[] = [];
         const child = spawn(
             execution.executablePath,
@@ -356,7 +330,7 @@ function truncateConsoleText(text: string): string {
  * @param request 命令工具请求。
  * @returns 实际可执行信息；缺少 shellCommand 和 executablePath 时返回 null。
  */
-function tryResolveCommandExecution(request: CommandToolRequest): {
+function tryResolveCommandExecution(request: CommandToolExecutionRequest): {
     executablePath: string;
     args: string[];
     displayCommand: string;
@@ -373,7 +347,7 @@ function tryResolveCommandExecution(request: CommandToolRequest): {
  * @param request 命令工具请求。
  * @returns 实际可执行路径、参数和展示命令。
  */
-function resolveCommandExecution(request: CommandToolRequest): {
+function resolveCommandExecution(request: CommandToolExecutionRequest): {
     executablePath: string;
     args: string[];
     displayCommand: string;
@@ -495,7 +469,7 @@ function resolveWindowsWhichCommand(
  * @param request 命令工具请求。
  * @returns 可交给 PowerShell 执行的命令；不需要兼容时返回 null。
  */
-function resolveBashCompatShellCommand(request: CommandToolRequest): string | null {
+function resolveBashCompatShellCommand(request: CommandToolExecutionRequest): string | null {
     if (process.platform !== "win32" || request.executablePath !== "bash" || request.args[0] !== "-lc") {
         return null;
     }
@@ -523,12 +497,12 @@ function resolveBashCompatShellCommand(request: CommandToolRequest): string | nu
 function resolveCommandToolInputFailure(
     events: CenterEventStore,
     capability: UnifiedToolCapability | null,
-    request: CommandToolRequest,
+    request: CommandToolExecutionRequest,
     sessionId: string,
     taskId: string,
     turnId: string,
     graphCheckpoint?: TurnGraphCheckpoint,
-): CommandToolResult {
+): CommandToolExecutionResult {
     // failureReason: 模型没有给出可执行命令时属于工具参数错误，不能继续传空字符串给 spawn。
     const failureReason = "COMMAND_INPUT_EMPTY: 命令工具缺少 shellCommand 或 executablePath。";
     const event = events.append({
@@ -587,7 +561,7 @@ function resolveCommandToolResult(
     turnId: string,
     chunks: string[],
     exitCode: number | null,
-    resolve: (result: CommandToolResult) => void,
+    resolve: (result: CommandToolExecutionResult) => void,
     graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     const outputSummary = chunks.join("\n").trim();

@@ -112,8 +112,10 @@ const sessionTurnEffects = readProjectFile("services/center/src/domain/session-t
 const deepAgentsAgent = readProjectFile("services/center/src/deepagents-agent.ts");
 const toolRuntime = [
   readProjectFile("services/center/src/tools/index.ts"),
-  readProjectFile("services/center/src/tools/command-tool.ts"),
-  readProjectFile("services/center/src/tools/mcp-tool.ts"),
+  readProjectFile("services/center/src/tools/deepagents-tool-runtime.ts"),
+  readProjectFile("services/center/src/tools/command-tool-executor.ts"),
+  readProjectFile("services/center/src/tools/mcp-tool-executor.ts"),
+  readProjectFile("services/center/src/tools/mcp-tool-specs.ts"),
   readProjectFile("services/center/src/tools/tool-model-specs.ts"),
 ].join("\n");
 const toolCapabilityRegistry = readProjectFile("services/center/src/tools/tool-capability-registry.ts");
@@ -220,8 +222,8 @@ for (const signal of [
 for (const signal of [
   "UNIFIED_TOOL_CAPABILITY_REGISTRY",
   "UnifiedToolCapability",
-  "runCommandTool",
-  "CommandToolRequest",
+  "executeCommandTool",
+  "CommandToolExecutionRequest",
   "tool.command.started",
   "tool.command.output",
   "tool.command.completed",
@@ -264,15 +266,15 @@ for (const signal of [
 }
 
 const deepAgentEntryIndex = sessionDomain.indexOf("await runDeepAgentsAgentTurn({");
-const toolExecuteIndex = deepAgentsAgent.indexOf("async function runStructuredTool(");
+const toolExecuteIndex = toolRuntime.indexOf("class CenterStructuredToolBase");
 if (deepAgentEntryIndex < 0 || toolExecuteIndex < 0) {
   console.error("结构化工具调用闭环必须由 Deep Agents 原生入口接收模型工具请求，再执行中心服务工具并回填模型。");
   process.exitCode = 1;
 }
 
-if (!deepAgentsAgent.includes("model.tool.requested")
-    || !deepAgentsAgent.includes("runCommandTool(")
-    || !deepAgentsAgent.includes("model.tool.result.appended")
+if (!toolRuntime.includes("model.tool.requested")
+    || !toolRuntime.includes("executeCommandTool(")
+    || !toolRuntime.includes("model.tool.result.appended")
     || !deepAgentsAgent.includes("run.toolCalls")) {
   console.error("Deep Agents 原生入口必须执行命令、回填工具结果，并消费工具调用流。");
   process.exitCode = 1;

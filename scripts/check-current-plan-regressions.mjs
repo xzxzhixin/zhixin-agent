@@ -212,7 +212,7 @@ assertIncludes(
   "命令工具真实执行结果必须在 Deep Agents 原生入口回填模型。",
 );
 assertNotIncludes(
-  "services/center/src/tools/command-tool.ts",
+  "services/center/src/tools/command-tool-executor.ts",
   "planCommandToolForUserText",
   "命令工具不得保留用户文本规划入口，必须通过模型结构化 tool_calls 调用。",
 );

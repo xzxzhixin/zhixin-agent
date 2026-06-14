@@ -69,9 +69,12 @@ function assertNotIncludes(
 
 const toolRuntime = [
   readProjectFile("services/center/src/tools/index.ts"),
-  readProjectFile("services/center/src/tools/command-tool.ts"),
+  readProjectFile("services/center/src/tools/command-tool-executor.ts"),
 ].join("\n");
-const mcpToolRuntime = readProjectFile("services/center/src/tools/mcp-tool.ts");
+const mcpToolRuntime = [
+  readProjectFile("services/center/src/tools/mcp-tool-executor.ts"),
+  readProjectFile("services/center/src/tools/mcp-tool-specs.ts"),
+].join("\n");
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
 const messageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
@@ -87,7 +90,7 @@ for (const signal of [
   ".stdout?.on(\"data\"",
   ".stderr?.on(\"data\"",
   "tool.command.output",
-  "new Promise<CommandToolResult>",
+  "new Promise<CommandToolExecutionResult>",
   "shellCommand",
   "resolveBashCompatShellCommand",
   "normalizeCommandArgs",
@@ -112,10 +115,10 @@ for (const signal of [
 }
 
 for (const signal of [
-  "await runCommandTool",
+  "executeCommandTool(",
 ]) {
   assertIncludes(
-    sessionTurnEffects + readProjectFile("services/center/src/deepagents-agent.ts"),
+    toolRuntime + sessionTurnEffects + readProjectFile("services/center/src/deepagents-agent.ts"),
     signal,
     `对话执行链路缺少异步命令工具信号：${signal}`,
   );

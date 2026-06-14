@@ -1,6 +1,6 @@
 import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
 import type {BaseAgent} from "../agents/index.js";
-import {listConfiguredMcpModelToolSpecs} from "./mcp-tool.js";
+import {listConfiguredMcpModelToolSpecs} from "./mcp-tool-specs.js";
 import {
     listUnifiedToolCapabilities,
     toModelSafeToolName,
