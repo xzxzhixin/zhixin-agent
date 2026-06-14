@@ -39,8 +39,6 @@ const TOOL_CAPABILITY_AGENT_TOOL_MAP: Readonly<Record<string, AgentToolName>> = 
     "builtin.mcp.call": "mcp-call",
     /** builtin.skill.use: skill 工作流使用权限。 */
     "builtin.skill.use": "skill-use",
-    /** builtin.todo.list: 智能体私有 todoList 状态维护权限。 */
-    "builtin.todo.list": "todo-list",
     /** builtin.deepagents.write_todos: Deep Agents 原生 write_todos 的中心服务权限映射。 */
     "builtin.deepagents.write_todos": "todo-list",
 };

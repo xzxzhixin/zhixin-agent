@@ -29,10 +29,6 @@ export function listAvailableModelToolSpecs(agent?: BaseAgent): OpenAiToolSpec[]
             return capability.availability === "available";
         })
         .filter((capability) => {
-            // builtin.todo.list: 旧中心服务模型工具只保留为内部兼容入口；模型侧统一使用 Deep Agents 原生 write_todos。
-            return capability.toolId !== "builtin.todo.list";
-        })
-        .filter((capability) => {
             return agent
                 ? agent.canUseToolCapability(capability.toolId)
                 : true;

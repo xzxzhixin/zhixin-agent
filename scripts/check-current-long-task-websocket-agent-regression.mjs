@@ -144,15 +144,32 @@ function assertPathExists(
   }
 }
 
+/**
+ * assertPathNotExists：断言历史路径已经删除。
+ *
+ * @param {string} relativePath 仓库相对路径。
+ * @param {string} message 失败说明。
+ */
+function assertPathNotExists(
+  relativePath,
+  message,
+) {
+  if (existsSync(join(root, relativePath))) {
+    failures.push(message);
+  }
+}
+
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
 const sharedProtocol = readText("packages/shared/src/index.ts");
 const centerTypes = readText("services/center/src/types.ts");
 const database = readText("services/center/src/database.ts");
 const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
-const todoListTool = readText("services/center/src/tools/todo-list-tool.ts");
+const deepAgentsTodoTool = readText("services/center/src/tools/deepagents-todo-tool.ts");
 const toolCapabilityRegistry = readText("services/center/src/tools/tool-capability-registry.ts");
 const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
+const baseAgent = readText("services/center/src/agents/base-agent.ts");
+const toolOpenAiAdapter = readText("services/center/src/tools/tool-openai-adapter.ts");
 const realtime = readText("services/center/src/realtime.ts");
 const syncRoute = readText("services/center/src/api/sync-route.ts");
 const websocketClient = readText("packages/api-client/src/websocket-client.ts");
@@ -219,89 +236,88 @@ assertIncludes(
   "DEFAULT 'graph'",
   "旧 task_steps 数据的 source 必须默认迁移为 graph。",
 );
-assertPathExists(
+assertPathNotExists(
   "services/center/src/tools/todo-list-tool.ts",
-  "builtin.todo.list 必须具备明确执行器文件 services/center/src/tools/todo-list-tool.ts。",
+  "旧 todo-list-tool.ts 必须删除，避免继续保留原来的 todolist 代码。",
 );
 assertIncludes(
-  todoListTool,
-  "executeTodoListTool",
-  "todoList 执行器必须导出 executeTodoListTool。",
+  deepAgentsTodoTool,
+  "executeDeepAgentsTodoTool",
+  "Deep Agents todo 同步执行器必须导出 executeDeepAgentsTodoTool。",
 );
 assertIncludes(
-  todoListTool,
+  deepAgentsTodoTool,
   "sessionId",
-  "todoList 执行器必须限定当前 sessionId 范围。",
+  "Deep Agents todo 同步执行器必须限定当前 sessionId 范围。",
 );
 assertIncludes(
-  todoListTool,
+  deepAgentsTodoTool,
   "taskId",
-  "todoList 执行器必须限定当前 taskId 范围。",
+  "Deep Agents todo 同步执行器必须限定当前 taskId 范围。",
 );
 assertIncludes(
-  todoListTool,
+  deepAgentsTodoTool,
   "agentId",
-  "todoList 执行器必须限定当前 agentId 范围。",
+  "Deep Agents todo 同步执行器必须限定当前 agentId 范围。",
 );
 assertIncludes(
-  todoListTool,
+  deepAgentsTodoTool,
   "createTaskStep(",
-  "todoList 执行器创建每个步骤时必须走领域层 createTaskStep 写入用户可见步骤。",
+  "Deep Agents todo 同步执行器创建每个步骤时必须走领域层 createTaskStep 写入用户可见步骤。",
 );
 assertIncludes(
-  todoListTool,
+  deepAgentsTodoTool,
   "initialStatus: item.status",
-  "todoList 新建步骤必须按模型声明状态直接创建，不能先 running 再改回 queued。",
+  "Deep Agents todo 新建步骤必须按模型声明状态直接创建，不能先 running 再改回 queued。",
 );
 assertIncludes(
-  todoListTool,
+  deepAgentsTodoTool,
   "updateTaskStep(",
-  "todoList 执行器更新每个步骤时必须走领域层 updateTaskStep 写入 task.step.updated 事件。",
+  "Deep Agents todo 同步执行器更新每个步骤时必须走领域层 updateTaskStep 写入 task.step.updated 事件。",
 );
 assertIncludes(
-  todoListTool + sessionGuidanceDomain,
+  deepAgentsTodoTool + sessionGuidanceDomain,
   "maxPlanVersion + 1",
-  "重规划和 todoList 新计划版本必须基于当前最大版本 + 1，不能复用旧版本或使用 Date.now。",
+  "重规划和 Deep Agents todo 新计划版本必须基于当前最大版本 + 1，不能复用旧版本或使用 Date.now。",
 );
 assertIncludes(
-  readText("services/center/src/domain/session-turn-effects.ts"),
+  sessionTurnEffects,
+  "executeDeepAgentsTodoTool",
+  "session-turn-effects 必须把 builtin.deepagents.write_todos 分派到明确执行器。",
+);
+for (const legacyTodoSignal of [
+  "builtin.todo.list",
   "executeTodoListTool",
-  "session-turn-effects 必须把 builtin.todo.list 分派到明确执行器。",
+  "TodoListToolItem",
+  "readTodoListItems",
+  "todo-list-tool",
+]) {
+  assertNotIncludes(
+    sessionTurnEffects + toolCapabilityRegistry + baseAgent + toolOpenAiAdapter + deepAgentsRunner,
+    legacyTodoSignal,
+    `旧 todolist 入口必须删除，不能残留：${legacyTodoSignal}`,
+  );
+}
+assertNotIncludes(
+  deepAgentsTodoTool,
+  "builtin.todo.list",
+  "Deep Agents todo 同步执行器不能继续声明旧 builtin.todo.list 来源。",
 );
 assertIncludes(
-  readText("services/center/src/tools/tool-capability-registry.ts"),
+  toolCapabilityRegistry,
   "builtin.deepagents.write_todos",
   "统一工具注册表必须把 Deep Agents 原生 write_todos 映射为中心服务可控工具。",
 );
 assertIncludes(
-  readText("services/center/src/tools/tool-capability-registry.ts"),
+  toolCapabilityRegistry,
   'return "write_todos"',
   "模型可见工具名必须使用 Deep Agents 原生 write_todos。",
 );
 assertIncludes(
-  readText("services/center/src/tools/tool-openai-adapter.ts"),
-  'capability.toolId !== "builtin.todo.list"',
-  "模型侧不能继续暴露旧 builtin.todo.list，避免和 Deep Agents 原生 write_todos 双入口冲突。",
-);
-assertIncludes(
-  readText("services/center/src/domain/session-turn-effects.ts"),
+  sessionTurnEffects,
   "syncDeepAgentTodosToTaskSteps",
   "Deep Agents write_todos 必须同步为中心服务 task_steps。",
 );
-for (const todoListSchemaField of [
-  "id",
-  "dependsOn",
-  "acceptance",
-  "superseded",
-  "failed",
-  "cancelled",
-]) {
-  assertIncludes(
-    toolCapabilityRegistry,
-    todoListSchemaField,
-    `builtin.todo.list 模型可见 schema 必须暴露 ${todoListSchemaField}，否则模型无法维护完整拆解步骤。`,
-  );
-}
 assertNotIncludes(
   sessionDomain,
   "const now = new Date().toISOString();",

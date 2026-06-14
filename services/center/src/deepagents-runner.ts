@@ -20,7 +20,7 @@ import type {OpenAiToolCall} from "./openai-chat-protocol.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
 import type {SendMessageResponse} from "./types.js";
 import type {MemoryQueueState} from "./types.js";
-import type {TodoListToolItem} from "./tools/todo-list-tool.js";
+import type {DeepAgentsTodoTaskStepItem} from "./tools/deepagents-todo-tool.js";
 
 /**
  * DeepAgentsRoute：Deep Agents 条件边的路由结果。
@@ -235,9 +235,9 @@ function createDeepAgentsCheckpointer(centerDirectory?: string): SqliteSaver | u
  * syncDeepAgentTodosToTaskSteps：把 Deep Agents 原生 todo 结构转换为中心服务任务步骤条目。
  *
  * @param todos Deep Agents write_todos 工具提交的 todo 列表。
- * @returns 可交给中心服务 todoList 执行器写入 task_steps 的条目。
+ * @returns 可交给中心服务 Deep Agents todo 同步器写入 task_steps 的条目。
  */
-export function syncDeepAgentTodosToTaskSteps(todos: DeepAgentTodoItem[]): TodoListToolItem[] {
+export function syncDeepAgentTodosToTaskSteps(todos: DeepAgentTodoItem[]): DeepAgentsTodoTaskStepItem[] {
     return todos.map((todo) => {
         return {
             title: todo.content,
@@ -434,7 +434,7 @@ function initializeDeepAgentsHarness(): void {
  * @param status Deep Agents 原生 todo 状态。
  * @returns 中心服务任务状态。
  */
-function readCenterTaskStatusFromDeepAgentTodo(status: DeepAgentTodoItem["status"]): TodoListToolItem["status"] {
+function readCenterTaskStatusFromDeepAgentTodo(status: DeepAgentTodoItem["status"]): DeepAgentsTodoTaskStepItem["status"] {
     if (status === "completed") {
         return "completed";
     }

@@ -9,15 +9,15 @@ import {
 } from "../domain/session-domain.js";
 
 /**
- * TodoListToolItem：模型提交的拆解步骤条目。
+ * DeepAgentsTodoTaskStepItem：Deep Agents todo 同步后的拆解步骤条目。
  *
- * 来源：builtin.todo.list 工具参数 items。
- * 含义：描述当前智能体希望维护的长任务拆解步骤。
+ * 来源：Deep Agents 原生 write_todos 工具参数 todos。
+ * 含义：描述当前智能体希望同步到中心服务事实源的长任务拆解步骤。
  * 格式：JSON 对象。
  * 默认值：status 缺省时按 queued 保存。
  * 约束：只能写入当前 sessionId/taskId/agentId 范围。
  */
-export interface TodoListToolItem {
+export interface DeepAgentsTodoTaskStepItem {
     /** id: 可选步骤 ID，存在时只允许更新当前范围内已有步骤。 */
     id?: string;
     /** title: 步骤标题，必须是非空字符串。 */
@@ -31,15 +31,15 @@ export interface TodoListToolItem {
 }
 
 /**
- * TodoListToolResult：todoList 执行结果。
+ * DeepAgentsTodoToolResult：Deep Agents todo 同步结果。
  *
- * 来源：中心服务执行 builtin.todo.list 后生成。
+ * 来源：中心服务同步 Deep Agents 原生 write_todos 后生成。
  * 含义：供工具事件和模型回填使用的结构化摘要。
  * 格式：JSON 对象。
  * 默认值：无。
  * 约束：createdStepIds 和 updatedStepIds 都只属于当前任务。
  */
-export interface TodoListToolResult {
+export interface DeepAgentsTodoToolResult {
     /** status: 工具执行状态。 */
     status: "completed" | "failed";
     /** outputSummary: 可回填给模型的中文摘要。 */
@@ -53,14 +53,14 @@ export interface TodoListToolResult {
 }
 
 /**
- * executeTodoListTool：维护当前智能体自己的长任务拆解步骤。
+ * executeDeepAgentsTodoTool：把 Deep Agents 原生 todo 同步为当前智能体自己的长任务拆解步骤。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
- * @param input 当前工具调用上下文和模型提交条目。
+ * @param input 当前工具调用上下文和 Deep Agents todo 条目。
  * @returns 工具执行摘要，用于回填模型。
  */
-export function executeTodoListTool(
+export function executeDeepAgentsTodoTool(
     database: CenterDatabase,
     events: CenterEventStore,
     input: {
@@ -74,10 +74,10 @@ export function executeTodoListTool(
         agentId: string;
         /** toolCallId: 模型工具调用 ID，用于审计关联。 */
         toolCallId: string;
-        /** items: 模型提交的拆解步骤列表。 */
-        items: TodoListToolItem[];
+        /** items: Deep Agents todo 映射后的拆解步骤列表。 */
+        items: DeepAgentsTodoTaskStepItem[];
     },
-): TodoListToolResult {
+): DeepAgentsTodoToolResult {
     const repository = new SessionRepository(database);
     const task = repository.findTask(input.taskId);
     if (!task || task.sessionId !== input.sessionId || task.agentId !== input.agentId) {
@@ -90,7 +90,7 @@ export function executeTodoListTool(
         };
     }
 
-    const normalizedItems = normalizeTodoListItems(input.items);
+    const normalizedItems = normalizeDeepAgentsTodoItems(input.items);
     if (normalizedItems.length <= 1) {
         events.append({
             eventType: "tool.todo.list.skipped",
@@ -101,8 +101,8 @@ export function executeTodoListTool(
             taskId: input.taskId,
             agentId: input.agentId,
             status: "completed",
-            title: "todoList 未生成可见拆解",
-            summary: "模型提交的 todoList 步骤数量不超过 1，按产品口径不制造可见拆解列表。",
+            title: "Deep Agents todo 未生成可见拆解",
+            summary: "Deep Agents todo 步骤数量不超过 1，按产品口径不制造可见拆解列表。",
             payload: {
                 toolCallId: input.toolCallId,
                 itemCount: normalizedItems.length,
@@ -110,7 +110,7 @@ export function executeTodoListTool(
         });
         return {
             status: "completed",
-            outputSummary: "todoList 已收到；步骤数量不超过 1，未生成可见拆解列表。",
+            outputSummary: "Deep Agents todo 已收到；步骤数量不超过 1，未生成可见拆解列表。",
             failureReason: null,
             createdStepIds: [],
             updatedStepIds: [],
@@ -184,7 +184,7 @@ export function executeTodoListTool(
         taskId: input.taskId,
         agentId: input.agentId,
         status: "completed",
-        title: "todoList 已更新",
+        title: "Deep Agents todo 已更新",
         summary: `已维护 ${normalizedItems.length} 个拆解步骤。`,
         payload: {
             toolCallId: input.toolCallId,
@@ -196,7 +196,7 @@ export function executeTodoListTool(
 
     return {
         status: "completed",
-        outputSummary: `todoList 已更新：新增 ${createdStepIds.length} 个步骤，更新 ${updatedStepIds.length} 个步骤。`,
+        outputSummary: `Deep Agents todo 已更新：新增 ${createdStepIds.length} 个步骤，更新 ${updatedStepIds.length} 个步骤。`,
         failureReason: null,
         createdStepIds,
         updatedStepIds,
@@ -204,12 +204,12 @@ export function executeTodoListTool(
 }
 
 /**
- * normalizeTodoListItems：校验并规范化模型提交的步骤条目。
+ * normalizeDeepAgentsTodoItems：校验并规范化 Deep Agents todo 同步条目。
  *
- * @param items 模型工具参数 items。
+ * @param items Deep Agents todo 映射后的条目。
  * @returns 可写入任务步骤表的条目。
  */
-function normalizeTodoListItems(items: TodoListToolItem[]): Array<Required<Pick<TodoListToolItem, "title" | "status" | "dependsOn">> & {
+function normalizeDeepAgentsTodoItems(items: DeepAgentsTodoTaskStepItem[]): Array<Required<Pick<DeepAgentsTodoTaskStepItem, "title" | "status" | "dependsOn">> & {
     /** id: 可选已有步骤 ID。 */
     id?: string;
     /** acceptance: 步骤验收口径。 */
@@ -253,7 +253,7 @@ function isSupportedTaskStatus(status: unknown): status is TaskRecord["status"] 
 }
 
 /**
- * normalizeTodoStatus：把 todoList 工具状态转换为中心任务状态。
+ * normalizeTodoStatus：把 Deep Agents todo 同步状态转换为中心任务状态。
  *
  * @param status 模型传入的工具状态。
  * @returns 中心服务任务状态；工具 schema 既有 pending 枚举按未开始语义映射为 queued。
@@ -268,7 +268,7 @@ function normalizeTodoStatus(status: unknown): TaskRecord["status"] {
 }
 
 /**
- * updateExistingTodoStep：更新当前范围内已有 todoList 步骤。
+ * updateExistingTodoStep：更新当前范围内已有 Deep Agents todo 步骤。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
@@ -282,7 +282,7 @@ function updateExistingTodoStep(
     database: CenterDatabase,
     events: CenterEventStore,
     existing: TaskStepRecord,
-    item: ReturnType<typeof normalizeTodoListItems>[number],
+    item: ReturnType<typeof normalizeDeepAgentsTodoItems>[number],
     planVersion: number,
     stepOrder: number,
 ): void {
@@ -294,12 +294,12 @@ function updateExistingTodoStep(
         existing.summary,
         undefined,
         {
-        title: item.title,
-        planVersion,
-        stepOrder,
-        source: "todoList",
-        dependsOn: item.dependsOn,
-        acceptance: item.acceptance,
+            title: item.title,
+            planVersion,
+            stepOrder,
+            source: "todoList",
+            dependsOn: item.dependsOn,
+            acceptance: item.acceptance,
         },
     );
 }

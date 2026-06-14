@@ -60,12 +60,15 @@ async function main(): Promise<void> {
   assert(!mainAgent.getCreationTools().includes("todo-list"), "主智能体创建类工具不能包含 todoList");
   assert(!longTermAgent.getCreationTools().includes("todo-list"), "长期智能体创建类工具不能包含 todoList");
   assert(!subAgent.getCreationTools().includes("todo-list"), "todoList 不是创建类工具，不能出现在 getCreationTools 中");
-  assert(subAgent.canUseToolCapability("builtin.todo.list"), "子智能体仍可维护自己的 todoList");
+  assert(subAgent.canUseToolCapability("builtin.deepagents.write_todos"), "子智能体仍可通过 Deep Agents 原生 write_todos 维护自己的 todoList");
   assert(mapToolCapabilityToAgentToolName("mcp_global_files_read") === "mcp-call", "MCP 动态工具必须继承 MCP 权限边界");
   assert(listUnifiedToolCapabilities().some((capability) => {
-    return capability.toolId === "builtin.todo.list"
+    return capability.toolId === "builtin.deepagents.write_todos"
       && capability.availability === "available";
-  }), "统一工具注册表必须包含可用的 builtin.todo.list 能力");
+  }), "统一工具注册表必须包含可用的 builtin.deepagents.write_todos 能力");
+  assert(!listUnifiedToolCapabilities().some((capability) => {
+    return capability.toolId === "builtin.todo.list";
+  }), "统一工具注册表不能继续保留旧 builtin.todo.list 能力");
 
   const formattedTime = formatCenterLocalDateTime(new Date(2026, 5, 11, 9, 8, 7));
   assert(formattedTime === "2026-06-11 09:08:07", `中心服务本机时间格式错误：${formattedTime}`);
