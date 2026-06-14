@@ -20,6 +20,7 @@ import type {OpenAiToolCall} from "./openai-chat-protocol.js";
 import type {ProviderModelGatewayResult} from "./model-gateway-runtime.js";
 import type {SendMessageResponse} from "./types.js";
 import type {MemoryQueueState} from "./types.js";
+import type {TodoListToolItem} from "./tools/todo-list-tool.js";
 
 /**
  * DeepAgentsRoute：Deep Agents 条件边的路由结果。
@@ -87,6 +88,22 @@ export interface DeepAgentsToolPlanItem {
     toolCallId: string;
     /** executedTool: UI 和审计使用的工具摘要。 */
     executedTool: DeepAgentsExecutedTool;
+}
+
+/**
+ * DeepAgentTodoItem：Deep Agents 原生 write_todos 工具条目。
+ *
+ * 来源：deepagents@1.10.2 内置 write_todos 工具。
+ * 含义：Deep Agents 自带 planning/todo 状态。
+ * 格式：content 为步骤正文，status 为 pending、in_progress 或 completed。
+ * 默认值：无。
+ * 约束：只作为适配输入，最终事实源仍写入中心服务 task_steps。
+ */
+export interface DeepAgentTodoItem {
+    /** content: Deep Agents 原生 todo 内容。 */
+    content: string;
+    /** status: Deep Agents 原生 todo 状态。 */
+    status: "pending" | "in_progress" | "completed";
 }
 
 /**
@@ -212,6 +229,21 @@ function createDeepAgentsCheckpointer(centerDirectory?: string): SqliteSaver | u
         recursive: true,
     });
     return SqliteSaver.fromConnString(checkpointPath);
+}
+
+/**
+ * syncDeepAgentTodosToTaskSteps：把 Deep Agents 原生 todo 结构转换为中心服务任务步骤条目。
+ *
+ * @param todos Deep Agents write_todos 工具提交的 todo 列表。
+ * @returns 可交给中心服务 todoList 执行器写入 task_steps 的条目。
+ */
+export function syncDeepAgentTodosToTaskSteps(todos: DeepAgentTodoItem[]): TodoListToolItem[] {
+    return todos.map((todo) => {
+        return {
+            title: todo.content,
+            status: readCenterTaskStatusFromDeepAgentTodo(todo.status),
+        };
+    });
 }
 
 /**
@@ -388,12 +420,28 @@ export async function runDeepAgentsTurn(input: RunDeepAgentsTurnInput): Promise<
  * @returns 没有返回值。
  */
 function initializeDeepAgentsHarness(): void {
-    // deepAgentGraph: 当前阶段中心服务仍用既有节点执行器承接事实源，先初始化 Deep Agents harness，后续把 todo、subagents 和虚拟文件上下文逐步映射进来。
+    // deepAgentGraph: 初始化 Deep Agents harness 并锁定 write_todos 原生协议；当前轮次仍由中心服务节点执行器承接事实源同步，避免 Deep Agents 直接写核心存储。
     const deepAgentGraph = createDeepAgent({
         tools: [],
-        systemPrompt: "中心服务负责事实源、权限和审计，Deep Agents 只承载当前轮次执行编排。",
+        systemPrompt: "中心服务负责事实源、权限和审计。长任务规划使用 Deep Agents 原生 write_todos 协议，并同步为当前智能体 task_steps。",
     });
     void deepAgentGraph;
+}
+
+/**
+ * readCenterTaskStatusFromDeepAgentTodo：把 Deep Agents todo 状态映射为中心服务任务状态。
+ *
+ * @param status Deep Agents 原生 todo 状态。
+ * @returns 中心服务任务状态。
+ */
+function readCenterTaskStatusFromDeepAgentTodo(status: DeepAgentTodoItem["status"]): TodoListToolItem["status"] {
+    if (status === "completed") {
+        return "completed";
+    }
+    if (status === "in_progress") {
+        return "running";
+    }
+    return "queued";
 }
 /**
  * mergeTurnState：合并节点返回的局部状态。

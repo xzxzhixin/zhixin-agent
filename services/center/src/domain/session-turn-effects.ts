@@ -4,6 +4,10 @@ import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
 import type {SendMessageResponse} from "../types.js";
 import type {MemoryQueueState} from "../types.js";
 import {
+    syncDeepAgentTodosToTaskSteps,
+    type DeepAgentTodoItem,
+} from "../deepagents-runner.js";
+import {
     writeAgentMemory,
     type MemoryWriteInput,
 } from "./agent-domain.js";
@@ -274,7 +278,7 @@ function runAgentTool(
         const creatorAgentId = typeof intent.arguments.creatorAgentId === "string"
             ? intent.arguments.creatorAgentId
             : "main";
-        if (intent.toolId === "builtin.todo.list") {
+        if (intent.toolId === "builtin.todo.list" || intent.toolId === "builtin.deepagents.write_todos") {
             const currentTask = findTask(
                 database,
                 sent.taskId,
@@ -297,7 +301,9 @@ function runAgentTool(
                     taskId: sent.taskId,
                     agentId: currentTask.agentId,
                     toolCallId,
-                    items: readTodoListItems(intent.arguments.items),
+                    items: intent.toolId === "builtin.deepagents.write_todos"
+                        ? syncDeepAgentTodosToTaskSteps(readDeepAgentTodoItems(intent.arguments.todos))
+                        : readTodoListItems(intent.arguments.items),
                 },
             );
             return {
@@ -469,6 +475,46 @@ function runAgentTool(
             traceId: "",
         };
     }
+}
+
+/**
+ * readDeepAgentTodoItems：从 Deep Agents 原生 write_todos 参数中读取 todo 条目。
+ *
+ * @param value 模型传入的 todos 字段。
+ * @returns Deep Agents 原生 todo 条目；格式不正确时返回空数组。
+ */
+function readDeepAgentTodoItems(value: unknown): DeepAgentTodoItem[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.map((item) => {
+        if (!item || typeof item !== "object") {
+            return {
+                content: "",
+                status: "pending",
+            };
+        }
+        const record = item as Record<string, unknown>;
+        return {
+            content: typeof record.content === "string"
+                ? record.content
+                : "",
+            status: readDeepAgentTodoStatus(record.status),
+        };
+    });
+}
+
+/**
+ * readDeepAgentTodoStatus：规范化 Deep Agents 原生 todo 状态。
+ *
+ * @param status 模型传入的状态。
+ * @returns Deep Agents 支持的 todo 状态。
+ */
+function readDeepAgentTodoStatus(status: unknown): DeepAgentTodoItem["status"] {
+    if (status === "completed" || status === "in_progress") {
+        return status;
+    }
+    return "pending";
 }
 
 /**

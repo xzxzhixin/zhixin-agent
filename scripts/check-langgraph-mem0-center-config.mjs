@@ -140,6 +140,8 @@ if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
   const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
   for (const signal of [
     "createDeepAgent",
+    "syncDeepAgentTodosToTaskSteps",
+    "write_todos",
     "StateGraph",
     "START",
     "END",

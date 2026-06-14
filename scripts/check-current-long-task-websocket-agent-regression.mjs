@@ -268,6 +268,26 @@ assertIncludes(
   "executeTodoListTool",
   "session-turn-effects 必须把 builtin.todo.list 分派到明确执行器。",
 );
+assertIncludes(
+  readText("services/center/src/tools/tool-capability-registry.ts"),
+  "builtin.deepagents.write_todos",
+  "统一工具注册表必须把 Deep Agents 原生 write_todos 映射为中心服务可控工具。",
+);
+assertIncludes(
+  readText("services/center/src/tools/tool-capability-registry.ts"),
+  'return "write_todos"',
+  "模型可见工具名必须使用 Deep Agents 原生 write_todos。",
+);
+assertIncludes(
+  readText("services/center/src/tools/tool-openai-adapter.ts"),
+  'capability.toolId !== "builtin.todo.list"',
+  "模型侧不能继续暴露旧 builtin.todo.list，避免和 Deep Agents 原生 write_todos 双入口冲突。",
+);
+assertIncludes(
+  readText("services/center/src/domain/session-turn-effects.ts"),
+  "syncDeepAgentTodosToTaskSteps",
+  "Deep Agents write_todos 必须同步为中心服务 task_steps。",
+);
 for (const todoListSchemaField of [
   "id",
   "dependsOn",
