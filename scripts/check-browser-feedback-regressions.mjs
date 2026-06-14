@@ -156,10 +156,11 @@ for (const signal of [
 
 for (const signal of [
   "tool_calls",
-  "buildUnifiedToolCallIntentFromModelCall",
   "runCommandTool",
   "tool.command.started",
   "tool.command.completed",
+  "runDeepAgentsAgentTurn",
+  "run.toolCalls",
 ]) {
   assertIncludes(
     conversationActions + sessionDomain + toolRuntime + modelGatewayRuntime,

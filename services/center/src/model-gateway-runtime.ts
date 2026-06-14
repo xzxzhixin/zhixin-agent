@@ -338,7 +338,7 @@ export async function continueProviderModelGatewayWithToolResults(
  * @param taskId 任务 ID。
  * @returns 模型调用运行时上下文。
  */
-function resolveProviderModelRuntime(database: CenterDatabase, taskId: string): ResolvedProviderModelRuntime {
+export function resolveProviderModelRuntime(database: CenterDatabase, taskId: string): ResolvedProviderModelRuntime {
     const provider = readProviderConfigByPriority(database, taskId);
     if (!provider) {
         throw new Error("PROVIDER_NOT_AVAILABLE");
@@ -609,7 +609,7 @@ function shouldForceCommandToolChoice(userText: string): boolean {
  * @param runtime 模型调用运行时上下文。
  * @returns LangChain OpenAI 或 Anthropic ChatModel。
  */
-function createLangChainChatModel(runtime: ResolvedProviderModelRuntime): LangChainChatModelRuntime {
+export function createLangChainChatModel(runtime: ResolvedProviderModelRuntime): LangChainChatModelRuntime {
     const provider = runtime.provider;
     const apiKey = readSecretValue(
         runtime.centerDirectory,
@@ -646,11 +646,11 @@ function normalizeOpenAiBaseUrl(baseUrl: string): string {
     return `${normalizedBaseUrl}/v1`;
 }
 
-function extractCenterDirectory(database: CenterDatabase): string {
+export function extractCenterDirectory(database: CenterDatabase): string {
     return createDataAccess(database).system.readMetaValue("centerDirectory") ?? "";
 }
 
-function readProviderConfigByPriority(database: CenterDatabase, taskId: string) {
+export function readProviderConfigByPriority(database: CenterDatabase, taskId: string) {
     const centerDirectory = extractCenterDirectory(database);
     if (!centerDirectory) {
         return null;
@@ -757,7 +757,7 @@ function buildToolCallingPolicyPrompt(tools: OpenAiToolSpec[]): string {
  * @param turnId 当前轮次 ID。
  * @returns 可直接注入模型请求的历史消息。
  */
-function listSessionHistoryPromptMessages(
+export function listSessionHistoryPromptMessages(
     database: CenterDatabase,
     sessionId: string,
     turnId: string,
@@ -822,7 +822,7 @@ function buildSessionContextPrompt(sessionHistoryMessages: OpenAiChatMessage[]):
  * @param database 中心服务数据库。
  * @returns 可注入模型请求的主智能体记忆摘要。
  */
-function listMainAgentMemoryPromptEntries(database: CenterDatabase): AgentMemoryPromptEntry[] {
+export function listMainAgentMemoryPromptEntries(database: CenterDatabase): AgentMemoryPromptEntry[] {
     return createDataAccess(database).workflow.listRecentAgentMemorySummaries(
         "main",
         MAIN_AGENT_MEMORY_PROMPT_LIMIT,

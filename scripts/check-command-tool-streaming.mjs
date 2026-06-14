@@ -112,11 +112,10 @@ for (const signal of [
 }
 
 for (const signal of [
-  "executeModelRequestedTools",
   "await runCommandTool",
 ]) {
   assertIncludes(
-    sessionTurnEffects,
+    sessionTurnEffects + readProjectFile("services/center/src/deepagents-agent.ts"),
     signal,
     `对话执行链路缺少异步命令工具信号：${signal}`,
   );

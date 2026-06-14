@@ -191,7 +191,7 @@ assertExists(
 [
   "index.ts",
   "tool-capability-registry.ts",
-  "tool-openai-adapter.ts",
+  "tool-model-specs.ts",
   "tool-events.ts",
   "command-tool.ts",
   "mcp-tool.ts",

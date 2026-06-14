@@ -36,16 +36,16 @@ function assert(condition: boolean, message: string): void {
   }
 }
 /**
- * assertDeepAgentsRunnerWiring：检查中心服务主执行路径已经切换到 Deep Agents runner。
+ * assertDeepAgentsRunnerWiring：检查中心服务主执行路径已经切换到 Deep Agents 原生 agent。
  *
- * 用途：防止迁移后继续通过旧手写 LangGraph runner 作为主路径执行。
- * 关键逻辑：检查新 runner 文件存在、旧 runner 文件已删除、会话域只引用新入口。
+ * 用途：防止迁移后继续通过中心服务自建执行图或旧手写 LangGraph runner 作为主路径执行。
+ * 关键逻辑：检查 `deepagents-runner.ts` 和旧 `langgraph-runner.ts` 都已删除，会话域改为直接调用新入口。
  * 参数：无。
  * 返回值：检查通过时没有返回值；不满足迁移口径时抛错。
  */
 function assertDeepAgentsRunnerWiring(): void {
-  // runnerPath: Deep Agents 主执行适配层文件，来源于架构中的中心服务目录约定。
-  const runnerPath = join(
+  // deepagentsRunnerPath: 已废弃的中心服务执行图壳文件，迁移完成后不得继续存在。
+  const deepagentsRunnerPath = join(
     process.cwd(),
     "services",
     "center",
@@ -60,7 +60,7 @@ function assertDeepAgentsRunnerWiring(): void {
     "src",
     "langgraph-runner.ts",
   );
-  // sessionDomainPath: 会话发送主路径，必须调用 Deep Agents runner。
+  // sessionDomainPath: 会话发送主路径，必须调用 Deep Agents 原生 agent 入口。
   const sessionDomainPath = join(
     process.cwd(),
     "services",
@@ -69,13 +69,14 @@ function assertDeepAgentsRunnerWiring(): void {
     "domain",
     "session-domain.ts",
   );
-  assert(existsSync(runnerPath), "缺少 Deep Agents runner 主路径文件");
+  assert(!existsSync(deepagentsRunnerPath), "deepagents-runner.ts 已废弃，必须删除");
   assert(!existsSync(legacyRunnerPath), "旧 langgraph-runner.ts 已无真实调用方，必须删除");
   const sessionDomainSource = readFileSync(
     sessionDomainPath,
     "utf-8",
   );
-  assert(sessionDomainSource.includes("runDeepAgentsTurn"), "session-domain 未切换到 Deep Agents runner");
+  assert(sessionDomainSource.includes("runDeepAgentsAgentTurn"), "session-domain 未切换到 Deep Agents 原生 agent");
+  assert(!sessionDomainSource.includes("runDeepAgentsTurn"), "session-domain 仍引用旧 Deep Agents 执行图入口");
   assert(!sessionDomainSource.includes("runLangGraphTurn"), "session-domain 仍引用旧 LangGraph runner");
 }
 

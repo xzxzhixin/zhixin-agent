@@ -193,8 +193,8 @@ assertIncludes(
 );
 assertIncludes(
   "services/center/src/tools/index.ts",
-  "buildUnifiedToolCallIntentFromModelCall",
-  "命令工具必须通过统一结构化工具调用意图进入运行入口。",
+  "listAvailableModelToolSpecsForCenter",
+  "命令工具必须通过统一工具定义进入模型可见入口。",
 );
 assertIncludes(
   "services/center/src/tools/index.ts",
@@ -207,14 +207,9 @@ assertIncludes(
   "Agent 编排必须把统一工具能力转换为模型工具定义。",
 );
 assertIncludes(
-  "services/center/src/tools/index.ts",
-  "buildUnifiedToolCallIntentFromModelCall",
-  "Agent 编排必须从模型工具请求转换统一工具调用意图。",
-);
-assertIncludes(
-  "services/center/src/domain/session-domain.ts",
-  "continueProviderModelGatewayWithToolResults",
-  "命令工具真实执行结果必须回填模型后再生成助手最终回复。",
+  "services/center/src/deepagents-agent.ts",
+  "model.tool.result.appended",
+  "命令工具真实执行结果必须在 Deep Agents 原生入口回填模型。",
 );
 assertNotIncludes(
   "services/center/src/tools/command-tool.ts",
@@ -222,9 +217,9 @@ assertNotIncludes(
   "命令工具不得保留用户文本规划入口，必须通过模型结构化 tool_calls 调用。",
 );
 assertNotIncludes(
-  "services/center/src/tools/tool-openai-adapter.ts",
-  "planUnifiedToolCallForUserText",
-  "统一工具适配器不得保留用户文本规划入口，必须通过模型结构化 tool_calls 调用。",
+  "services/center/src/deepagents-agent.ts",
+  "buildUnifiedToolCallIntentFromModelCall",
+  "Deep Agents 原生入口不得继续依赖旧统一工具意图转换器。",
 );
 assertIncludes(
   "services/center/src/data-access/schema.ts",

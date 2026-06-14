@@ -90,7 +90,7 @@ function assertRegex(source, pattern, message) {
   }
 }
 
-const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
+const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
@@ -169,48 +169,33 @@ assertNotIncludes(
   "tsconfig.base.json 仍保留 @zhixin/model-protocol 旧路径别名。",
 );
 
-const deepAgentsNodeMatches = [
-  ...deepAgentsRunner.matchAll(/\.addNode\(/gu),
-];
-if (deepAgentsNodeMatches.length < 6) {
-  fail("Deep Agents runner 必须保留模型、工具、计划、消息、记忆、用量和失败收尾等真实 agent loop 节点，而不是单节点套壳。");
-}
-
-for (const nodeName of [
-  "model.stream",
-  "tool.execute",
-  "message.persist",
-  "memory.commit",
-  "usage.record",
+for (const signal of [
+  "createDeepAgent",
+  "createLangChainChatModel",
+  "run.toolCalls",
+  "model.tool.requested",
+  "model.tool.result.appended",
+  "recordToolCallLifecycle",
 ]) {
   assertIncludes(
-    deepAgentsRunner,
-    nodeName,
-    `Deep Agents runner 缺少 ${nodeName} 真实节点。`,
+    deepAgentsAgent,
+    signal,
+    `Deep Agents 原生入口缺少：${signal}。`,
   );
 }
-for (const legacyNodeName of [
+for (const legacySignal of [
+  "StateGraph",
   "thinking.context",
-  ".addNode(\"tool.result\"",
+  "tool.result",
+  "buildUnifiedToolCallIntentFromModelCall",
+  "continueProviderModelGatewayWithToolResults(",
 ]) {
   assertNotIncludes(
-    deepAgentsRunner,
-    legacyNodeName,
-    `Deep Agents runner 不能继续保留旧节点：${legacyNodeName}`,
+    deepAgentsAgent,
+    legacySignal,
+    `Deep Agents 原生入口不能残留旧图或旧工具循环：${legacySignal}。`,
   );
 }
-
-assertRegex(
-  deepAgentsRunner,
-  /\.addConditionalEdges\(/u,
-  "Deep Agents runner 必须用条件边处理 OpenAI tool_calls 循环。",
-);
-
-assertNotIncludes(
-  deepAgentsRunner,
-  "completeCreatedTurn",
-  "Deep Agents runner 不能继续通过 completeCreatedTurn 单节点包裹旧闭环。",
-);
 
 for (const graphEvent of [
   "memory.write",

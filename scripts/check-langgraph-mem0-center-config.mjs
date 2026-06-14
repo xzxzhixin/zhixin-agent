@@ -128,48 +128,45 @@ assertNotIncludes(
 );
 
 assertFileExists(
-  "services/center/src/deepagents-runner.ts",
-  "必须建立 Deep Agents 主执行内核适配层。",
+  "services/center/src/deepagents-agent.ts",
+  "必须建立 Deep Agents 原生执行入口。",
 );
 assertFileExists(
   "services/center/src/memory-engine.ts",
   "必须建立 Mem0 记忆引擎适配层。",
 );
 
-if (existsSync(join(root, "services/center/src/deepagents-runner.ts"))) {
-  const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
+if (existsSync(join(root, "services/center/src/deepagents-agent.ts"))) {
+  const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
   for (const signal of [
     "createDeepAgent",
-    "StateGraph",
-    "START",
-    "END",
-    ".addNode(\"model.stream\"",
-    ".addNode(\"tool.execute\"",
-    ".addConditionalEdges(",
-    "thread_id",
+    "createLangChainChatModel",
+    "run.toolCalls",
+    "runStructuredTool",
+    "model.tool.result.appended",
     "sessionId",
     "turnId",
   ]) {
     assertIncludes(
-      "services/center/src/deepagents-runner.ts",
-      deepAgentsRunner,
+      "services/center/src/deepagents-agent.ts",
+      deepAgentsAgent,
       signal,
-      `Deep Agents runner 缺少核心信号：${signal}`,
+      `Deep Agents 原生入口缺少核心信号：${signal}`,
     );
   }
   for (const legacySignal of [
-    ".addNode(\"thinking.context\"",
-    ".addNode(\"tool.result\"",
-    "thinkingContext:",
-    "toolResult:",
+    "StateGraph",
+    "thinking.context",
+    "tool.result",
     "syncDeepAgentTodosToTaskSteps",
     "builtin.deepagents.write_todos",
+    "buildUnifiedToolCallIntentFromModelCall",
   ]) {
     assertNotIncludes(
-      "services/center/src/deepagents-runner.ts",
-      deepAgentsRunner,
+      "services/center/src/deepagents-agent.ts",
+      deepAgentsAgent,
       legacySignal,
-      `思考节点和旧工具回填节点必须移除：${legacySignal}`,
+      `Deep Agents 原生入口不能残留旧执行图或旧适配层：${legacySignal}`,
     );
   }
 }
@@ -178,10 +175,7 @@ if (existsSync(join(root, "services/center/src/domain/session-domain.ts"))) {
   const sessionDomain = readText("services/center/src/domain/session-domain.ts");
   for (const signal of [
     "export async function completeCreatedTurn",
-    "runDeepAgentsTurn(",
-    "payload: withTurnGraphCheckpoint",
-    "continueDeepAgentsToolNodeWithResults",
-    "continueProviderModelGatewayWithToolResults",
+    "runDeepAgentsAgentTurn(",
   ]) {
     assertIncludes(
       "services/center/src/domain/session-domain.ts",

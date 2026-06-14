@@ -166,9 +166,8 @@ const database = readText("services/center/src/database.ts");
 const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
 const toolCapabilityRegistry = readText("services/center/src/tools/tool-capability-registry.ts");
-const deepAgentsRunner = readText("services/center/src/deepagents-runner.ts");
+const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
 const baseAgent = readText("services/center/src/agents/base-agent.ts");
-const toolOpenAiAdapter = readText("services/center/src/tools/tool-openai-adapter.ts");
 const realtime = readText("services/center/src/realtime.ts");
 const syncRoute = readText("services/center/src/api/sync-route.ts");
 const websocketClient = readText("packages/api-client/src/websocket-client.ts");
@@ -261,7 +260,7 @@ for (const legacyTodoSignal of [
   "deepagents-todo-tool",
 ]) {
   assertNotIncludes(
-    sessionTurnEffects + toolCapabilityRegistry + baseAgent + toolOpenAiAdapter + deepAgentsRunner,
+    sessionTurnEffects + toolCapabilityRegistry + baseAgent + deepAgentsAgent,
     legacyTodoSignal,
     `旧 todolist 入口必须删除，不能残留：${legacyTodoSignal}`,
   );
@@ -273,7 +272,7 @@ assertNotIncludes(
 );
 
 assertIncludes(
-  sessionDomain + deepAgentsRunner,
+  sessionDomain + deepAgentsAgent,
   "agent.loop.batch_limit_reached",
   "单批工具预算触顶必须写入 agent.loop.batch_limit_reached 事件。",
 );
@@ -283,7 +282,7 @@ assertNotIncludes(
   "工具循环上限不能直接作为失败错误暴露给用户。",
 );
 assertRegex(
-  sessionDomain + deepAgentsRunner,
+  sessionDomain + deepAgentsAgent,
   /automatic[A-Za-z0-9_]*Tool[A-Za-z0-9_]*Batch|auto[A-Za-z0-9_]*Continue|toolBatchCount|batchContinuation/iu,
   "长任务必须具备自动续跑或批次计数状态信号。",
 );

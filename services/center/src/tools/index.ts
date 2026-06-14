@@ -6,15 +6,13 @@ export {
     toModelSafeToolName,
 } from "./tool-capability-registry.js";
 export {
-    buildUnifiedToolCallIntentFromModelCall,
     listAvailableModelToolSpecs,
     listAvailableModelToolSpecsForCenter,
-} from "./tool-openai-adapter.js";
+} from "./tool-model-specs.js";
 export {
     appendToolVisibilityEvents,
 } from "./tool-events.js";
 export {
-    commandRequestFromUnifiedToolIntent,
     runCommandTool,
 } from "./command-tool.js";
 export type {
@@ -25,7 +23,6 @@ export {
     listConfiguredMcpToolViews,
     listConfiguredMcpToolViewsByServer,
     listMcpToolViewsForServerConfig,
-    mcpRequestFromUnifiedToolIntent,
     readMcpDynamicToolName,
     runMcpTool,
 } from "./mcp-tool.js";

@@ -109,16 +109,17 @@ const workflowDomain = readProjectFile("services/center/src/domain/workflow-doma
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
+const deepAgentsAgent = readProjectFile("services/center/src/deepagents-agent.ts");
 const toolRuntime = [
   readProjectFile("services/center/src/tools/index.ts"),
   readProjectFile("services/center/src/tools/command-tool.ts"),
   readProjectFile("services/center/src/tools/mcp-tool.ts"),
+  readProjectFile("services/center/src/tools/tool-model-specs.ts"),
 ].join("\n");
 const toolCapabilityRegistry = readProjectFile("services/center/src/tools/tool-capability-registry.ts");
 const toolEvents = readProjectFile("services/center/src/tools/tool-events.ts");
 const capabilityApi = readProjectFile("services/center/src/api/capability.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
-const deepAgentsRunner = readProjectFile("services/center/src/deepagents-runner.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;
 const chatProcessAggregationSource = chatHelpers + chatConversation + chatConversationPanel;
 
@@ -217,11 +218,8 @@ for (const signal of [
 }
 
 for (const signal of [
-  "tool_calls",
-  "buildUnifiedToolCallIntentFromModelCall",
   "UNIFIED_TOOL_CAPABILITY_REGISTRY",
   "UnifiedToolCapability",
-  "UnifiedToolCallIntent",
   "runCommandTool",
   "CommandToolRequest",
   "tool.command.started",
@@ -230,9 +228,10 @@ for (const signal of [
   "tool.${capability.toolKind}.unavailable",
   "MCP_SERVER_NOT_CONFIGURED",
   "SKILL_NOT_SELECTED",
+  "run.toolCalls",
 ]) {
   assertIncludes(
-    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + capabilityApi + workflowDomain + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents,
+    chatRuntimeSource + appStore + appConversationActions + apiClient + apiRoutes + capabilityApi + workflowDomain + sessionDomain + sessionTurnEffects + deepAgentsAgent + toolRuntime + toolCapabilityRegistry + toolEvents,
     signal,
     `Deep Agents 结构化工具可见闭环缺少：${signal}`,
   );
@@ -251,32 +250,31 @@ for (const forbiddenSignal of [
 
 for (const signal of [
   "capabilities: listUnifiedToolCapabilities()",
-  "commandRequestFromUnifiedToolIntent",
   "model.tool.requested",
   "model.tool.result.appended",
   "requiredPermission",
-  "runDeepAgentsTurn",
-  "StateGraph",
+  "runDeepAgentsAgentTurn",
+  "createDeepAgent",
 ]) {
   assertIncludes(
-    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + modelGatewayRuntime + deepAgentsRunner,
+    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + modelGatewayRuntime + deepAgentsAgent,
     signal,
     `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
   );
 }
 
-const modelGatewayIndex = sessionDomain.indexOf("const modelResult = await invokeProviderModelGateway");
-const toolExecuteIndex = sessionTurnEffects.indexOf("export async function executeModelRequestedTools");
-if (modelGatewayIndex < 0 || toolExecuteIndex < 0) {
-  console.error("结构化工具调用闭环必须先接收模型工具请求，再执行中心服务工具并回填模型。");
+const deepAgentEntryIndex = sessionDomain.indexOf("await runDeepAgentsAgentTurn({");
+const toolExecuteIndex = deepAgentsAgent.indexOf("async function runStructuredTool(");
+if (deepAgentEntryIndex < 0 || toolExecuteIndex < 0) {
+  console.error("结构化工具调用闭环必须由 Deep Agents 原生入口接收模型工具请求，再执行中心服务工具并回填模型。");
   process.exitCode = 1;
 }
 
-if (!sessionTurnEffects.includes("model.tool.requested")
-    || !sessionTurnEffects.includes("runCommandTool(")
-    || !sessionDomain.includes("continueProviderModelGatewayWithToolResults(")
-    || !modelGatewayRuntime.includes("model.tool.result.appended")) {
-  console.error("模型请求命令工具后必须执行命令、回填工具结果，并生成最终回复。");
+if (!deepAgentsAgent.includes("model.tool.requested")
+    || !deepAgentsAgent.includes("runCommandTool(")
+    || !deepAgentsAgent.includes("model.tool.result.appended")
+    || !deepAgentsAgent.includes("run.toolCalls")) {
+  console.error("Deep Agents 原生入口必须执行命令、回填工具结果，并消费工具调用流。");
   process.exitCode = 1;
 }
 
