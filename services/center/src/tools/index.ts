@@ -13,6 +13,18 @@ export {
     appendToolVisibilityEvents,
 } from "./tool-events.js";
 export {
+    createDeepAgentsStructuredToolMiddleware,
+} from "./deepagents-tool-middleware.js";
+export {
+    createDeepAgentsToolExecutionContext,
+} from "./deepagents-tool-runtime.js";
+export type {
+    DeepAgentsAgentRunInput,
+    DeepAgentsStructuredToolFactory,
+    DeepAgentsToolExecutionContext,
+    DeepAgentsToolExecutionResult,
+} from "./deepagents-tool-runtime.js";
+export {
     runCommandTool,
 } from "./command-tool.js";
 export type {

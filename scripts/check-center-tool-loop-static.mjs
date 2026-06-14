@@ -50,6 +50,8 @@ const toolRuntime = [
   "services/center/src/tools/index.ts",
   "services/center/src/tools/tool-capability-registry.ts",
   "services/center/src/tools/tool-model-specs.ts",
+  "services/center/src/tools/deepagents-tool-runtime.ts",
+  "services/center/src/tools/deepagents-tool-middleware.ts",
 ].map((path) => readText(path)).join("\n");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
@@ -67,9 +69,11 @@ assertIncludes(modelGateway, "tool_call_id", "模型网关缺少 OpenAI tool_cal
 assertIncludes(deepAgentsAgent, "createDeepAgent({", "Deep Agents 原生入口缺少 createDeepAgent 调用");
 assertIncludes(deepAgentsAgent, "model: createLangChainChatModel(", "Deep Agents 原生入口必须直接注入 LangChain model");
 assertIncludes(deepAgentsAgent, "run.toolCalls", "Deep Agents 原生入口必须消费工具调用流");
-assertIncludes(deepAgentsAgent, "model.tool.requested", "Deep Agents 原生入口缺少模型工具请求事件");
-assertIncludes(deepAgentsAgent, "model.tool.result.appended", "Deep Agents 原生入口缺少工具结果回填事件");
+assertIncludes(toolRuntime, "model.tool.requested", "Deep Agents StructuredTool 基类缺少模型工具请求事件");
+assertIncludes(toolRuntime, "model.tool.result.appended", "Deep Agents StructuredTool 基类缺少工具结果回填事件");
 assertIncludes(deepAgentsAgent, "tool.plan.created", "Deep Agents 原生入口缺少工具计划事件");
+assertIncludes(toolRuntime, "extends StructuredTool", "Deep Agents 工具没有按 StructuredTool 类实现");
+assertIncludes(toolRuntime, "createDeepAgentsStructuredToolMiddleware", "Deep Agents 工具缺少 middleware 注册入口");
 assertIncludes(sessionDomain, "runDeepAgentsAgentTurn", "会话域必须直接切到新 Deep Agents 原生入口");
 assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时仍通过 node 文本硬编码触发工具");
 assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行时仍通过 python 文本硬编码触发工具");
