@@ -112,6 +112,30 @@ export interface AccessAuthorizeResult {
 }
 
 /**
+ * HealthResponse：中心服务健康检查响应。
+ *
+ * 来源：`GET /api/health`。
+ * 含义：返回当前中心服务进程身份和时间边界。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：时间字段均使用中心服务本机时间字符串。
+ */
+export interface HealthResponse {
+  /** appName: 应用中文名。 */
+  appName: string;
+  /** version: 中心服务版本。 */
+  version: string;
+  /** port: 当前中心服务端口。 */
+  port: number;
+  /** centerDirectory: 当前中心目录绝对路径。 */
+  centerDirectory: string;
+  /** processStartedAt: 当前中心服务进程启动时间。 */
+  processStartedAt: string;
+  /** now: 当前健康检查时间。 */
+  now: string;
+}
+
+/**
  * 会话详情响应。
  *
  * 来源：`POST /api/session/detail`。
@@ -730,6 +754,15 @@ export class CenterApiClient {
    */
   login(payload: LoginRequest): Promise<AccessAuthorizeResult> {
     return this.post("/api/auth/login", payload);
+  }
+
+  /**
+   * health：读取中心服务健康信息。
+   *
+   * @returns 健康检查结果。
+   */
+  health(): Promise<HealthResponse> {
+    return this.get("/api/health");
   }
 
   /**
@@ -1502,6 +1535,30 @@ export class CenterApiClient {
       },
       body: JSON.stringify(payload),
     });
+    return this.readResponse<TData>(response);
+  }
+
+  /**
+   * get：发送 GET 请求并解析统一响应包。
+   *
+   * @param path API 路径。
+   * @returns 成功响应中的 data。
+   */
+  private async get<TData>(path: string): Promise<TData> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "GET",
+      credentials: "include",
+    });
+    return this.readResponse<TData>(response);
+  }
+
+  /**
+   * readResponse：解析中心服务统一响应包。
+   *
+   * @param response fetch 响应对象。
+   * @returns 成功响应中的 data。
+   */
+  private async readResponse<TData>(response: Response): Promise<TData> {
     const result = await response.json() as ApiResponse<TData>;
 
     if (!result.success || result.data === null) {

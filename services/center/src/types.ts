@@ -469,7 +469,12 @@ export interface HealthResponse {
     centerDirectory: string;
 
     /**
-     * now: 服务端当前时间，ISO 8601 字符串。
+     * processStartedAt: 当前中心服务进程启动时间，使用中心服务本机时间格式。
+     */
+    processStartedAt: string;
+
+    /**
+     * now: 当前健康检查返回时间，使用中心服务本机时间格式。
      */
     now: string;
 }

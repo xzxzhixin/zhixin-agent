@@ -274,11 +274,26 @@ const activeRunningTurn = computed(() => {
     return null;
   }
   return [...turns.value].reverse().find((turn) => {
-    return turn.endedAt === null && (
-      turn.status === "queued"
-      || turn.status === "running"
-      || turn.status === "waiting_user"
-    );
+    if (turn.endedAt !== null) {
+      return false;
+    }
+    if (
+      turn.status !== "queued"
+      && turn.status !== "running"
+      && turn.status !== "waiting_user"
+    ) {
+      return false;
+    }
+    const processStartedAt = appStore.centerHealth?.processStartedAt ?? null;
+    if (!processStartedAt) {
+      return true;
+    }
+    const turnStartedAt = new Date(turn.startedAt).getTime();
+    const processStartedAtMs = new Date(processStartedAt).getTime();
+    if (Number.isNaN(turnStartedAt) || Number.isNaN(processStartedAtMs)) {
+      return true;
+    }
+    return turnStartedAt >= processStartedAtMs;
   }) ?? null;
 });
 // nowTick: 运行中耗时刷新时钟，只影响当前 UI。

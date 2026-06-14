@@ -33,4 +33,6 @@ export interface CenterApiRouteContext {
     subAgents: Map<string, SubAgentRuntimeRecord>;
     /** isInitialized: 读取启动初始化状态，避免路由模块持有可变布尔副本。 */
     isInitialized: () => boolean;
+    /** getProcessStartedAt: 读取当前中心服务进程启动时间。 */
+    getProcessStartedAt: () => string;
 }

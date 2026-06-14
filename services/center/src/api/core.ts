@@ -10,6 +10,7 @@ import {
     type BootstrapStateResponse,
     type HealthResponse,
 } from "../types.js";
+import {formatCenterLocalDateTime} from "../time.js";
 import type {CenterApiRouteContext} from "./route-context.js";
 
 /**
@@ -23,6 +24,7 @@ export function registerCoreRoutes(context: CenterApiRouteContext): void {
         app,
         config,
         database,
+        getProcessStartedAt,
         isInitialized,
     } = context;
 
@@ -31,7 +33,8 @@ export function registerCoreRoutes(context: CenterApiRouteContext): void {
         version: "0.1.0",
         port: config.port,
         centerDirectory: config.centerDirectory,
-        now: new Date().toISOString(),
+        processStartedAt: getProcessStartedAt(),
+        now: formatCenterLocalDateTime(),
     }));
 
     app.get("/api/bootstrap/state", async () => createSuccessResponse<BootstrapStateResponse>({

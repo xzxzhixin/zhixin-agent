@@ -134,6 +134,10 @@ export function useChatConversation(appStore: {
         text: string;
     };
     composerEditFiles: ComposerEditFile[];
+    centerHealth?: {
+        /** processStartedAt: 当前中心服务进程启动时间。 */
+        processStartedAt: string;
+    } | null;
     sendDraft: () => Promise<void>;
     requireRealtimeRequest: <TResponse>(type: string, payload: unknown) => Promise<TResponse>;
     loadNavigationData: () => Promise<void>;
@@ -159,10 +163,14 @@ export function useChatConversation(appStore: {
         return resolveCurrentTurnTaskScope(
             turns.value,
             activeTasks.value,
+            appStore.centerHealth?.processStartedAt ?? null,
         );
     });
     const currentTurnNotice = computed(() => {
-        return resolveCurrentTurnNotice(turns.value);
+        return resolveCurrentTurnNotice(
+            turns.value,
+            appStore.centerHealth?.processStartedAt ?? null,
+        );
     });
     const taskPanelRows = computed<TaskPanelRow[]>(() => {
         return createTaskPanelRows(
@@ -228,12 +236,28 @@ export function useChatConversation(appStore: {
 function resolveCurrentTurnTaskScope(
     turns: ConversationTurn[],
     tasks: TaskRecord[],
+    processStartedAt: string | null,
 ): TaskRecord[] {
     const latestActiveTurn = [...turns].reverse().find((turn) => {
-        return turn.endedAt === null
-            && (turn.status === "queued"
-                || turn.status === "running"
-                || turn.status === "waiting_user");
+        if (turn.endedAt !== null) {
+            return false;
+        }
+        if (
+            turn.status !== "queued"
+            && turn.status !== "running"
+            && turn.status !== "waiting_user"
+        ) {
+            return false;
+        }
+        if (!processStartedAt) {
+            return true;
+        }
+        const turnStartedAtMs = new Date(turn.startedAt).getTime();
+        const processStartedAtMs = new Date(processStartedAt).getTime();
+        if (Number.isNaN(turnStartedAtMs) || Number.isNaN(processStartedAtMs)) {
+            return true;
+        }
+        return turnStartedAtMs >= processStartedAtMs;
     });
     // latestTurn: 没有运行轮次时只展示最新一轮的编排结果，避免把历史对话次数累计成任务数量。
     const latestTurn = latestActiveTurn ?? [...turns].reverse()[0] ?? null;
@@ -464,9 +488,23 @@ function resolveTaskTraceId(
  * @param turns 当前会话轮次列表。
  * @returns 当前轮次状态提示。
  */
-function resolveCurrentTurnNotice(turns: ConversationTurn[]): string {
+function resolveCurrentTurnNotice(
+    turns: ConversationTurn[],
+    processStartedAt: string | null,
+): string {
     const activeTurn = [...turns].reverse().find((turn) => {
-        return turn.endedAt === null;
+        if (turn.endedAt !== null) {
+            return false;
+        }
+        if (!processStartedAt) {
+            return true;
+        }
+        const turnStartedAtMs = new Date(turn.startedAt).getTime();
+        const processStartedAtMs = new Date(processStartedAt).getTime();
+        if (Number.isNaN(turnStartedAtMs) || Number.isNaN(processStartedAtMs)) {
+            return true;
+        }
+        return turnStartedAtMs >= processStartedAtMs;
     });
     if (!activeTurn) {
         return "当前对话没有运行中的轮次。";

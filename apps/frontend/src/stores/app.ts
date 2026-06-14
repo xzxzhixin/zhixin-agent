@@ -9,6 +9,7 @@ import {
     ReconnectingWebSocketClient,
     type AccessAuthorizeResult,
     type AgentConfigView,
+    type HealthResponse,
     type McpConfigView,
     type PluginConfigView,
     type ProviderCapabilityDeclaration,
@@ -98,6 +99,7 @@ import type {
     RuntimeDraft,
     SkillDraft,
     ComposerContextUsageState,
+    CenterHealthState,
     RunningTurnSnapshotRecoveryState,
     QueuedComposerMessage,
 } from "./app-types";
@@ -344,7 +346,13 @@ export const useAppStore = defineStore("app", {
             attempts: 0,
             lastActivityAt: null,
             idleAttempts: 0,
+            processStartedAt: null,
         } as RunningTurnSnapshotRecoveryState,
+
+        /**
+         * centerHealth: 当前中心服务健康信息。
+         */
+        centerHealth: null as CenterHealthState | null,
 
         /**
          * projectReferenceQuery: 输入框内 @ 后面的检索词。
@@ -705,6 +713,7 @@ export const useAppStore = defineStore("app", {
             }
 
             await this.connectRealtime();
+            await this.loadCenterHealth();
             await this.registerRuntimeProject();
             await this.loadProviders();
             await this.loadNavigationData();
@@ -773,6 +782,15 @@ export const useAppStore = defineStore("app", {
                     ? this.runtime.projectContext?.projectId ?? null
                     : null,
             });
+        },
+
+        /**
+         * loadCenterHealth：读取中心服务健康检查信息。
+         *
+         * @returns 加载完成后没有返回值。
+         */
+        async loadCenterHealth(): Promise<void> {
+            this.centerHealth = await this.api().health() as HealthResponse;
         },
 
         /**

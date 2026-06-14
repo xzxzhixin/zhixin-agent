@@ -32,6 +32,8 @@ import type {
     SubAgentRuntimeRecord,
 } from "./types.js";
 import {registerCenterApiRoutes} from "./api/api-routes.js";
+import {finalizeDanglingConversationTurns} from "./domain/session-recovery-domain.js";
+import {formatCenterLocalDateTime} from "./time.js";
 
 export interface CenterService {
     /**
@@ -136,6 +138,8 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
     const subAgents = new Map<string, SubAgentRuntimeRecord>();
     // initialized: 标记启动前初始化是否完成。
     let initialized = false;
+    // processStartedAt: 当前中心服务进程启动时间，供健康检查和前端恢复边界判断使用。
+    const processStartedAt = formatCenterLocalDateTime();
     // lockAcquired: 只在本进程持有启动锁时为 true，避免复用已有服务时误删对方锁文件。
     let lockAcquired = false;
     // appListening: 只在本 Fastify 实例真正监听端口时为 true，复用已有服务不关闭未监听实例。
@@ -184,9 +188,19 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
         await directory.initialize();
         syncBuiltinPluginsToCenterDirectory(config);
         database.initialize();
+        const startupRecovered = finalizeDanglingConversationTurns(
+            database,
+            events,
+            {
+                reason: "中心服务重新启动，已收尾上一进程遗留的运行中轮次。",
+                source: "startup_recovery",
+            },
+        );
         await logger.info("center.bootstrap.initialized", {
             centerDirectory: config.centerDirectory,
             port: config.port,
+            processStartedAt,
+            startupRecovered,
         });
         initialized = true;
     }
@@ -197,6 +211,19 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
      * @returns 关闭完成后没有返回值。
      */
     async function close(): Promise<void> {
+        const shutdownRecovered = finalizeDanglingConversationTurns(
+            database,
+            events,
+            {
+                reason: "中心服务关闭，已收尾当前进程未结束的运行中轮次。",
+                source: "shutdown_recovery",
+            },
+        );
+        await logger.info("center.shutdown.finalized_running_turns", {
+            centerDirectory: config.centerDirectory,
+            processStartedAt,
+            shutdownRecovered,
+        });
         database.close();
         await directory.close();
         if (lockAcquired) {
@@ -288,6 +315,7 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
         memoryQueues,
         subAgents,
         isInitialized: () => initialized,
+        getProcessStartedAt: () => processStartedAt,
     });
 
     return {

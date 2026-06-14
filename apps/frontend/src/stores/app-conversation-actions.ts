@@ -117,13 +117,37 @@ function isRecoverableTurnRunning(turn: {
     endedAt: string | null;
     /** status：中心服务轮次状态。 */
     status: string;
+    /** startedAt：中心服务轮次开始时间。 */
+    startedAt: string;
+}, options?: {
+    /** processStartedAt：当前中心服务进程启动时间。 */
+    processStartedAt: string | null;
+    /** activityAt：当前轮次最近活动时间。 */
+    activityAt?: string | null;
 }): boolean {
-    return turn.endedAt === null
-        && (
-            turn.status === "queued"
-            || turn.status === "running"
-            || turn.status === "waiting_user"
-        );
+    if (turn.endedAt !== null) {
+        return false;
+    }
+    if (
+        turn.status !== "queued"
+        && turn.status !== "running"
+        && turn.status !== "waiting_user"
+    ) {
+        return false;
+    }
+    if (!options?.processStartedAt) {
+        return true;
+    }
+    const processStartedAtMs = readTimeMs(options.processStartedAt);
+    const turnStartedAtMs = readTimeMs(turn.startedAt);
+    if (processStartedAtMs === null || turnStartedAtMs === null) {
+        return true;
+    }
+    if (turnStartedAtMs >= processStartedAtMs) {
+        return true;
+    }
+    const activityAtMs = readTimeMs(options.activityAt ?? null);
+    return activityAtMs !== null && activityAtMs >= processStartedAtMs;
 }
 
 /**
@@ -372,7 +396,17 @@ export function createConversationActions() {
          */
         hasActiveRunningTurn(): boolean {
             return Boolean(this.sessionDetail?.turns.some((turn) => {
-                return isRecoverableTurnRunning(turn);
+                return isRecoverableTurnRunning(
+                    turn,
+                    {
+                        processStartedAt: this.centerHealth?.processStartedAt ?? null,
+                        activityAt: resolveTurnSnapshotActivityAt(
+                            this.sessionDetail,
+                            this.events,
+                            turn.turnId,
+                        ),
+                    },
+                );
             }));
         },
 
@@ -391,7 +425,17 @@ export function createConversationActions() {
             const runningTurn = [
                 ...this.sessionDetail.turns,
             ].reverse().find((turn) => {
-                return isRecoverableTurnRunning(turn);
+                return isRecoverableTurnRunning(
+                    turn,
+                    {
+                        processStartedAt: this.centerHealth?.processStartedAt ?? null,
+                        activityAt: resolveTurnSnapshotActivityAt(
+                            this.sessionDetail,
+                            this.events,
+                            turn.turnId,
+                        ),
+                    },
+                );
             });
             if (!runningTurn) {
                 return;
@@ -581,6 +625,7 @@ export function createConversationActions() {
                 turnId,
             );
             this.runningTurnSnapshotRecovery.idleAttempts = 0;
+            this.runningTurnSnapshotRecovery.processStartedAt = this.centerHealth?.processStartedAt ?? null;
             console.info("[frontend:turn-recovery] started", JSON.stringify({
                 sessionId,
                 turnId,
@@ -607,6 +652,7 @@ export function createConversationActions() {
             this.runningTurnSnapshotRecovery.attempts = 0;
             this.runningTurnSnapshotRecovery.lastActivityAt = null;
             this.runningTurnSnapshotRecovery.idleAttempts = 0;
+            this.runningTurnSnapshotRecovery.processStartedAt = null;
         },
 
         /**
@@ -689,7 +735,17 @@ export function createConversationActions() {
                 }
                 const stillRunning = this.sessionDetail?.turns.some((turn) => {
                     return turn.turnId === currentTurnId
-                        && isRecoverableTurnRunning(turn);
+                        && isRecoverableTurnRunning(
+                            turn,
+                            {
+                                processStartedAt: this.runningTurnSnapshotRecovery.processStartedAt,
+                                activityAt: resolveTurnSnapshotActivityAt(
+                                    this.sessionDetail,
+                                    this.events,
+                                    currentTurnId,
+                                ),
+                            },
+                        );
                 }) ?? false;
                 if (!stillRunning) {
                     console.info("[frontend:turn-recovery] completed", JSON.stringify({

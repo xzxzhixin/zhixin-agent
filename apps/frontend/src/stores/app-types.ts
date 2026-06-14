@@ -648,6 +648,32 @@ export interface RunningTurnSnapshotRecoveryState {
     lastActivityAt: string | null;
     /** idleAttempts: 最近活动时间没有推进的连续轮询次数，用于判断本地观察是否疑似卡住。 */
     idleAttempts: number;
+    /** processStartedAt: 当前恢复目标绑定的中心服务进程启动时间；没有健康信息时为 null。 */
+    processStartedAt: string | null;
+}
+
+/**
+ * CenterHealthState：前端缓存的中心服务健康信息。
+ *
+ * 来源：`GET /api/health`。
+ * 含义：给运行中轮次展示和恢复提供当前进程边界。
+ * 格式：JSON 对象。
+ * 默认值：null。
+ * 约束：只保存中心服务事实字段。
+ */
+export interface CenterHealthState {
+    /** appName: 应用中文名。 */
+    appName: string;
+    /** version: 中心服务版本。 */
+    version: string;
+    /** port: 当前中心服务端口。 */
+    port: number;
+    /** centerDirectory: 当前中心目录绝对路径。 */
+    centerDirectory: string;
+    /** processStartedAt: 当前中心服务进程启动时间。 */
+    processStartedAt: string;
+    /** now: 当前健康检查时间。 */
+    now: string;
 }
 
 /**
