@@ -1,4 +1,4 @@
-import {z} from "zod/v3";
+import type {ToolInputSchemaBase} from "@langchain/core/tools";
 
 import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
 import type {
@@ -9,20 +9,19 @@ import {
     type McpToolExecutionRequest,
     executeMcpTool,
 } from "./mcp-tool-executor.js";
+import {isRecord} from "@zhixin/shared";
 
-/**
- * MCP_TOOL_SCHEMA：动态 MCP 工具参数 schema。
- */
-export const MCP_TOOL_SCHEMA = z.record(z.unknown());
+/** McpToolInput：MCP 动态工具参数对象，来源于 MCP tools/list 返回的 inputSchema。 */
+export type McpToolInput = Record<string, unknown>;
 
 /**
  * DynamicMcpStructuredTool：动态 MCP 结构化工具。
  */
-export class DynamicMcpStructuredTool extends CenterStructuredToolBase<typeof MCP_TOOL_SCHEMA> {
+export class DynamicMcpStructuredTool extends CenterStructuredToolBase<ToolInputSchemaBase> {
     /** description: 工具说明。 */
     override description: string;
-    /** schema: MCP 参数对象。 */
-    override schema = MCP_TOOL_SCHEMA;
+    /** schema: 模型可见 MCP 参数 schema，来源于 MCP Server 的 tools/list 结果。 */
+    override schema: ToolInputSchemaBase;
     /** serverId: MCP Server ID。 */
     private readonly serverId: string;
     /** innerToolName: MCP 内部工具名。 */
@@ -36,6 +35,7 @@ export class DynamicMcpStructuredTool extends CenterStructuredToolBase<typeof MC
      * @param description 工具说明。
      * @param serverId MCP Server ID。
      * @param innerToolName MCP 内部工具名。
+     * @param inputJsonSchema MCP tools/list 返回的输入 JSON Schema。
      */
     constructor(
         context: DeepAgentsToolExecutionContext,
@@ -43,6 +43,7 @@ export class DynamicMcpStructuredTool extends CenterStructuredToolBase<typeof MC
         description: string,
         serverId: string,
         innerToolName: string,
+        inputJsonSchema: Record<string, unknown>,
     ) {
         super(
             context,
@@ -50,6 +51,7 @@ export class DynamicMcpStructuredTool extends CenterStructuredToolBase<typeof MC
             modelToolName,
         );
         this.description = description;
+        this.schema = createMcpToolSchema(inputJsonSchema);
         this.serverId = serverId;
         this.innerToolName = innerToolName;
     }
@@ -62,7 +64,7 @@ export class DynamicMcpStructuredTool extends CenterStructuredToolBase<typeof MC
      * @returns 工具结果。
      */
     protected override async executeTool(
-        arg: z.output<typeof MCP_TOOL_SCHEMA>,
+        arg: McpToolInput,
         toolCallId: string,
     ): Promise<DeepAgentsToolExecutionResult> {
         const request: McpToolExecutionRequest = {
@@ -87,4 +89,30 @@ export class DynamicMcpStructuredTool extends CenterStructuredToolBase<typeof MC
             status: result.status,
         };
     }
+}
+
+/**
+ * createMcpToolSchema：把 MCP 原始 JSON Schema 规范成 LangChain 可直接暴露给模型的工具 schema。
+ *
+ * @param inputJsonSchema MCP tools/list 返回的输入 JSON Schema。
+ * @returns LangChain StructuredTool 支持的 JSON Schema；无参数工具返回明确空对象。
+ */
+export function createMcpToolSchema(inputJsonSchema: Record<string, unknown>): ToolInputSchemaBase {
+    const schemaType = inputJsonSchema.type;
+    if (schemaType !== "object") {
+        return {
+            type: "object",
+            properties: {},
+            additionalProperties: true,
+        };
+    }
+
+    const properties = isRecord(inputJsonSchema.properties)
+        ? inputJsonSchema.properties
+        : {};
+    return {
+        ...inputJsonSchema,
+        type: "object",
+        properties,
+    };
 }

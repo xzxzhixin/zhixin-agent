@@ -10,8 +10,8 @@ import {
 import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
 import {StdioMcpSession} from "./StdioMcpSession.js";
 
-/** MCP_MODEL_TOOL_NAME_MAX_LENGTH：OpenAI 函数工具名长度上限，动态 MCP 名称必须短于该值。 */
-export const MCP_MODEL_TOOL_NAME_MAX_LENGTH = 64;
+/** MCP_MODEL_TOOL_NAME_MAX_LENGTH：动态 MCP 工具名保守长度上限，避免兼容供应商贴近 OpenAI 64 字符边界后丢失工具名。 */
+export const MCP_MODEL_TOOL_NAME_MAX_LENGTH = 48;
 
 /** McpModelToolNameRecord：模型可见短工具名与真实 MCP 工具定位的映射。 */
 export interface McpModelToolNameRecord {
@@ -250,20 +250,51 @@ export function readMcpDynamicToolName(modelToolName: string): {
  *
  * @param serverId MCP Server ID。
  * @param toolName MCP 工具名。
- * @returns 只包含字母、数字和下划线的模型工具名。
+ * @returns 只包含字母、数字和下划线的可读模型工具名。
  */
 export function toDynamicMcpModelToolName(
     serverId: string,
     toolName: string,
 ): string {
+    const readablePrefix = buildReadableMcpToolNamePrefix(
+        serverId,
+        toolName,
+    );
     const digest = createHash("sha256")
         .update(`${serverId}\u0000${toolName}`)
         .digest("hex")
         .slice(
             0,
-            24,
+            12,
         );
-    return `mcp_${digest}`;
+    const hashSuffix = `_${digest}`;
+    const maxReadableLength = MCP_MODEL_TOOL_NAME_MAX_LENGTH - hashSuffix.length;
+    const trimmedReadablePrefix = readablePrefix.slice(
+        0,
+        maxReadableLength,
+    );
+    return `${trimmedReadablePrefix}${hashSuffix}`;
+}
+
+/**
+ * buildReadableMcpToolNamePrefix：生成模型可读的 MCP 工具名前缀。
+ *
+ * @param serverId MCP Server ID。
+ * @param toolName MCP 真实工具名。
+ * @returns 已清理的可读前缀，至少包含 mcp 前缀。
+ */
+function buildReadableMcpToolNamePrefix(
+    serverId: string,
+    toolName: string,
+): string {
+    const sourceName = `mcp_${serverId}_${toolName}`;
+    const normalizedName = sourceName
+        .replace(/[^a-zA-Z0-9_]/gu, "_")
+        .replace(/_+/gu, "_")
+        .replace(/^_+|_+$/gu, "");
+    return normalizedName.length > 0
+        ? normalizedName
+        : "mcp_tool";
 }
 
 /**
