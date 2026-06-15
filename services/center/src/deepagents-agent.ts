@@ -37,11 +37,14 @@ import {
 } from "./tools/index.js";
 import {
     buildForcedCommandToolChoice,
+    buildForcedToolChoice,
     COMMAND_TOOL_INTERNAL_ID,
     COMMAND_TOOL_MODEL_NAME,
     hasCommandToolAvailable,
+    resolveForcedMcpToolChoice,
     shouldForceCommandToolChoice,
 } from "./tools/tool-choice-policy.js";
+import {readMcpDynamicToolName} from "./tools/mcp-tool-specs.js";
 import type {
     DeepAgentsAgentRunInput,
     DeepAgentsToolExecutionContext,
@@ -193,6 +196,9 @@ function createCenterToolChoiceMiddleware(
     userText: string,
 ) {
     const isCommandIntent = shouldForceCommandToolChoice(userText);
+    let forcedMcpToolName: string | null = null;
+    let shouldRepairForcedMcpToolName = false;
+    let hasRepairedForcedMcpToolName = false;
     return createMiddleware({
         name: "CenterToolChoiceMiddleware",
         afterModel: async (state) => {
@@ -222,19 +228,34 @@ function createCenterToolChoiceMiddleware(
                         };
                     }) ?? [],
                     isCommandIntent,
+                    forcedMcpToolName,
                 },
             });
         },
         wrapToolCall: async (request, handler) => {
             const toolCallName = request.toolCall.name;
+            const shouldRepairEmptyMcpToolName = forcedMcpToolName
+                && shouldRepairForcedMcpToolName
+                && !hasRepairedForcedMcpToolName
+                && !request.tool
+                && (
+                    typeof toolCallName !== "string"
+                    || toolCallName.length === 0
+                );
             const shouldRepairEmptyCommandToolName = isCommandIntent
                 && !request.tool
                 && (
                     typeof toolCallName !== "string"
                     || toolCallName.length === 0
                 );
-            if (!shouldRepairEmptyCommandToolName) {
+            if (!shouldRepairEmptyCommandToolName && !shouldRepairEmptyMcpToolName) {
                 return handler(request);
+            }
+            const repairedToolName = shouldRepairEmptyMcpToolName
+                ? forcedMcpToolName
+                : COMMAND_TOOL_MODEL_NAME;
+            if (shouldRepairEmptyMcpToolName) {
+                hasRepairedForcedMcpToolName = true;
             }
             context.input.events.append({
                 eventType: "model.tool_call.repaired",
@@ -245,35 +266,60 @@ function createCenterToolChoiceMiddleware(
                 taskId: context.input.sent.taskId,
                 status: "completed",
                 title: "工具调用修正",
-                summary: "命令意图下模型返回空工具名，已映射到命令工具。",
+                summary: shouldRepairEmptyMcpToolName
+                    ? "MCP 意图下模型返回空工具名，已映射到目标 MCP 工具。"
+                    : "命令意图下模型返回空工具名，已映射到命令工具。",
                 payload: {
                     originalToolName: toolCallName,
-                    repairedToolName: COMMAND_TOOL_MODEL_NAME,
+                    repairedToolName,
                     toolCallId: request.toolCall.id,
                 },
             });
             // toolCall: 部分 OpenAI 兼容供应商在强制 tool_choice 时返回空 name；
-            // 仅命令意图且原工具名为空时修正，避免把其他未知工具误执行为命令。
+            // 仅明确命令或 MCP 意图且原工具名为空时修正，避免把其他未知工具误执行。
             return handler({
                 ...request,
                 toolCall: {
                     ...request.toolCall,
-                    name: COMMAND_TOOL_MODEL_NAME,
+                    name: repairedToolName,
                 },
             });
         },
         wrapModelCall: async (request, handler) => {
             const tools = request.tools.map((tool) => {
+                const mcpTool = readMcpDynamicToolName(tool.name);
                 return {
                     name: tool.name,
                     sourceToolId: tool.name === COMMAND_TOOL_MODEL_NAME
                         ? COMMAND_TOOL_INTERNAL_ID
                         : undefined,
+                    mcpServerId: mcpTool?.serverId,
+                    mcpToolName: mcpTool?.toolName,
                 };
+            });
+            forcedMcpToolName = resolveForcedMcpToolChoice(
+                userText,
+                tools,
+            );
+            const hasToolResultMessage = request.messages.some((message) => {
+                return message.getType() === "tool";
             });
             const shouldForceCommandTool = hasCommandToolAvailable(tools)
                 && isCommandIntent
-                && !request.messages.some((message) => message.getType() === "tool");
+                && !hasToolResultMessage;
+            const shouldForceMcpTool = forcedMcpToolName !== null
+                && !hasToolResultMessage;
+            shouldRepairForcedMcpToolName = shouldForceMcpTool;
+            if (shouldForceMcpTool) {
+                hasRepairedForcedMcpToolName = false;
+            }
+            // toolChoiceSummary: 日志摘要按 MCP、命令、未强制三个互斥分支生成，避免嵌套三目影响可读性。
+            let toolChoiceSummary = "Deep Agents 未强制命令或 MCP 工具。";
+            if (shouldForceMcpTool) {
+                toolChoiceSummary = "Deep Agents 已要求模型调用 MCP 工具。";
+            } else if (shouldForceCommandTool) {
+                toolChoiceSummary = "Deep Agents 已要求模型调用命令工具。";
+            }
             context.input.events.append({
                 eventType: "model.tool_choice.evaluated",
                 scopeType: "model",
@@ -283,16 +329,32 @@ function createCenterToolChoiceMiddleware(
                 taskId: context.input.sent.taskId,
                 status: "completed",
                 title: "工具选择策略",
-                summary: shouldForceCommandTool
-                    ? "Deep Agents 已要求模型调用命令工具。"
-                    : "Deep Agents 未强制命令工具。",
+                summary: toolChoiceSummary,
                 payload: {
                     toolNames: tools.map((tool) => tool.name),
                     shouldForceCommandTool,
+                    shouldForceMcpTool,
+                    forcedMcpToolName,
                     // userTextMatched: 只记录命令意图是否命中，避免把用户原文写入工具选择诊断事件。
                     userTextMatched: isCommandIntent,
                 },
             });
+            if (shouldForceMcpTool) {
+                return handler({
+                    ...request,
+                    toolChoice: buildForcedToolChoice(forcedMcpToolName),
+                });
+            }
+            if (
+                forcedMcpToolName
+                && hasToolResultMessage
+            ) {
+                return handler({
+                    ...request,
+                    // toolChoice: MCP 工具结果已经回填后禁用后续工具调用，避免兼容供应商继续返回空工具名造成轮次卡住。
+                    toolChoice: "none",
+                });
+            }
             if (
                 shouldForceCommandTool
             ) {

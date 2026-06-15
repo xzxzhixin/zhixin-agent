@@ -28,17 +28,41 @@ export type LangChainAgentToolChoice = "auto" | "none" | "required" | {
 };
 
 /**
+ * ModelVisibleToolSummary：工具选择策略只需要模型可见名和来源定位。
+ */
+export interface ModelVisibleToolSummary {
+    /** name: 模型可见工具名，必须符合供应商函数工具命名约束。 */
+    name: string;
+    /** sourceToolId: 中心服务内部工具 ID；Deep Agents 原生工具流里可能不存在。 */
+    sourceToolId?: string;
+    /** mcpServerId: 动态 MCP 工具所属 Server ID，来源于已解码的模型安全名。 */
+    mcpServerId?: string;
+    /** mcpToolName: 动态 MCP 工具真实工具名，来源于已解码的模型安全名。 */
+    mcpToolName?: string;
+}
+
+/**
+ * buildForcedToolChoice：生成指定模型可见工具的强制选择配置。
+ *
+ * @param modelToolName 模型可见工具名。
+ * @returns 供应商兼容的指定函数工具配置。
+ */
+export function buildForcedToolChoice(modelToolName: string): Extract<LangChainAgentToolChoice, Record<string, unknown>> {
+    return {
+        type: "function",
+        function: {
+            name: modelToolName,
+        },
+    };
+}
+
+/**
  * buildForcedCommandToolChoice：生成强制命令工具选择配置。
  *
  * @returns 供应商兼容的指定函数工具配置。
  */
 export function buildForcedCommandToolChoice(): Extract<LangChainAgentToolChoice, Record<string, unknown>> {
-    return {
-        type: "function",
-        function: {
-            name: COMMAND_TOOL_MODEL_NAME,
-        },
-    };
+    return buildForcedToolChoice(COMMAND_TOOL_MODEL_NAME);
 }
 
 /**
@@ -103,17 +127,61 @@ export function shouldForceCommandToolChoice(userText: string): boolean {
 }
 
 /**
+ * resolveForcedMcpToolChoice：把明确 MCP/IDEA 用户意图解析为唯一动态 MCP 工具。
+ *
+ * @param userText 用户原始输入。
+ * @param tools 当前模型可见工具摘要。
+ * @returns 需要强制选择的模型工具名；没有明确匹配时返回 null。
+ */
+export function resolveForcedMcpToolChoice(
+    userText: string,
+    tools: ModelVisibleToolSummary[],
+): string | null {
+    if (!shouldForceIdeaOpenFilePathsToolChoice(userText)) {
+        return null;
+    }
+    const matchedTool = tools.find((tool) => {
+        return tool.mcpServerId === "idea"
+            && tool.mcpToolName === "get_all_open_file_paths";
+    });
+    return matchedTool?.name ?? null;
+}
+
+/**
+ * shouldForceIdeaOpenFilePathsToolChoice：判断用户是否明确要求读取 IDEA 当前打开项目路径。
+ *
+ * @param userText 用户原始输入。
+ * @returns 需要强制选择 IDEA MCP 项目路径工具时返回 true。
+ */
+function shouldForceIdeaOpenFilePathsToolChoice(userText: string): boolean {
+    const normalizedText = userText.toLowerCase();
+    const hasIdeaKeyword = normalizedText.includes("idea");
+    const hasOpenKeyword = [
+        "打开",
+        "open",
+    ].some((keyword) => {
+        return normalizedText.includes(keyword);
+    });
+    const hasProjectPathKeyword = [
+        "项目路径",
+        "项目目录",
+        "project path",
+        "project paths",
+    ].some((keyword) => {
+        return normalizedText.includes(keyword);
+    });
+    return hasIdeaKeyword
+        && hasOpenKeyword
+        && hasProjectPathKeyword;
+}
+
+/**
  * hasCommandToolAvailable：判断当前工具列表是否包含命令工具。
  *
  * @param tools 当前模型可见工具定义。
  * @returns 可用命令工具存在时返回 true。
  */
-export function hasCommandToolAvailable(tools: Array<{
-    /** name: 模型可见工具名。 */
-    name: string;
-    /** sourceToolId: 中心服务内部工具 ID；Deep Agents 原生工具流里可能不存在。 */
-    sourceToolId?: string;
-}>): boolean {
+export function hasCommandToolAvailable(tools: ModelVisibleToolSummary[]): boolean {
     return tools.some((tool) => {
         return tool.sourceToolId === COMMAND_TOOL_INTERNAL_ID || tool.name === COMMAND_TOOL_MODEL_NAME;
     });
