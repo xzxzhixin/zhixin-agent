@@ -35,11 +35,7 @@ import {
 } from "./memory-engine.js";
 import {listAvailableModelToolSpecsForCenter} from "./tools/index.js";
 import {
-    buildLangChainToolChoiceCallOptions,
-    COMMAND_TOOL_INTERNAL_ID,
     COMMAND_TOOL_MODEL_NAME,
-    hasCommandToolAvailable,
-    type LangChainToolChoiceCallOptions,
 } from "./tools/tool-choice-policy.js";
 import {
     type TurnGraphCheckpoint,
@@ -150,9 +146,9 @@ interface LangChainMessageLikeRecord {
 
 interface LangChainRunnableWithTools {
     /** invoke: 非流式模型调用入口。 */
-    invoke: (messages: BaseMessage[], options?: LangChainToolChoiceCallOptions) => Promise<unknown>;
+    invoke: (messages: BaseMessage[]) => Promise<unknown>;
     /** stream: 流式模型调用入口。 */
-    stream: (messages: BaseMessage[], options?: LangChainToolChoiceCallOptions) => Promise<AsyncIterable<unknown>>;
+    stream: (messages: BaseMessage[]) => Promise<AsyncIterable<unknown>>;
 }
 
 interface AgentMemoryPromptEntry {
@@ -421,17 +417,11 @@ async function invokeLangChainChatModel(
     const modelWithTools = tools.length > 0
         ? chatModel.bindTools(tools) as LangChainRunnableWithTools
         : chatModel as LangChainRunnableWithTools;
-    const callOptions = buildLangChainToolChoiceCallOptions(
-        requestPayload.tools,
-        requestPayload.messages,
-        readUserTextFromRequest(requestPayload),
-    );
     if (!useStreaming) {
         return invokeLangChainChatModelOnce(
             modelWithTools,
             messages,
             streamContext,
-            callOptions,
         );
     }
     const state: {
@@ -450,7 +440,7 @@ async function invokeLangChainChatModel(
         toolCallParts: new Map(),
     };
 
-    for await (const chunk of await modelWithTools.stream(messages, callOptions)) {
+    for await (const chunk of await modelWithTools.stream(messages)) {
         applyLangChainStreamChunk(
             chunk,
             streamContext,
@@ -499,9 +489,8 @@ async function invokeLangChainChatModelOnce(
     modelWithTools: LangChainRunnableWithTools,
     messages: BaseMessage[],
     streamContext: ProviderStreamEventContext,
-    callOptions: LangChainToolChoiceCallOptions,
 ): Promise<ProviderModelGatewayHttpResult> {
-    const response = await modelWithTools.invoke(messages, callOptions);
+    const response = await modelWithTools.invoke(messages);
     const responseRecord = response as LangChainMessageLikeRecord;
     const contentParts = readLangChainContentParts(responseRecord.content);
     if (contentParts.publicThinkingText.length > 0) {
@@ -679,7 +668,11 @@ function buildOpenAiChatPayload(
  * @returns 工具调用约束提示。
  */
 function buildToolCallingPolicyPrompt(tools: OpenAiToolSpec[]): string {
-    const commandToolAvailable = hasCommandToolAvailable(tools);
+    // commandToolAvailable: 这里只判断模型是否看到了命令工具定义，不做用户文本意图解析。
+    const commandToolAvailable = tools.some((tool) => {
+        return tool.name === COMMAND_TOOL_MODEL_NAME
+            || tool.sourceToolId === "builtin.command.run";
+    });
     const commandPolicy = commandToolAvailable
         ? `用户明确要求使用命令工具、执行命令、查看本机环境、读取 Node/pnpm/npm/git 等本机版本或让你实际检查系统状态时，必须调用 \`${COMMAND_TOOL_MODEL_NAME}\` 结构化工具；不要只回复代码块、命令文本或说自己可以执行。`
         : "当前模型没有可用命令工具；不得声称已经执行本机命令。";

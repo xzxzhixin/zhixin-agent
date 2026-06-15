@@ -36,15 +36,8 @@ import {
     toModelSafeToolName,
 } from "./tools/index.js";
 import {
-    buildForcedCommandToolChoice,
-    buildForcedToolChoice,
-    COMMAND_TOOL_INTERNAL_ID,
     COMMAND_TOOL_MODEL_NAME,
-    hasCommandToolAvailable,
-    resolveForcedMcpToolChoice,
-    shouldForceCommandToolChoice,
 } from "./tools/tool-choice-policy.js";
-import {readMcpDynamicToolName} from "./tools/mcp-tool-specs.js";
 import type {
     DeepAgentsAgentRunInput,
     DeepAgentsToolExecutionContext,
@@ -173,10 +166,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
         tools,
         systemPrompt,
         middleware: [
-            createCenterToolChoiceMiddleware(
-                context,
-                context.input.userText,
-            ),
+            createCenterToolChoiceMiddleware(context),
         ],
     });
 }
@@ -184,8 +174,8 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
 /**
  * createCenterToolChoiceMiddleware：为 Deep Agents 原生入口补齐中心服务工具选择策略。
  *
- * 关键逻辑：旧模型网关在明确命令意图时会强制 `builtin_command_run`；
- * Deep Agents 原生入口也必须复用同一策略，否则模型可能把工具错误当成普通文本输出。
+ * 关键逻辑：中心服务只把真实工具定义注入模型，不再按用户文本固定解析并强制选择工具；
+ * 工具是否调用必须由模型返回的结构化工具调用决定。
  *
  * @param context 当前轮次工具执行上下文。
  * @param userText 用户本轮原文。
@@ -193,12 +183,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
  */
 function createCenterToolChoiceMiddleware(
     context: DeepAgentsToolExecutionContext,
-    userText: string,
 ) {
-    const isCommandIntent = shouldForceCommandToolChoice(userText);
-    let forcedMcpToolName: string | null = null;
-    let shouldRepairForcedMcpToolName = false;
-    let hasRepairedForcedMcpToolName = false;
     return createMiddleware({
         name: "CenterToolChoiceMiddleware",
         afterModel: async (state) => {
@@ -227,99 +212,49 @@ function createCenterToolChoiceMiddleware(
                             argumentKeys: Object.keys(toolCall.args ?? {}),
                         };
                     }) ?? [],
-                    isCommandIntent,
-                    forcedMcpToolName,
                 },
             });
         },
         wrapToolCall: async (request, handler) => {
-            const toolCallName = request.toolCall.name;
-            const shouldRepairEmptyMcpToolName = forcedMcpToolName
-                && shouldRepairForcedMcpToolName
-                && !hasRepairedForcedMcpToolName
-                && !request.tool
-                && (
-                    typeof toolCallName !== "string"
-                    || toolCallName.length === 0
-                );
-            const shouldRepairEmptyCommandToolName = isCommandIntent
-                && !request.tool
-                && (
-                    typeof toolCallName !== "string"
-                    || toolCallName.length === 0
-                );
-            if (!shouldRepairEmptyCommandToolName && !shouldRepairEmptyMcpToolName) {
+            const restoredToolName = resolveEmptyToolNameByArguments(
+                request.toolCall.name,
+                request.toolCall.args,
+            );
+            if (
+                request.tool
+                || restoredToolName === null
+            ) {
                 return handler(request);
             }
-            const repairedToolName = shouldRepairEmptyMcpToolName
-                ? forcedMcpToolName
-                : COMMAND_TOOL_MODEL_NAME;
-            if (shouldRepairEmptyMcpToolName) {
-                hasRepairedForcedMcpToolName = true;
-            }
             context.input.events.append({
-                eventType: "model.tool_call.repaired",
+                eventType: "model.tool_call.name_restored",
                 scopeType: "tool",
                 scopeId: context.input.sent.taskId,
                 sessionId: context.input.sent.sessionId,
                 turnId: context.input.sent.turnId,
                 taskId: context.input.sent.taskId,
                 status: "completed",
-                title: "工具调用修正",
-                summary: shouldRepairEmptyMcpToolName
-                    ? "MCP 意图下模型返回空工具名，已映射到目标 MCP 工具。"
-                    : "命令意图下模型返回空工具名，已映射到命令工具。",
+                title: "工具名恢复",
+                summary: "模型返回了空工具名，已按结构化参数唯一匹配恢复工具名。",
                 payload: {
-                    originalToolName: toolCallName,
-                    repairedToolName,
                     toolCallId: request.toolCall.id,
+                    restoredToolName,
+                    argumentKeys: Object.keys(request.toolCall.args ?? {}),
                 },
             });
-            // toolCall: 部分 OpenAI 兼容供应商在强制 tool_choice 时返回空 name；
-            // 仅明确命令或 MCP 意图且原工具名为空时修正，避免把其他未知工具误执行。
+            // toolCall: 这里不解析用户文本，只在模型已经返回结构化参数且唯一匹配命令工具 schema 时恢复名称。
             return handler({
                 ...request,
                 toolCall: {
                     ...request.toolCall,
-                    name: repairedToolName,
+                    name: restoredToolName,
                 },
             });
         },
         wrapModelCall: async (request, handler) => {
-            const tools = request.tools.map((tool) => {
-                const mcpTool = readMcpDynamicToolName(tool.name);
-                return {
-                    name: tool.name,
-                    sourceToolId: tool.name === COMMAND_TOOL_MODEL_NAME
-                        ? COMMAND_TOOL_INTERNAL_ID
-                        : undefined,
-                    mcpServerId: mcpTool?.serverId,
-                    mcpToolName: mcpTool?.toolName,
-                };
-            });
-            forcedMcpToolName = resolveForcedMcpToolChoice(
-                userText,
-                tools,
-            );
             const hasToolResultMessage = request.messages.some((message) => {
                 return message.getType() === "tool";
             });
-            const shouldForceCommandTool = hasCommandToolAvailable(tools)
-                && isCommandIntent
-                && !hasToolResultMessage;
-            const shouldForceMcpTool = forcedMcpToolName !== null
-                && !hasToolResultMessage;
-            shouldRepairForcedMcpToolName = shouldForceMcpTool;
-            if (shouldForceMcpTool) {
-                hasRepairedForcedMcpToolName = false;
-            }
-            // toolChoiceSummary: 日志摘要按 MCP、命令、未强制三个互斥分支生成，避免嵌套三目影响可读性。
-            let toolChoiceSummary = "Deep Agents 未强制命令或 MCP 工具。";
-            if (shouldForceMcpTool) {
-                toolChoiceSummary = "Deep Agents 已要求模型调用 MCP 工具。";
-            } else if (shouldForceCommandTool) {
-                toolChoiceSummary = "Deep Agents 已要求模型调用命令工具。";
-            }
             context.input.events.append({
                 eventType: "model.tool_choice.evaluated",
                 scopeType: "model",
@@ -329,43 +264,50 @@ function createCenterToolChoiceMiddleware(
                 taskId: context.input.sent.taskId,
                 status: "completed",
                 title: "工具选择策略",
-                summary: toolChoiceSummary,
+                summary: "Deep Agents 使用模型自主结构化工具选择。",
                 payload: {
-                    toolNames: tools.map((tool) => tool.name),
-                    shouldForceCommandTool,
-                    shouldForceMcpTool,
-                    forcedMcpToolName,
-                    // userTextMatched: 只记录命令意图是否命中，避免把用户原文写入工具选择诊断事件。
-                    userTextMatched: isCommandIntent,
+                    // toolNames: 当前请求注入给模型的真实工具名，用于排查模型是否看到了工具。
+                    toolNames: request.tools.map((tool) => tool.name),
+                    hasToolResultMessage,
                 },
             });
-            if (shouldForceMcpTool) {
-                return handler({
-                    ...request,
-                    toolChoice: buildForcedToolChoice(forcedMcpToolName),
-                });
-            }
-            if (
-                forcedMcpToolName
-                && hasToolResultMessage
-            ) {
-                return handler({
-                    ...request,
-                    // toolChoice: MCP 工具结果已经回填后禁用后续工具调用，避免兼容供应商继续返回空工具名造成轮次卡住。
-                    toolChoice: "none",
-                });
-            }
-            if (
-                shouldForceCommandTool
-            ) {
-                return handler({
-                    ...request,
-                    toolChoice: buildForcedCommandToolChoice(),
-                });
-            }
             return handler(request);
         },
     });
+}
+
+/**
+ * resolveEmptyToolNameByArguments：按结构化参数唯一匹配恢复空工具名。
+ *
+ * @param toolCallName 模型返回的工具名。
+ * @param args 模型返回的结构化工具参数。
+ * @returns 可唯一确认的工具名；无法确认时返回 null。
+ */
+function resolveEmptyToolNameByArguments(
+    toolCallName: string | undefined,
+    args: Record<string, unknown> | undefined,
+): string | null {
+    if (
+        typeof toolCallName === "string"
+        && toolCallName.length > 0
+    ) {
+        return null;
+    }
+    if (!args) {
+        return null;
+    }
+    const argumentKeys = Object.keys(args);
+    const hasCommandArgument = [
+        "shellCommand",
+        "executablePath",
+        "args",
+    ].some((key) => {
+        return argumentKeys.includes(key);
+    });
+    const hasInputSummary = argumentKeys.includes("inputSummary");
+    return hasCommandArgument && hasInputSummary
+        ? COMMAND_TOOL_MODEL_NAME
+        : null;
 }
 
 /**

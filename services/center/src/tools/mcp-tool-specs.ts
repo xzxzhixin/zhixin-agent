@@ -1,4 +1,5 @@
 import {existsSync, readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {join} from "node:path";
 import {
     isRecord,
@@ -8,6 +9,22 @@ import {
 
 import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
 import {StdioMcpSession} from "./StdioMcpSession.js";
+
+/** MCP_MODEL_TOOL_NAME_MAX_LENGTH：OpenAI 函数工具名长度上限，动态 MCP 名称必须短于该值。 */
+export const MCP_MODEL_TOOL_NAME_MAX_LENGTH = 64;
+
+/** McpModelToolNameRecord：模型可见短工具名与真实 MCP 工具定位的映射。 */
+export interface McpModelToolNameRecord {
+    /** modelToolName: 模型可见短工具名。 */
+    modelToolName: string;
+    /** serverId: MCP Server ID。 */
+    serverId: string;
+    /** toolName: MCP 真实工具名。 */
+    toolName: string;
+}
+
+/** mcpModelToolNameRegistry：当前进程内动态 MCP 短名注册表，来源于 tools/list 发现结果。 */
+const mcpModelToolNameRegistry = new Map<string, McpModelToolNameRecord>();
 
 /**
  * McpToolView：MCP 管理页工具展示行。
@@ -76,7 +93,7 @@ export async function listConfiguredMcpModelToolSpecs(centerDirectory: string): 
         });
         for (const tool of tools) {
             specs.push({
-                name: toDynamicMcpModelToolName(
+                name: registerDynamicMcpModelToolName(
                     serverConfig.serverId,
                     tool.name,
                 ),
@@ -219,17 +236,13 @@ export function readMcpDynamicToolName(modelToolName: string): {
     serverId: string;
     toolName: string;
 } | null {
-    if (!modelToolName.startsWith("mcp_")) {
-        return null;
-    }
-    const parts = modelToolName.split("_");
-    if (parts.length !== 3 || !parts[1] || !parts[2]) {
-        return null;
-    }
-    return {
-        serverId: decodeHexUtf8(parts[1]),
-        toolName: decodeHexUtf8(parts[2]),
-    };
+    const record = mcpModelToolNameRegistry.get(modelToolName);
+    return record
+        ? {
+            serverId: record.serverId,
+            toolName: record.toolName,
+        }
+        : null;
 }
 
 /**
@@ -243,27 +256,96 @@ export function toDynamicMcpModelToolName(
     serverId: string,
     toolName: string,
 ): string {
-    return `mcp_${encodeHexUtf8(serverId)}_${encodeHexUtf8(toolName)}`;
+    const digest = createHash("sha256")
+        .update(`${serverId}\u0000${toolName}`)
+        .digest("hex")
+        .slice(
+            0,
+            24,
+        );
+    return `mcp_${digest}`;
 }
 
 /**
- * encodeHexUtf8：把任意 UTF-8 文本编码为工具名安全 hex。
+ * registerDynamicMcpModelToolName：注册一个模型可见短 MCP 工具名。
  *
- * @param value 原始文本。
- * @returns 十六进制文本。
+ * @param serverId MCP Server ID。
+ * @param toolName MCP 真实工具名。
+ * @returns 模型可见短工具名。
  */
-export function encodeHexUtf8(value: string): string {
-    return Buffer.from(value, "utf-8").toString("hex");
+export function registerDynamicMcpModelToolName(
+    serverId: string,
+    toolName: string,
+): string {
+    const modelToolName = toDynamicMcpModelToolName(
+        serverId,
+        toolName,
+    );
+    if (modelToolName.length > MCP_MODEL_TOOL_NAME_MAX_LENGTH) {
+        throw new Error(`MCP_MODEL_TOOL_NAME_TOO_LONG:${modelToolName}`);
+    }
+    const existing = mcpModelToolNameRegistry.get(modelToolName);
+    if (
+        existing
+        && (
+            existing.serverId !== serverId
+            || existing.toolName !== toolName
+        )
+    ) {
+        throw new Error(`MCP_MODEL_TOOL_NAME_COLLISION:${modelToolName}`);
+    }
+    mcpModelToolNameRegistry.set(
+        modelToolName,
+        {
+            modelToolName,
+            serverId,
+            toolName,
+        },
+    );
+    return modelToolName;
 }
 
 /**
- * decodeHexUtf8：把工具名中的 hex 还原为 UTF-8 文本。
+ * createMcpModelToolNameRegistry：为测试和诊断生成独立 MCP 短名注册表。
  *
- * @param value 十六进制文本。
- * @returns 还原后的文本。
+ * @param tools 真实 MCP 工具定位列表。
+ * @returns 模型可见短工具名映射。
  */
-export function decodeHexUtf8(value: string): string {
-    return Buffer.from(value, "hex").toString("utf-8");
+export function createMcpModelToolNameRegistry(
+    tools: Array<{
+        serverId: string;
+        toolName: string;
+    }>,
+): Map<string, McpModelToolNameRecord> {
+    const registry = new Map<string, McpModelToolNameRecord>();
+    for (const tool of tools) {
+        const modelToolName = toDynamicMcpModelToolName(
+            tool.serverId,
+            tool.toolName,
+        );
+        if (modelToolName.length > MCP_MODEL_TOOL_NAME_MAX_LENGTH) {
+            throw new Error(`MCP_MODEL_TOOL_NAME_TOO_LONG:${modelToolName}`);
+        }
+        const existing = registry.get(modelToolName);
+        if (
+            existing
+            && (
+                existing.serverId !== tool.serverId
+                || existing.toolName !== tool.toolName
+            )
+        ) {
+            throw new Error(`MCP_MODEL_TOOL_NAME_COLLISION:${modelToolName}`);
+        }
+        registry.set(
+            modelToolName,
+            {
+                modelToolName,
+                serverId: tool.serverId,
+                toolName: tool.toolName,
+            },
+        );
+    }
+    return registry;
 }
 
 /**
