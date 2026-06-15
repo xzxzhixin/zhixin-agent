@@ -618,6 +618,16 @@ export function updateTurnStatus(
     if (!turn) {
         return null;
     }
+    if (
+        turn.endedAt !== null
+        && (
+            turn.status === "completed"
+            || turn.status === "failed"
+            || turn.status === "cancelled"
+        )
+    ) {
+        return turn;
+    }
 
     // now: 终态轮次固定结束时间，等待用户状态仍不写结束时间。
     const now = formatCenterLocalDateTime();

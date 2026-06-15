@@ -10,6 +10,7 @@ import type {
     DeepAgentsToolExecutionContext,
     DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
+import {throwIfTurnRuntimeAborted} from "../domain/turn-runtime-cancel-registry.js";
 
 /**
  * CenterStructuredToolBase：中心服务 Deep Agents 结构化工具基类。
@@ -58,6 +59,7 @@ export abstract class CenterStructuredToolBase<
     protected override async _call(
         arg: ToolInputSchemaOutputType<SchemaT>,
     ): Promise<string> {
+        throwIfTurnRuntimeAborted(this.context.runtimeSignal);
         const toolCallId = randomUUID();
         this.context.input.events.append({
             eventType: "model.tool.requested",
@@ -81,6 +83,7 @@ export abstract class CenterStructuredToolBase<
             arg,
             toolCallId,
         );
+        throwIfTurnRuntimeAborted(this.context.runtimeSignal);
 
         this.context.input.events.append({
             eventType: "model.tool.result.appended",

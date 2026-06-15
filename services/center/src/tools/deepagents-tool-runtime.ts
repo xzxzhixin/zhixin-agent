@@ -30,6 +30,8 @@ export interface DeepAgentsAgentRunInput {
     centerDirectory?: string;
     /** memoryQueues: 记忆单写队列。 */
     memoryQueues?: Map<string, MemoryQueueState>;
+    /** runtimeSignal: 当前轮次运行期取消信号，来源于进程内 AbortController。 */
+    runtimeSignal?: AbortSignal;
 }
 
 /**
@@ -46,6 +48,8 @@ export interface DeepAgentsToolExecutionContext {
     runtime: ReturnType<typeof resolveProviderModelRuntime>;
     /** subAgents: 当前轮次运行期子智能体表。 */
     subAgents: Map<string, SubAgentRuntimeRecord>;
+    /** runtimeSignal: 当前轮次运行期取消信号，供工具执行边界检查用户停止。 */
+    runtimeSignal?: AbortSignal;
 }
 
 /**
@@ -81,6 +85,7 @@ export async function createDeepAgentsToolExecutionContext(
             input.sent.taskId,
         ),
         subAgents: new Map<string, SubAgentRuntimeRecord>(),
+        runtimeSignal: input.runtimeSignal,
     };
 }
 

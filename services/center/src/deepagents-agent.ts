@@ -12,6 +12,12 @@ import {
     updateSessionTitleAfterTurn,
     updateTurnStatus,
 } from "./domain/session-domain.js";
+import {
+    isTurnRuntimeAbortError,
+    registerRunningTurnRuntime,
+    throwIfTurnRuntimeAborted,
+    unregisterRunningTurnRuntime,
+} from "./domain/turn-runtime-cancel-registry.js";
 import {commitMainAgentMemoryAfterTurn} from "./domain/session-turn-effects.js";
 import {handleWorkerMessage, startWorkerTask} from "./domain/workflow-domain.js";
 import {
@@ -53,19 +59,24 @@ type CenterDeepAgentRunStream = DeepAgentRunStream<
  * @returns 没有返回值。
  */
 export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Promise<void> {
+    const runtimeController = registerRunningTurnRuntime(input.sent.turnId);
+    const runtimeInput: DeepAgentsAgentRunInput = {
+        ...input,
+        runtimeSignal: runtimeController.signal,
+    };
     try {
         startWorkerTask(
-            input.database,
-            input.events,
-            input.sent.taskId,
+            runtimeInput.database,
+            runtimeInput.events,
+            runtimeInput.sent.taskId,
         );
 
-        const context = await createDeepAgentsToolExecutionContext(input);
+        const context = await createDeepAgentsToolExecutionContext(runtimeInput);
         appendToolVisibilityEvents(
-            input.events,
-            input.sent.sessionId,
-            input.sent.taskId,
-            input.sent.turnId,
+            runtimeInput.events,
+            runtimeInput.sent.sessionId,
+            runtimeInput.sent.taskId,
+            runtimeInput.sent.turnId,
         );
 
         const deepAgent = await createCenterDeepAgent(context);
@@ -80,10 +91,11 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             },
             {
                 version: "v3",
+                signal: runtimeController.signal,
             },
         ) as CenterDeepAgentRunStream;
 
-        const messageCollector = collectDeepAgentMessages(input, run);
+        const messageCollector = collectDeepAgentMessages(runtimeInput, run);
         const toolCollector = collectDeepAgentToolCalls(context, run);
 
         const [
@@ -104,16 +116,25 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             output,
             streamedAssistantText,
         );
+        throwIfTurnRuntimeAborted(runtimeController.signal);
 
         await finalizeDeepAgentTurn(
-            input,
+            runtimeInput,
             assistantText,
             finalModelResult,
         );
     } catch (error) {
+        if (isTurnRuntimeAbortError(error)) {
+            return;
+        }
         await failDeepAgentTurn(
-            input,
+            runtimeInput,
             error,
+        );
+    } finally {
+        unregisterRunningTurnRuntime(
+            input.sent.turnId,
+            runtimeController,
         );
     }
 }
@@ -363,7 +384,9 @@ async function collectDeepAgentMessages(
 ): Promise<string> {
     let finalAssistantText = "";
     for await (const message of run.messages) {
+        throwIfTurnRuntimeAborted(input.runtimeSignal);
         for await (const textChunk of message.text) {
+            throwIfTurnRuntimeAborted(input.runtimeSignal);
             finalAssistantText += textChunk;
             input.events.append({
                 eventType: "model.stream.delta",
@@ -411,11 +434,13 @@ async function collectDeepAgentToolCalls(
     run: CenterDeepAgentRunStream,
 ): Promise<ProviderModelGatewayResult> {
     for await (const toolCall of run.toolCalls) {
+        throwIfTurnRuntimeAborted(context.runtimeSignal);
         await recordToolCallLifecycle(
             context,
             toolCall,
         );
     }
+    throwIfTurnRuntimeAborted(context.runtimeSignal);
 
     return {
         providerId: context.runtime.provider.providerId,
@@ -526,6 +551,11 @@ async function finalizeDeepAgentTurn(
     assistantText: string,
     modelResult: ProviderModelGatewayResult | null,
 ): Promise<void> {
+    throwIfTurnRuntimeAborted(input.runtimeSignal);
+    const currentTurn = new SessionRepository(input.database).findTurn(input.sent.turnId);
+    if (!currentTurn || currentTurn.endedAt !== null || currentTurn.status === "cancelled") {
+        return;
+    }
     const assistantMessageId = randomUUID();
     new SessionRepository(input.database).insertAssistantMessageForTurn({
         messageId: assistantMessageId,

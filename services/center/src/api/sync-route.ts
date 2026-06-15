@@ -42,6 +42,9 @@ import {
     cancelActiveConversationTurn,
 } from "../domain/session-cancel-domain.js";
 import {
+    abortRunningTurnRuntime,
+} from "../domain/turn-runtime-cancel-registry.js";
+import {
     listProviderConfigs,
     listRegisteredModelProtocolPlugins,
     readProviderModelList,
@@ -404,6 +407,12 @@ function handleRealtimeRequest(input: {
                     reason: payload.reason ?? "用户点击停止当前执行。",
                 },
             );
+            if (cancelled) {
+                abortRunningTurnRuntime(
+                    cancelled.turnId,
+                    payload.reason ?? "用户点击停止当前执行。",
+                );
+            }
             const appendedEvents = listEvents(input.database, {
                 sessionId,
                 turnId: cancelled?.turnId ?? null,
