@@ -2,6 +2,7 @@ import type {FastifyInstance} from "fastify";
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
+import type {CenterLogger} from "../logger.js";
 import type {
     CenterServiceConfig,
     MemoryQueueState,
@@ -25,6 +26,8 @@ export interface CenterApiRouteContext {
     database: CenterDatabase;
     /** events: 中心服务事件事实源。 */
     events: CenterEventStore;
+    /** logger: 中心服务文件日志。 */
+    logger: CenterLogger;
     /** realtimeClients: WebSocket 在线客户端表，只保存运行期连接。 */
     realtimeClients: Map<string, RealtimeClientConnection>;
     /** memoryQueues: 智能体记忆写入队列，按 agentId 隔离串行写入。 */

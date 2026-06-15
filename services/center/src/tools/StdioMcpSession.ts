@@ -1,5 +1,10 @@
 import {spawn} from "node:child_process";
 import type {ChildProcessWithoutNullStreams} from "node:child_process";
+import {
+    isRecord,
+    randomMcpRequestId,
+    tryParseRecord,
+} from "@zhixin/shared";
 
 import type {StdioMcpServerConfig} from "./mcp-tool-specs.js";
 
@@ -302,37 +307,3 @@ function resolveStdioExecution(serverConfig: StdioMcpServerConfig): {
     };
 }
 
-/**
- * randomMcpRequestId：为 MCP JSON-RPC 请求生成可读 ID。
- *
- * @param method MCP 方法名。
- * @returns 请求 ID。
- */
-function randomMcpRequestId(method: string): string {
-    return `${method}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
-}
-
-/**
- * tryParseRecord：尝试把 JSON 字符串解析成对象。
- *
- * @param text JSON 字符串。
- * @returns 对象；解析失败或不是对象时返回 null。
- */
-function tryParseRecord(text: string): Record<string, unknown> | null {
-    try {
-        const parsed = JSON.parse(text) as unknown;
-        return isRecord(parsed) ? parsed : null;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * isRecord：判断未知值是否为普通对象。
- *
- * @param value 待判断值。
- * @returns 是普通对象时返回 true。
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}

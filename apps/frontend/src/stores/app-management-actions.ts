@@ -10,6 +10,9 @@ import type {
     RuntimeConfigView,
     UsageFilters,
 } from "@zhixin/api-client";
+import {
+    isRecord,
+} from "@zhixin/shared";
 
 import {
     buildProviderModelRefreshDraft,
@@ -21,7 +24,6 @@ import {
     findInvalidModelContextWindowLine,
     formatModelContextWindowsForDraft,
     formatJsonText,
-    isRecord,
     normalizeOptionalText,
     parseJsonObject,
     parseEnvironmentVariables,
@@ -1153,7 +1155,19 @@ export function createManagementActions() {
                 return result.tools;
             } catch (error) {
                 this.recordManagementError("mcp", error);
-                return [];
+                return [
+                    {
+                        serverId: payload.serverId,
+                        transportType: "stdio",
+                        toolName: "",
+                        description: "",
+                        inputSchema: {
+                            type: "object",
+                            properties: {},
+                        },
+                        errorMessage: this.managementErrors.mcp || "MCP 工具读取失败。",
+                    },
+                ];
             }
         },
 

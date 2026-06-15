@@ -66,6 +66,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
         app: context.app,
         database: context.database,
         events: context.events,
+        logger: context.logger,
         realtimeClients: context.realtimeClients,
         centerDirectory: context.config.centerDirectory,
         memoryQueues: context.memoryQueues,

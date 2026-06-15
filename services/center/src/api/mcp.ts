@@ -1,6 +1,6 @@
+import {isRecord} from "@zhixin/shared";
 import {createErrorResponse, createSuccessResponse} from "../helpers.js";
 import {
-    isRecord,
     listMcpConfigs,
     saveExtensionJson,
 } from "../domain/extension-domain.js";

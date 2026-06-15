@@ -1,7 +1,9 @@
 import {randomUUID} from "node:crypto";
 
+import {AIMessage} from "@langchain/core/messages";
 import type {StructuredToolInterface} from "@langchain/core/tools";
 import type {ToolCallStream} from "@langchain/langgraph";
+import {createMiddleware} from "langchain";
 import {createDeepAgent, type DeepAgentRunStream} from "deepagents";
 
 import {SessionRepository} from "./data-access/session-repository.js";
@@ -25,7 +27,15 @@ import {
     createDeepAgentsToolExecutionContext,
     listAvailableModelToolSpecsForCenter,
     listUnifiedToolCapabilities,
+    toModelSafeToolName,
 } from "./tools/index.js";
+import {
+    buildForcedCommandToolChoice,
+    COMMAND_TOOL_INTERNAL_ID,
+    COMMAND_TOOL_MODEL_NAME,
+    hasCommandToolAvailable,
+    shouldForceCommandToolChoice,
+} from "./tools/tool-choice-policy.js";
 import type {
     DeepAgentsAgentRunInput,
     DeepAgentsToolExecutionContext,
@@ -116,11 +126,162 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
  */
 async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
     const tools = await createDeepAgentsStructuredToolMiddleware(context).buildTools();
+    context.input.events.append({
+        eventType: "tool.available.snapshot",
+        scopeType: "tool",
+        scopeId: context.input.sent.taskId,
+        sessionId: context.input.sent.sessionId,
+        turnId: context.input.sent.turnId,
+        taskId: context.input.sent.taskId,
+        status: "completed",
+        title: "可用工具快照",
+        summary: tools.length > 0
+            ? `当前轮次已注入 ${tools.length} 个工具。`
+            : "当前轮次没有可用工具。",
+        payload: {
+            toolNames: tools.map((tool) => tool.name),
+            toolCount: tools.length,
+        },
+    });
     const systemPrompt = await buildCenterDeepAgentSystemPrompt(context);
     return createDeepAgent({
         model: createLangChainChatModel(context.runtime),
         tools,
         systemPrompt,
+        middleware: [
+            createCenterToolChoiceMiddleware(
+                context,
+                context.input.userText,
+            ),
+        ],
+    });
+}
+
+/**
+ * createCenterToolChoiceMiddleware：为 Deep Agents 原生入口补齐中心服务工具选择策略。
+ *
+ * 关键逻辑：旧模型网关在明确命令意图时会强制 `builtin_command_run`；
+ * Deep Agents 原生入口也必须复用同一策略，否则模型可能把工具错误当成普通文本输出。
+ *
+ * @param context 当前轮次工具执行上下文。
+ * @param userText 用户本轮原文。
+ * @returns LangChain Agent 中间件。
+ */
+function createCenterToolChoiceMiddleware(
+    context: DeepAgentsToolExecutionContext,
+    userText: string,
+) {
+    const isCommandIntent = shouldForceCommandToolChoice(userText);
+    return createMiddleware({
+        name: "CenterToolChoiceMiddleware",
+        afterModel: async (state) => {
+            const lastMessage = state.messages.at(-1);
+            if (!AIMessage.isInstance(lastMessage)) {
+                return;
+            }
+            context.input.events.append({
+                eventType: "model.tool_calls.received",
+                scopeType: "model",
+                scopeId: context.input.sent.taskId,
+                sessionId: context.input.sent.sessionId,
+                turnId: context.input.sent.turnId,
+                taskId: context.input.sent.taskId,
+                status: "completed",
+                title: "模型工具调用结果",
+                summary: lastMessage.tool_calls && lastMessage.tool_calls.length > 0
+                    ? "模型返回了结构化工具调用。"
+                    : "模型未返回结构化工具调用。",
+                payload: {
+                    // toolCalls: 只记录工具名和参数字段，避免把长参数或敏感输出写入诊断事件。
+                    toolCalls: lastMessage.tool_calls?.map((toolCall) => {
+                        return {
+                            id: toolCall.id,
+                            name: toolCall.name,
+                            argumentKeys: Object.keys(toolCall.args ?? {}),
+                        };
+                    }) ?? [],
+                    isCommandIntent,
+                },
+            });
+        },
+        wrapToolCall: async (request, handler) => {
+            const toolCallName = request.toolCall.name;
+            const shouldRepairEmptyCommandToolName = isCommandIntent
+                && !request.tool
+                && (
+                    typeof toolCallName !== "string"
+                    || toolCallName.length === 0
+                );
+            if (!shouldRepairEmptyCommandToolName) {
+                return handler(request);
+            }
+            context.input.events.append({
+                eventType: "model.tool_call.repaired",
+                scopeType: "tool",
+                scopeId: context.input.sent.taskId,
+                sessionId: context.input.sent.sessionId,
+                turnId: context.input.sent.turnId,
+                taskId: context.input.sent.taskId,
+                status: "completed",
+                title: "工具调用修正",
+                summary: "命令意图下模型返回空工具名，已映射到命令工具。",
+                payload: {
+                    originalToolName: toolCallName,
+                    repairedToolName: COMMAND_TOOL_MODEL_NAME,
+                    toolCallId: request.toolCall.id,
+                },
+            });
+            // toolCall: 部分 OpenAI 兼容供应商在强制 tool_choice 时返回空 name；
+            // 仅命令意图且原工具名为空时修正，避免把其他未知工具误执行为命令。
+            return handler({
+                ...request,
+                toolCall: {
+                    ...request.toolCall,
+                    name: COMMAND_TOOL_MODEL_NAME,
+                },
+            });
+        },
+        wrapModelCall: async (request, handler) => {
+            const tools = request.tools.map((tool) => {
+                return {
+                    name: tool.name,
+                    sourceToolId: tool.name === COMMAND_TOOL_MODEL_NAME
+                        ? COMMAND_TOOL_INTERNAL_ID
+                        : undefined,
+                };
+            });
+            const shouldForceCommandTool = hasCommandToolAvailable(tools)
+                && isCommandIntent
+                && !request.messages.some((message) => message.getType() === "tool");
+            context.input.events.append({
+                eventType: "model.tool_choice.evaluated",
+                scopeType: "model",
+                scopeId: context.input.sent.taskId,
+                sessionId: context.input.sent.sessionId,
+                turnId: context.input.sent.turnId,
+                taskId: context.input.sent.taskId,
+                status: "completed",
+                title: "工具选择策略",
+                summary: shouldForceCommandTool
+                    ? "Deep Agents 已要求模型调用命令工具。"
+                    : "Deep Agents 未强制命令工具。",
+                payload: {
+                    toolNames: tools.map((tool) => tool.name),
+                    shouldForceCommandTool,
+                    // userTextMatched: 只记录命令意图是否命中，避免把用户原文写入工具选择诊断事件。
+                    userTextMatched: isCommandIntent,
+                },
+            });
+            if (
+                shouldForceCommandTool
+            ) {
+                return handler({
+                    ...request,
+                    toolChoice: buildForcedCommandToolChoice(),
+                });
+            }
+            return handler(request);
+        },
     });
 }
 
@@ -136,7 +297,7 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
             return capability.availability === "available"
                 && context.executionAgent.canUseToolCapability(capability.toolId);
         })
-        .map((capability) => capability.toolId);
+        .map((capability) => toModelSafeToolName(capability.toolId));
     const mcpSpecs = await listAvailableModelToolSpecsForCenter(
         context.centerDirectory,
         context.executionAgent,
@@ -165,6 +326,8 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
     return [
         "中心服务负责事实源、权限、安全、审计、消息持久化、记忆写入、用量记录和多端同步。",
         "你必须通过结构化工具执行命令、MCP 和智能体领域动作，不得在自然语言里伪造工具已执行。",
+        "用户明确要求使用命令工具、执行命令、查看本机环境、读取 Node/pnpm/npm/git 等本机版本或让你实际检查系统状态时，必须调用 `builtin_command_run`；不要只回复代码块、命令文本或说自己可以执行。",
+        "如果需要调用工具，必须返回结构化工具调用和合法 JSON 参数；不要用自然语言、Markdown 代码块或伪 JSON 代替工具调用。",
         "当长期记忆或当前会话历史明确记录了用户对助手称呼、自称方式、身份偏好或稳定事实时，相关回答必须优先遵循这些记录。",
         "如果用户询问你的名称、称呼、身份或用户自己的稳定身份，而记忆与会话历史里没有明确记录，只能如实说明当前没有可确认记录，不能自行编造通用自我介绍或名称。",
         "Deep Agents 自带 todoList、文件系统和 task 工具只作为执行内核能力，不得绕过中心服务事实源去宣称写入核心数据。",
@@ -318,6 +481,9 @@ async function recordToolCallLifecycle(
             error,
         },
     });
+    if (status !== "finished") {
+        throw new Error(error ?? `DEEPAGENTS_TOOL_PLAN_FAILED:${toolCall.name}`);
+    }
 }
 
 /**
@@ -456,6 +622,14 @@ async function failDeepAgentTurn(
         summary: errorMessage,
         payload: {
             errorMessage,
+            errorDetail: error instanceof Error
+                ? {
+                    name: error.name,
+                    message: error.message,
+                }
+                : {
+                    value: String(error),
+                },
         },
     });
     updateTurnStatus(

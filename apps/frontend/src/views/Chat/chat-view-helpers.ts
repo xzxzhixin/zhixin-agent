@@ -906,6 +906,18 @@ function shouldHideProcessGroup(sortedEvents: EventRecord[]): boolean {
     if (hasRealExecutionEvent) {
         return false;
     }
+    // 请求和计划阶段本身也是用户可见事实；如果真实执行后续没有到达，仍要保留卡片用于排查卡住原因。
+    const hasVisibleRequestOrPlanEvent = sortedEvents.some((event) => {
+        return event.eventType === "model.tool.requested"
+            || event.eventType === "model.tool.rejected"
+            || event.eventType === "model.tool.result.appended"
+            || event.eventType === "tool.plan.created"
+            || event.eventType === "tool.plan.completed"
+            || event.eventType === "tool.plan.failed";
+    });
+    if (hasVisibleRequestOrPlanEvent) {
+        return false;
+    }
     const toolNames = sortedEvents.map((event) => {
         return readEventText(
             event,

@@ -35,6 +35,7 @@ export function registerSessionRoutes(context: CenterApiRouteContext): void {
         config,
         database,
         events,
+        logger,
         realtimeClients,
         memoryQueues,
     } = context;
@@ -174,13 +175,14 @@ export function registerSessionRoutes(context: CenterApiRouteContext): void {
         });
 
     registerSessionMessageRoute({
-            app,
-            database,
-            events,
-            realtimeClients,
-            centerDirectory: config.centerDirectory,
-            memoryQueues,
-        });
+        app,
+        database,
+        events,
+        realtimeClients,
+        centerDirectory: config.centerDirectory,
+        memoryQueues,
+        logger,
+    });
 
     app.post("/api/session/pending-message/save", async (request) => {
             const body = request.body as {

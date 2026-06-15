@@ -35,12 +35,16 @@ import {
 } from "./memory-engine.js";
 import {listAvailableModelToolSpecsForCenter} from "./tools/index.js";
 import {
+    buildLangChainToolChoiceCallOptions,
+    COMMAND_TOOL_INTERNAL_ID,
+    COMMAND_TOOL_MODEL_NAME,
+    hasCommandToolAvailable,
+    type LangChainToolChoiceCallOptions,
+} from "./tools/tool-choice-policy.js";
+import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
 } from "./domain/turn-graph-domain.js";
-
-const COMMAND_TOOL_INTERNAL_ID = "builtin.command.run";
-const COMMAND_TOOL_MODEL_NAME = "builtin_command_run";
 
 /**
  * ProviderModelGatewayResult：中心服务模型网关统一返回。
@@ -142,11 +146,6 @@ interface LangChainMessageLikeRecord {
     additional_kwargs?: unknown;
     /** additionalKwargs: 少数运行时序列化后可能出现的 camelCase 附加字段。 */
     additionalKwargs?: unknown;
-}
-
-interface LangChainToolChoiceCallOptions {
-    /** tool_choice: LangChain 调用选项；明确命令场景时强制供应商返回指定工具调用。 */
-    tool_choice?: string | Record<string, unknown>;
 }
 
 interface LangChainRunnableWithTools {
@@ -423,7 +422,9 @@ async function invokeLangChainChatModel(
         ? chatModel.bindTools(tools) as LangChainRunnableWithTools
         : chatModel as LangChainRunnableWithTools;
     const callOptions = buildLangChainToolChoiceCallOptions(
-        requestPayload,
+        requestPayload.tools,
+        requestPayload.messages,
+        readUserTextFromRequest(requestPayload),
     );
     if (!useStreaming) {
         return invokeLangChainChatModelOnce(
@@ -544,72 +545,6 @@ async function invokeLangChainChatModelOnce(
         toolCall: toolCalls[0] ?? null,
         toolCalls,
     };
-}
-
-/**
- * buildLangChainToolChoiceCallOptions：按本轮用户意图构造 LangChain 工具选择选项。
- *
- * @param requestPayload 中心服务模型请求。
- * @returns LangChain 调用选项；无需强制工具时返回空对象。
- */
-function buildLangChainToolChoiceCallOptions(requestPayload: OpenAiChatRequest): LangChainToolChoiceCallOptions {
-    const commandToolAvailable = requestPayload.tools.some((tool) => {
-        return tool.sourceToolId === COMMAND_TOOL_INTERNAL_ID || tool.name === COMMAND_TOOL_MODEL_NAME;
-    });
-    if (
-        !commandToolAvailable
-        || hasToolResultMessage(requestPayload)
-        || !shouldForceCommandToolChoice(readUserTextFromRequest(requestPayload))
-    ) {
-        return {};
-    }
-    // tool_choice: 对供应商必须使用模型可见安全名，内部工具 ID 只留在中心服务权限和执行映射层。
-    return {
-        tool_choice: COMMAND_TOOL_MODEL_NAME,
-    };
-}
-
-/**
- * hasToolResultMessage：判断当前模型请求是否已经包含工具回填结果。
- *
- * @param requestPayload 中心服务模型请求。
- * @returns 已经进入工具结果回填阶段时返回 true。
- */
-function hasToolResultMessage(requestPayload: OpenAiChatRequest): boolean {
-    return requestPayload.messages.some((message) => {
-        return message.role === "tool";
-    });
-}
-
-/**
- * shouldForceCommandToolChoice：判断用户本轮是否明确要求实际命令执行。
- *
- * @param userText 用户原始输入。
- * @returns 需要强制命令工具时返回 true。
- */
-function shouldForceCommandToolChoice(userText: string): boolean {
-    const normalizedText = userText.toLowerCase();
-    return [
-        "命令工具",
-        "执行命令",
-        "运行命令",
-        "查看我环境",
-        "看一下我环境",
-        "node版本",
-        "node 版本",
-        "pnpm版本",
-        "pnpm 版本",
-        "npm版本",
-        "npm 版本",
-        "git版本",
-        "git 版本",
-        "node -v",
-        "pnpm -v",
-        "npm -v",
-        "git --version",
-    ].some((keyword) => {
-        return normalizedText.includes(keyword);
-    });
 }
 
 /**
@@ -744,9 +679,7 @@ function buildOpenAiChatPayload(
  * @returns 工具调用约束提示。
  */
 function buildToolCallingPolicyPrompt(tools: OpenAiToolSpec[]): string {
-    const commandToolAvailable = tools.some((tool) => {
-        return tool.sourceToolId === COMMAND_TOOL_INTERNAL_ID || tool.name === COMMAND_TOOL_MODEL_NAME;
-    });
+    const commandToolAvailable = hasCommandToolAvailable(tools);
     const commandPolicy = commandToolAvailable
         ? `用户明确要求使用命令工具、执行命令、查看本机环境、读取 Node/pnpm/npm/git 等本机版本或让你实际检查系统状态时，必须调用 \`${COMMAND_TOOL_MODEL_NAME}\` 结构化工具；不要只回复代码块、命令文本或说自己可以执行。`
         : "当前模型没有可用命令工具；不得声称已经执行本机命令。";

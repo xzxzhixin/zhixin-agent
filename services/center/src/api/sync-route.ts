@@ -12,6 +12,7 @@ import type {
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
+import type {CenterLogger} from "../logger.js";
 import {
     broadcastEvents,
     isSyncClientAllowed,
@@ -83,6 +84,8 @@ export interface CenterSyncRouteContext {
     database: CenterDatabase;
     /** events: 中心服务事件事实源，用于 WebSocket 发送动作复用对话执行链路。 */
     events: CenterEventStore;
+    /** logger: 中心服务文件日志，用于 WebSocket 发送动作审计。 */
+    logger: CenterLogger;
     /** realtimeClients: 当前在线同步客户端表，连接关闭时必须清理。 */
     realtimeClients: Map<string, RealtimeClientConnection>;
     /** centerDirectory: 中心目录绝对路径，用于后台轮次执行和记忆写入。 */
@@ -102,6 +105,7 @@ export function registerCenterSyncRoute(context: CenterSyncRouteContext): void {
         app,
         database,
         events,
+        logger,
         realtimeClients,
         centerDirectory,
         memoryQueues,
@@ -126,6 +130,7 @@ export function registerCenterSyncRoute(context: CenterSyncRouteContext): void {
                     socket,
                     database,
                     events,
+                    logger,
                     realtimeClients,
                     centerDirectory,
                     memoryQueues,
@@ -192,6 +197,8 @@ function handleRealtimeRequest(input: {
     database: CenterDatabase;
     /** events: 中心服务事件事实源。 */
     events: CenterEventStore;
+    /** logger: 中心服务文件日志。 */
+    logger: CenterLogger;
     /** realtimeClients: 当前在线同步客户端集合。 */
     realtimeClients: Map<string, RealtimeClientConnection>;
     /** centerDirectory: 中心目录绝对路径。 */
@@ -773,6 +780,7 @@ function buildSessionSnapshot(
 function toSessionMessageContext(input: {
     database: CenterDatabase;
     events: CenterEventStore;
+    logger: CenterLogger;
     realtimeClients: Map<string, RealtimeClientConnection>;
     centerDirectory: string;
     memoryQueues: Map<string, MemoryQueueState>;
@@ -781,6 +789,7 @@ function toSessionMessageContext(input: {
         app: null as never,
         database: input.database,
         events: input.events,
+        logger: input.logger,
         realtimeClients: input.realtimeClients,
         centerDirectory: input.centerDirectory,
         memoryQueues: input.memoryQueues,

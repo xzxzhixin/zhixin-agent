@@ -1387,3 +1387,6 @@ export {
   encodeInternalFileLink,
   INTERNAL_FILE_LINK_PROTOCOL,
 } from "./markdown.js";
+export { isRecord } from "./utils/record-utils";
+export { tryParseRecord } from "./utils/json-utils";
+export { randomMcpRequestId } from "./utils/mcp-request-utils";

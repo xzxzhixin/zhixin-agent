@@ -1,5 +1,10 @@
 import {existsSync, readFileSync} from "node:fs";
 import {join} from "node:path";
+import {
+    isRecord,
+    randomMcpRequestId,
+    tryParseRecord,
+} from "@zhixin/shared";
 
 import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
 import {StdioMcpSession} from "./StdioMcpSession.js";
@@ -689,18 +694,3 @@ function createMcpToolViewFailureRow(
     };
 }
 
-/**
- * randomMcpRequestId：为 MCP JSON-RPC 请求生成可读 ID。
- *
- * @param method MCP 方法名。
- * @returns 请求 ID。
- */
-/**
- * isRecord：判断未知值是否为普通对象。
- *
- * @param value 待判断值。
- * @returns 是普通对象时返回 true。
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}

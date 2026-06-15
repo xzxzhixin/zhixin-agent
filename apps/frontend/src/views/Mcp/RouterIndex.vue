@@ -37,6 +37,10 @@ const managementError = computed(() => appStore.managementErrors.mcp ?? "");
 const mcpToolsByRowKey = reactive<Record<string, McpToolView[]>>({});
 // loadingMcpToolRows：按全局配置文件和 Server ID 标记工具按钮 loading 状态。
 const loadingMcpToolRows = reactive<Record<string, boolean>>({});
+// mcpToolDetailDialogVisible：工具详情弹窗显隐。
+const mcpToolDetailDialogVisible = ref(false);
+// selectedMcpTool：当前选中的 MCP 工具详情；为空表示未选中任何工具。
+const selectedMcpTool = ref<McpToolView | null>(null);
 
 /**
  * openMcpConfigDialog：打开 MCP 配置弹框。
@@ -67,6 +71,27 @@ function editMcpConfigRow(config: McpConfigView): void {
  */
 function createMcpServerRowKey(config: McpConfigView): string {
   return `${config.relativePath}::${config.serverId}`;
+}
+
+/**
+ * formatMcpToolSchema：把 MCP 工具参数 schema 格式化为多行 JSON 文本。
+ *
+ * @param schema MCP 工具输入 schema。
+ * @returns 便于页面直接展示的 JSON 字符串。
+ */
+function formatMcpToolSchema(schema: Record<string, unknown>): string {
+  return JSON.stringify(schema, null, 2);
+}
+
+/**
+ * openMcpToolDetailDialog：打开当前工具详情弹窗。
+ *
+ * @param tool 当前点击的 MCP 工具。
+ * @returns 没有返回值。
+ */
+function openMcpToolDetailDialog(tool: McpToolView): void {
+  selectedMcpTool.value = tool;
+  mcpToolDetailDialogVisible.value = true;
 }
 
 /**
@@ -251,6 +276,15 @@ onMounted(() => {
       </el-button>
     </header>
     <section class="page-scroll">
+      <el-alert
+          v-if="managementError"
+          :closable="false"
+          class="management-error"
+          title="MCP 管理页错误"
+          type="error"
+      >
+        {{ managementError }}
+      </el-alert>
       <ManagementDialogShell
           v-model="mcpDialogVisible"
           dialog-class="mcp-config-dialog"
@@ -281,6 +315,37 @@ onMounted(() => {
           </el-button>
         </template>
       </ManagementDialogShell>
+      <el-dialog
+          v-model="mcpToolDetailDialogVisible"
+          title="工具详情"
+          width="720px"
+      >
+        <template v-if="selectedMcpTool">
+          <div class="mcp-tool-detail">
+            <p class="mcp-tool-detail__name">
+              {{ selectedMcpTool.toolName || "未命名工具" }}
+            </p>
+            <p class="mcp-tool-detail__meta">
+              {{ selectedMcpTool.transportType }} · {{ selectedMcpTool.serverId }}
+            </p>
+            <p
+                v-if="selectedMcpTool.errorMessage"
+                class="mcp-tool-detail__error"
+            >
+              {{ selectedMcpTool.errorMessage }}
+            </p>
+            <template v-else>
+              <p
+                  v-if="selectedMcpTool.description"
+                  class="mcp-tool-detail__description"
+              >
+                {{ selectedMcpTool.description }}
+              </p>
+              <pre class="mcp-tool-detail__schema">{{ formatMcpToolSchema(selectedMcpTool.inputSchema) }}</pre>
+            </template>
+          </div>
+        </template>
+      </el-dialog>
       <el-table
           :data="appStore.globalMcpConfigs"
           class="management-table"
@@ -320,14 +385,30 @@ onMounted(() => {
                 v-if="mcpToolsByRowKey[createMcpServerRowKey(config)]"
                 class="mcp-tool-list"
             >
-              <el-tag
-                  v-for="tool in mcpToolsByRowKey[createMcpServerRowKey(config)]"
-                  :key="`${tool.serverId}-${tool.toolName || tool.errorMessage}`"
-                  :type="tool.errorMessage ? 'danger' : 'success'"
-                  effect="plain"
+              <div class="mcp-tool-list__content">
+                <div
+                    v-for="tool in mcpToolsByRowKey[createMcpServerRowKey(config)]"
+                    :key="`${tool.serverId}-${tool.toolName || tool.errorMessage}`"
+                    class="mcp-tool-list__item"
+                >
+                  <el-button
+                      v-if="!tool.errorMessage"
+                      class="mcp-tool-list__button"
+                      link
+                      type="primary"
+                      @click="openMcpToolDetailDialog(tool)"
+                  >
+                    {{ tool.toolName || "未命名工具" }}
+                  </el-button>
+                </div>
+              </div>
+              <p
+                  v-for="tool in mcpToolsByRowKey[createMcpServerRowKey(config)].filter((item) => item.errorMessage)"
+                  :key="`${tool.serverId}-${tool.errorMessage}`"
+                  class="mcp-tool-list__error"
               >
-                {{ tool.transportType }} · {{ tool.serverId }}{{ tool.toolName ? ` · ${tool.toolName}` : "" }}
-              </el-tag>
+                {{ tool.errorMessage }}
+              </p>
               <small v-if="mcpToolsByRowKey[createMcpServerRowKey(config)].length === 0">
                 暂未发现工具；请确认 MCP Server 可连接后重试。
               </small>
@@ -361,14 +442,90 @@ onMounted(() => {
 <style scoped>
 .mcp-tool-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
+  align-items: stretch;
   margin-top: 8px;
+}
+
+.mcp-tool-list__content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-start;
+  max-height: 200px;
+  overflow: auto;
 }
 
 .mcp-tool-actions {
   display: flex;
   align-items: center;
+}
+
+.mcp-tool-list__item {
+  display: flex;
+  align-items: center;
+}
+
+.mcp-tool-list__button {
+  padding: 0;
+  font-size: 13px;
+}
+
+.mcp-tool-list__error {
+  margin: 0;
+  color: var(--el-color-danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.management-error {
+  margin-bottom: 16px;
+}
+
+.mcp-tool-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-tool-detail__name,
+.mcp-tool-detail__meta,
+.mcp-tool-detail__description,
+.mcp-tool-detail__error {
+  margin: 0;
+}
+
+.mcp-tool-detail__name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.mcp-tool-detail__meta {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.mcp-tool-detail__description,
+.mcp-tool-detail__error {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mcp-tool-detail__error {
+  color: var(--el-color-danger);
+}
+
+.mcp-tool-detail__schema {
+  margin: 0;
+  padding: 12px;
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

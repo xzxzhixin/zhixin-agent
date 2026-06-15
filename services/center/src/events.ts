@@ -4,6 +4,7 @@ import type {EventRecord} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import {createDataAccess} from "./data-access/index.js";
+import type {CenterLogger} from "./logger.js";
 import {centerConsoleLogger} from "./logger.js";
 import {formatCenterLocalDateTime} from "./time.js";
 
@@ -12,6 +13,11 @@ export class CenterEventStore {
      * database: 中心服务数据库封装，用于把事件追加到 SQLite。
      */
     private readonly database: CenterDatabase;
+
+    /**
+     * logger: 中心服务文件日志；存在时把关键事件镜像到固化日志。
+     */
+    private readonly logger: CenterLogger | null;
 
     /**
      * sequenceByTurn: 内存中的轮次序号缓存，来源于当前进程运行期。
@@ -31,9 +37,11 @@ export class CenterEventStore {
      */
     constructor(
         database: CenterDatabase,
+        logger: CenterLogger | null = null,
         onAppended: ((event: EventRecord) => void) | null = null,
     ) {
         this.database = database;
+        this.logger = logger;
         this.onAppended = onAppended;
     }
 
@@ -112,6 +120,10 @@ export class CenterEventStore {
             traceId,
         });
         writeCenterEventToConsole(event);
+        void writeCenterEventToFile(
+            this.logger,
+            event,
+        );
         this.onAppended?.(event);
         return event;
     }
@@ -127,6 +139,7 @@ export class CenterEventStore {
     ): CenterEventStore {
         return new CenterEventStore(
             this.database,
+            this.logger,
             onAppended,
         );
     }
@@ -144,6 +157,42 @@ export function createBroadcastingEventStore(
     onAppended: (event: EventRecord) => void,
 ): CenterEventStore {
     return base.withAppendListener(onAppended);
+}
+
+/**
+ * writeCenterEventToFile：把中心服务事件镜像到固化文件日志。
+ *
+ * @param logger 中心服务文件日志；为空时跳过。
+ * @param event 已落库中心服务事件。
+ * @returns 没有返回值。
+ */
+async function writeCenterEventToFile(
+    logger: CenterLogger | null,
+    event: EventRecord,
+): Promise<void> {
+    if (!logger) {
+        return;
+    }
+    await logger.info("center.event", {
+        eventType: event.eventType,
+        status: event.status,
+        scopeType: event.scopeType,
+        scopeId: event.scopeId,
+        sessionId: event.sessionId,
+        turnId: event.turnId,
+        taskId: event.taskId,
+        stepId: event.stepId,
+        agentId: event.agentId,
+        projectId: event.projectId,
+        clientId: event.clientId,
+        sequence: event.sequence,
+        title: event.title,
+        summary: event.summary,
+        payload: event.payload,
+        errorCode: event.errorCode,
+        traceId: event.traceId,
+        occurredAt: event.occurredAt,
+    });
 }
 
 /**

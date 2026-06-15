@@ -16,6 +16,7 @@ import {
     createMessageTurnAndTask,
     findSession,
     listEvents,
+    updateTurnStatus,
 } from "../domain/session-domain.js";
 import type {
     CenterDatabase,
@@ -46,6 +47,9 @@ export interface SessionMessageRouteContext {
     centerDirectory: string;
     /** memoryQueues: 智能体记忆单写队列。 */
     memoryQueues: Map<string, MemoryQueueState>;
+
+    /** logger: 中心服务文件日志，用于补充发送入口审计。 */
+    logger: import("../logger.js").CenterLogger;
 }
 
 /**
@@ -75,6 +79,7 @@ export function sendSessionMessageThroughCenter(
         realtimeClients,
         centerDirectory,
         memoryQueues,
+        logger,
     } = context;
     const session = findSession(database, body.sessionId ?? "");
 
@@ -92,6 +97,14 @@ export function sendSessionMessageThroughCenter(
         session,
         body.contentMarkdown,
     );
+    void logger.info("center.message.user_input", {
+        sessionId: session.sessionId,
+        projectId: session.projectId,
+        turnId: sent.turnId,
+        taskId: sent.taskId,
+        contentMarkdown: body.contentMarkdown,
+        contentPreview: truncateConsoleText(body.contentMarkdown),
+    });
     appendSessionTouchedEvent(
         database,
         events,
@@ -256,6 +269,14 @@ async function runCreatedTurnInBackground(
             "center.turn_background.failed",
         );
         try {
+            // updateTurnStatus: 后台执行抛错时必须同时更新 turn/task 终态，不能只留失败事件导致前端一直判定为 running。
+            updateTurnStatus(
+                database,
+                realtimeEvents,
+                sent.turnId,
+                "failed",
+                sent.taskId,
+            );
             realtimeEvents.append({
                 eventType: "message.turn.failed",
                 scopeType: "turn",

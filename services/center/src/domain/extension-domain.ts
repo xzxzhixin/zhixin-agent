@@ -1,11 +1,13 @@
 import {randomUUID} from "node:crypto";
 import {appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync} from "node:fs";
 import {dirname, join} from "node:path";
+import {isRecord} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
 import {writeJsonFile} from "../helpers.js";
+import {collectOneSkill} from "./workflow-domain.js";
 
 export function installPlugin(
     database: CenterDatabase,
@@ -316,15 +318,14 @@ export function readMcpConfigFile(
 }
 
 /**
- * isRecord：判断未知值是否为普通对象。
+ * saveSkillContent：保存 skill Markdown 内容。
  *
- * @param value 待判断值。
- * @returns 是普通对象时返回 true。
+ * @param centerDirectory 中心目录。
+ * @param skillName skill 名称。
+ * @param content skill Markdown 内容。
+ * @param projectId 项目 ID；为空时表示全局 skill。
+ * @returns 保存后的相对路径。
  */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function saveSkillContent(
     centerDirectory: string,
     skillName: string,

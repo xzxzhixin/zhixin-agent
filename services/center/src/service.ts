@@ -125,11 +125,14 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
     // database: SQLite 连接封装。
     const database = new CenterDatabase(config);
     // events: 事件序号封装。
-    const events = new CenterEventStore(database);
-    // startupLock: 同目录多实例保护。
-    const startupLock = new CenterStartupLock(config.centerDirectory);
     // logger: 追加式文件日志。
     const logger = new CenterLogger(config.centerDirectory);
+    const events = new CenterEventStore(
+        database,
+        logger,
+    );
+    // startupLock: 同目录多实例保护。
+    const startupLock = new CenterStartupLock(config.centerDirectory);
     // realtimeClients: 运行期 WebSocket 客户端集合，事件事实仍以 SQLite 为准。
     const realtimeClients = new Map<string, RealtimeClientConnection>();
     // memoryQueues: 按智能体隔离的记忆单写队列状态，避免同一 Markdown 文件竞争写入。
@@ -314,6 +317,7 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
         config,
         database,
         events,
+        logger,
         realtimeClients,
         memoryQueues,
         subAgents,

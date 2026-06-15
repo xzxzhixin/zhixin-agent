@@ -1,5 +1,6 @@
 import {
     createWriteStream,
+    readdirSync,
     mkdirSync,
     statSync,
 } from "node:fs";
@@ -44,6 +45,23 @@ interface CenterLogPayload {
 interface CenterLogLine {
     /** payload: 结构化日志载荷。 */
     payload?: CenterLogPayload;
+}
+
+/**
+ * CenterFileLogPayload：中心服务文件日志结构。
+ *
+ * 来源：CenterLogger 调用点。
+ * 含义：识别是否属于不应固化到文件的流式中间态。
+ * 格式：结构化日志 payload 对象。
+ * 默认值：无。
+ * 约束：只做日志过滤判断，不作为业务事实源。
+ */
+interface CenterFileLogPayload {
+    /** eventType: 固定日志事件名或中心事件类型。 */
+    eventType?: unknown;
+
+    /** status: 当前日志对应状态；running 常见于流式过程。 */
+    status?: unknown;
 }
 
 /**
@@ -150,6 +168,9 @@ export class CenterLogger {
         event: string,
         payload: Record<string, unknown>,
     ): Promise<void> {
+        if (shouldSkipFileLog(event, payload)) {
+            return;
+        }
         // pinoLogger: 统一使用第三方日志包写 JSON 行，避免手写 JSON 和本机时间格式分叉。
         this.logger[level](
             {
@@ -193,7 +214,7 @@ class RotatingCenterLogStream extends Writable {
         mkdirSync(this.logsDirectory, {
             recursive: true,
         });
-        this.currentFilePath = this.createLogFilePath();
+        this.currentFilePath = this.resolveInitialLogFilePath();
         this.currentSizeBytes = this.readExistingFileSize(this.currentFilePath);
         this.fileStream = this.openFileStream(this.currentFilePath);
     }
@@ -259,6 +280,56 @@ class RotatingCenterLogStream extends Writable {
             this.logsDirectory,
             `${timestamp}${sequenceSuffix}.log`,
         );
+    }
+
+    /**
+     * resolveInitialLogFilePath：启动时优先复用当天最后一个未满 1MB 的日志文件。
+     *
+     * 关键逻辑：同一天内只要最后一个日志文件未达到 1MB，就继续追加；跨天后即使旧文件未满也必须切到新文件。
+     *
+     * @returns 当前进程启动后首个写入的日志文件绝对路径。
+     */
+    private resolveInitialLogFilePath(): string {
+        const currentDayPrefix = formatCenterLogFileDayPrefix();
+        const sameDayLogFiles = readdirSync(this.logsDirectory)
+            .filter((fileName) => {
+                return fileName.startsWith(currentDayPrefix) && fileName.endsWith(".log");
+            })
+            .sort();
+        const lastSameDayLogFile = sameDayLogFiles.at(-1);
+        if (!lastSameDayLogFile) {
+            return this.createLogFilePath();
+        }
+        const lastSameDayLogFilePath = join(
+            this.logsDirectory,
+            lastSameDayLogFile,
+        );
+        const lastSameDayLogFileSize = this.readExistingFileSize(lastSameDayLogFilePath);
+        if (lastSameDayLogFileSize >= CENTER_LOG_MAX_BYTES) {
+            return this.createLogFilePath();
+        }
+        this.syncFileSequenceFromExistingFileName(lastSameDayLogFile);
+        return lastSameDayLogFilePath;
+    }
+
+    /**
+     * syncFileSequenceFromExistingFileName：从已存在日志文件名恢复当前时间戳和序号。
+     *
+     * @param fileName 已存在的日志文件名。
+     * @returns 没有返回值。
+     */
+    private syncFileSequenceFromExistingFileName(fileName: string): void {
+        const matched = /^(.+?)(?:-(\d+))?\.log$/u.exec(fileName);
+        if (!matched || !matched[1]) {
+            return;
+        }
+        this.lastFileTimestamp = matched[1];
+        this.fileNameSequence = matched[2]
+            ? Number.parseInt(
+                matched[2],
+                10,
+            )
+            : 0;
     }
 
     /**
@@ -378,6 +449,29 @@ function shouldSkipConsoleLog(line: CenterLogLine): boolean {
 }
 
 /**
+ * shouldSkipFileLog：判断文件日志是否跳过流式中间态。
+ *
+ * @param event 固定日志事件名。
+ * @param payload 当前日志载荷。
+ * @returns true 表示不写入固化文件日志。
+ */
+function shouldSkipFileLog(event: string, payload: Record<string, unknown>): boolean {
+    const filePayload = payload as CenterFileLogPayload;
+    const eventType = typeof filePayload.eventType === "string"
+        ? filePayload.eventType
+        : event;
+    if (eventType === "model.stream.delta" || eventType === "thinking.delta" || eventType === "tool.command.output") {
+        return true;
+    }
+    return filePayload.status === "running" && (
+        eventType.startsWith("model.stream.")
+        || eventType.startsWith("thinking.")
+        || eventType.endsWith(".delta")
+        || eventType.endsWith(".output")
+    );
+}
+
+/**
  * formatCenterLogFileTimestamp：格式化日志文件名时间。
  *
  * @returns center_YYYY_MM_DD_HH_mm_ss 格式文件名前缀。
@@ -385,4 +479,16 @@ function shouldSkipConsoleLog(line: CenterLogLine): boolean {
 function formatCenterLogFileTimestamp(): string {
     // replace：文件名按需求统一使用下划线分隔日期、时间和前缀，避免空格与冒号造成跨平台命名差异。
     return `center_${formatCenterLocalDateTime().replace(/[- :]/gu, "_")}`;
+}
+
+/**
+ * formatCenterLogFileDayPrefix：格式化当天日志文件名前缀。
+ *
+ * @returns center_YYYY_MM_DD 前缀，用于跨天切换日志文件。
+ */
+function formatCenterLogFileDayPrefix(): string {
+    return formatCenterLogFileTimestamp().slice(
+        0,
+        "center_YYYY_MM_DD".length,
+    );
 }

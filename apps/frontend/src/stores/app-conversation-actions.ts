@@ -39,6 +39,21 @@ interface TaskUpdatedPayload {
     status?: string;
 }
 
+/**
+ * isTerminalExecutionStatus：判断轮次或任务是否进入终态。
+ *
+ * 关键逻辑：前端需要把 completed、failed、cancelled 都视为当前轮次已结束，
+ * 否则失败或取消后不会刷新快照，UI 会残留本地 running 状态。
+ *
+ * @param status 中心服务明确返回的状态字段。
+ * @returns 命中终态时返回 true。
+ */
+function isTerminalExecutionStatus(status: string | undefined): boolean {
+    return status === "completed"
+        || status === "failed"
+        || status === "cancelled";
+}
+
 // RUNNING_TURN_RECOVERY_INTERVAL_MS：运行中轮次快照恢复间隔，保持轻量轮询且能及时刷新最终消息。
 const RUNNING_TURN_RECOVERY_INTERVAL_MS = 1500;
 // RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS：连续约 10 分钟无事件、任务或步骤活动时，停止当前页面本地观察并输出诊断日志。
@@ -53,11 +68,11 @@ const RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS = 172800;
  * 前端必须读取明确的 payload.status，避免数据库已完成但 UI 仍停留在执行中的状态。
  *
  * @param payload 任务更新事件载荷。
- * @returns 为 completed 时返回 true。
+ * @returns 为明确终态时返回 true。
  */
 function isCompletedTaskUpdate(payload: unknown): payload is TaskUpdatedPayload {
     const taskUpdate = payload as TaskUpdatedPayload;
-    return taskUpdate.status === "completed";
+    return isTerminalExecutionStatus(taskUpdate.status);
 }
 
 /**
@@ -67,12 +82,12 @@ function isCompletedTaskUpdate(payload: unknown): payload is TaskUpdatedPayload 
  * 兼容这两个固定字段可以避免轮次已完成但前端仍停在执行中。
  *
  * @param event 中心服务实时事件。
- * @returns 任一明确状态为 completed 时返回 true。
+ * @returns 任一明确状态为终态时返回 true。
  */
 function isCompletedEvent(event: EventRecord): boolean {
     const payload = event.payload as {status?: string};
-    return event.status === "completed"
-        || payload.status === "completed";
+    return isTerminalExecutionStatus(event.status)
+        || isTerminalExecutionStatus(payload.status);
 }
 
 /**
@@ -566,39 +581,55 @@ export function createConversationActions() {
 
             // now: 只作为浏览器首包占位时间；随后 loadActiveSessionDetail 会用中心服务事实覆盖。
             const now = new Date().toISOString();
-            if (!this.sessionDetail.messages.some((message) => message.messageId === sent.messageId)) {
-                this.sessionDetail.messages.push({
-                    messageId: sent.messageId,
-                    sessionId,
-                    turnId: sent.turnId,
-                    role: "user",
-                    contentMarkdown,
-                    createdAt: now,
-                });
-            }
-            if (!this.sessionDetail.turns.some((turn) => turn.turnId === sent.turnId)) {
-                this.sessionDetail.turns.push({
-                    turnId: sent.turnId,
-                    sessionId,
-                    turnNumber: this.sessionDetail.turns.length + 1,
-                    userMessageId: sent.messageId,
-                    status: "running",
-                    startedAt: now,
-                    endedAt: null,
-                    durationMs: null,
-                });
-            }
-            if (!this.sessionDetail.tasks.some((task) => task.taskId === sent.taskId)) {
-                this.sessionDetail.tasks.push({
-                    taskId: sent.taskId,
-                    turnId: sent.turnId,
-                    sessionId,
-                    status: "running",
-                    title: "正在生成回复",
-                    createdAt: now,
-                    updatedAt: now,
-                });
-            }
+            const nextMessages = this.sessionDetail.messages.some((message) => message.messageId === sent.messageId)
+                ? this.sessionDetail.messages
+                : [
+                    ...this.sessionDetail.messages,
+                    {
+                        messageId: sent.messageId,
+                        sessionId,
+                        turnId: sent.turnId,
+                        role: "user",
+                        contentMarkdown,
+                        createdAt: now,
+                    },
+                ];
+            const nextTurns = this.sessionDetail.turns.some((turn) => turn.turnId === sent.turnId)
+                ? this.sessionDetail.turns
+                : [
+                    ...this.sessionDetail.turns,
+                    {
+                        turnId: sent.turnId,
+                        sessionId,
+                        turnNumber: this.sessionDetail.turns.length + 1,
+                        userMessageId: sent.messageId,
+                        status: "running",
+                        startedAt: now,
+                        endedAt: null,
+                        durationMs: null,
+                    },
+                ];
+            const nextTasks = this.sessionDetail.tasks.some((task) => task.taskId === sent.taskId)
+                ? this.sessionDetail.tasks
+                : [
+                    ...this.sessionDetail.tasks,
+                    {
+                        taskId: sent.taskId,
+                        turnId: sent.turnId,
+                        sessionId,
+                        status: "running",
+                        title: "正在生成回复",
+                        createdAt: now,
+                        updatedAt: now,
+                    },
+                ];
+            // sessionDetail: 用新对象和新数组替换，确保发送端在快照返回前也能立即刷新消息列表和运行态区域。
+            this.sessionDetail = {
+                ...this.sessionDetail,
+                messages: nextMessages,
+                turns: nextTurns,
+                tasks: nextTasks,
+            };
             // 过程事件只能来自中心服务 sequence 事实源；浏览器不再插入负 sequence 占位，避免命令开始、输出和完成顺序被本地假事件打乱。
         },
 
