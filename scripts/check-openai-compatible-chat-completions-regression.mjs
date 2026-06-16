@@ -46,21 +46,53 @@ function assertIncludes(
 
 // modelGatewayRuntime: 中心服务供应商模型调用网关。
 const modelGatewayRuntime = readText("services/center/src/model-gateway-runtime.ts");
+// compatibleChatModel: OpenAI 兼容供应商专用 Chat Completions 模型包装。
+const compatibleChatModel = readText("services/center/src/OpenAiCompatibleChatCompletionsModel.ts");
 
 assertIncludes(
     modelGatewayRuntime,
-    "ChatOpenAICompletions",
+    "OpenAiCompatibleChatCompletionsModel",
     "OpenAI 兼容供应商必须使用 ChatOpenAICompletions，避免 ChatOpenAI 因 gpt-5 系列模型名自动切换 Responses API。",
 );
 assertIncludes(
     modelGatewayRuntime,
-    "new ChatOpenAICompletions",
+    "new OpenAiCompatibleChatCompletionsModel",
     "模型网关必须实例化强制 Chat Completions 的 LangChain 模型。",
 );
 assertIncludes(
     modelGatewayRuntime,
     "普通 ChatOpenAI 会因 gpt-5 系列模型名自动切到 Responses API",
     "模型网关必须用中文注释说明不能继续依赖 ChatOpenAI 自动路由。",
+);
+assertIncludes(
+    compatibleChatModel,
+    "extends ChatOpenAICompletions",
+    "OpenAI 兼容供应商模型包装必须继承 ChatOpenAICompletions。",
+);
+assertIncludes(
+    compatibleChatModel,
+    "lastToolCallNames",
+    "OpenAI 兼容供应商流式工具调用必须缓存同一工具调用的非空名称。",
+);
+assertIncludes(
+    compatibleChatModel,
+    "rawResponse.id",
+    "OpenAI 兼容供应商流式工具调用缓存键必须包含当前响应 ID，避免跨轮次串用同一 index。",
+);
+assertIncludes(
+    compatibleChatModel,
+    "functionDelta.name.length === 0",
+    "OpenAI 兼容供应商流式工具调用必须识别后续空工具名片段。",
+);
+assertIncludes(
+    compatibleChatModel,
+    "name: previousToolCallName",
+    "OpenAI 兼容供应商流式工具调用必须避免后续空名称覆盖首段真实工具名。",
+);
+assertIncludes(
+    compatibleChatModel,
+    "return null",
+    "OpenAI 兼容供应商流式工具调用缺少 index 和 id 时不能猜测补齐工具名。",
 );
 
 console.log("OpenAI 兼容供应商 Chat Completions 路径静态回归检查通过。");

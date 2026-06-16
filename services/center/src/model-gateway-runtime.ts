@@ -10,10 +10,7 @@ import {
     ToolMessage,
     type BaseMessage,
 } from "@langchain/core/messages";
-import {
-    ChatOpenAI,
-    ChatOpenAICompletions,
-} from "@langchain/openai";
+import {ChatOpenAI} from "@langchain/openai";
 import type {ConversationMessage} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
@@ -40,6 +37,7 @@ import {listAvailableModelToolSpecsForCenter} from "./StructuredTool/index.js";
 import {
     COMMAND_TOOL_MODEL_NAME,
 } from "./StructuredTool/tool-choice-policy.js";
+import {OpenAiCompatibleChatCompletionsModel} from "./OpenAiCompatibleChatCompletionsModel.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
@@ -558,7 +556,7 @@ export function createLangChainChatModel(runtime: ResolvedProviderModelRuntime):
             model,
         });
     }
-    return new ChatOpenAICompletions({
+    return new OpenAiCompatibleChatCompletionsModel({
         apiKey,
         model,
         // OpenAI 兼容供应商必须走 Chat Completions；普通 ChatOpenAI 会因 gpt-5 系列模型名自动切到 Responses API，
