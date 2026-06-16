@@ -43,6 +43,12 @@ const commands = [
   [
     "node",
     [
+      "scripts/check-openai-compatible-chat-completions-regression.mjs",
+    ],
+  ],
+  [
+    "node",
+    [
       "scripts/check-center-data-access-layer.mjs",
     ],
   ],

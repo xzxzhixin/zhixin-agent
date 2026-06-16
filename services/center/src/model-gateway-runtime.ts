@@ -10,7 +10,10 @@ import {
     ToolMessage,
     type BaseMessage,
 } from "@langchain/core/messages";
-import {ChatOpenAI} from "@langchain/openai";
+import {
+    ChatOpenAI,
+    ChatOpenAICompletions,
+} from "@langchain/openai";
 import type {ConversationMessage} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
@@ -555,9 +558,11 @@ export function createLangChainChatModel(runtime: ResolvedProviderModelRuntime):
             model,
         });
     }
-    return new ChatOpenAI({
+    return new ChatOpenAICompletions({
         apiKey,
         model,
+        // OpenAI 兼容供应商必须走 Chat Completions；普通 ChatOpenAI 会因 gpt-5 系列模型名自动切到 Responses API，
+        // 兼容网关的 Responses 流式工具块可能被解析成空工具名，导致工具闭环失败。
         configuration: {
             baseURL: normalizeOpenAiBaseUrl(provider.baseUrl),
         },
