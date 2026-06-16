@@ -168,8 +168,9 @@ assert(
     /model\.tool_call\.name_missing/u.test(toolChoiceMiddlewareSource)
     && /MODEL_TOOL_NAME_MISSING/u.test(toolChoiceMiddlewareSource)
     && /lastModelMessage/u.test(toolChoiceMiddlewareSource)
+    && /rawModelMessage/u.test(toolChoiceMiddlewareSource)
     && /buildModelMessageDiagnostics/u.test(toolChoiceMiddlewareSource),
-    "CenterToolChoiceMiddleware.ts 必须把模型空工具名作为协议错误记录并带上最后模型输出诊断。",
+    "CenterToolChoiceMiddleware.ts 必须把模型空工具名作为协议错误记录，并带上最后模型输出诊断和原始模型返回摘要。",
 );
 assertNotContains(
     mcpToolWrapperSource,

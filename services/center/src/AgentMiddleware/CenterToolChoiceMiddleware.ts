@@ -10,6 +10,19 @@ import {
 interface ModelMessageDiagnostics {
     /** contentText：模型自然语言正文或非文本内容摘要。 */
     contentText: string;
+    /** rawModelMessage：LangChain AIMessage 原始诊断摘要，用于定位供应商响应到工具调用之间的转换丢失。 */
+    rawModelMessage: {
+        /** content：AIMessage 原始 content，可能包含供应商透传的工具调用块。 */
+        content: unknown;
+        /** toolCalls：AIMessage 原始 tool_calls 字段，保留 name、args 等解析结果。 */
+        toolCalls: unknown;
+        /** invalidToolCalls：AIMessage 原始 invalid_tool_calls 字段。 */
+        invalidToolCalls: unknown;
+        /** additionalKwargs：AIMessage 原始 additional_kwargs，通常包含供应商原始工具调用。 */
+        additionalKwargs: unknown;
+        /** responseMetadata：AIMessage 原始 response_metadata，通常包含供应商响应元数据。 */
+        responseMetadata: unknown;
+    };
     /** toolCalls：LangChain 解析出的结构化工具调用摘要。 */
     toolCalls: Array<{
         /** id：工具调用 ID。 */
@@ -161,6 +174,18 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
 function buildModelMessageDiagnostics(message: AIMessage): ModelMessageDiagnostics {
     return {
         contentText: normalizeModelMessageContent(message.content),
+        rawModelMessage: {
+            // content: 原始内容可证明供应商是否把工具调用放进 content 块，而不是标准 tool_calls。
+            content: normalizeDiagnosticValue(message.content),
+            // toolCalls: 原始 LangChain 结构化工具调用，用于和简化摘要互相校验。
+            toolCalls: normalizeDiagnosticValue(message.tool_calls),
+            // invalidToolCalls: 解析失败列表用于区分“空工具名”和“参数解析失败”。
+            invalidToolCalls: normalizeDiagnosticValue(message.invalid_tool_calls),
+            // additionalKwargs: 供应商原始透传字段，排查是否在 LangChain 转换前已经丢失 name。
+            additionalKwargs: normalizeDiagnosticValue(message.additional_kwargs),
+            // responseMetadata: 供应商响应元数据，排查接口模式、模型名和响应 ID。
+            responseMetadata: normalizeDiagnosticValue(message.response_metadata),
+        },
         toolCalls: message.tool_calls?.map((toolCall) => {
             return {
                 id: toolCall.id,
@@ -193,10 +218,98 @@ function normalizeModelMessageContent(content: AIMessage["content"]): string {
             4000,
         );
     }
-    return JSON.stringify(content).slice(
+    return stringifyDiagnosticValue(content).slice(
         0,
         4000,
     );
+}
+
+/**
+ * normalizeDiagnosticValue：把模型原始返回压缩成可写入日志的 JSON 诊断值。
+ *
+ * @param value 模型消息中的原始字段。
+ * @returns 可 JSON 序列化的字段摘要；过长内容会被截断。
+ */
+function normalizeDiagnosticValue(value: unknown): unknown {
+    const serializedValue = tryStringifyDiagnosticValue(value);
+    if (!serializedValue.ok) {
+        return serializedValue.fallback;
+    }
+    if (serializedValue.value.length <= 4000) {
+        return value;
+    }
+    return {
+        // truncatedJson: 原始字段过长时只保留前 4000 字符，避免诊断日志超过单文件预算。
+        truncatedJson: serializedValue.value.slice(
+            0,
+            4000,
+        ),
+        // originalLength: 原始 JSON 长度用于判断是否需要进一步临时扩展诊断。
+        originalLength: serializedValue.value.length,
+    };
+}
+
+/**
+ * stringifyDiagnosticValue：安全序列化模型诊断字段。
+ *
+ * @param value 模型消息中的原始字段。
+ * @returns JSON 字符串；不可序列化时返回错误摘要字符串。
+ */
+function stringifyDiagnosticValue(value: unknown): string {
+    const serializedValue = tryStringifyDiagnosticValue(value);
+    if (serializedValue.ok) {
+        return serializedValue.value;
+    }
+    return JSON.stringify(serializedValue.fallback);
+}
+
+/**
+ * tryStringifyDiagnosticValue：尝试序列化模型诊断字段。
+ *
+ * @param value 模型消息中的原始字段。
+ * @returns 序列化结果；失败时返回可落盘的错误摘要对象。
+ */
+function tryStringifyDiagnosticValue(value: unknown): {
+    /** ok：是否成功序列化原始字段。 */
+    ok: true;
+    /** value：成功序列化后的 JSON 字符串。 */
+    value: string;
+} | {
+    /** ok：是否无法直接序列化原始字段。 */
+    ok: false;
+    /** fallback：可写入日志的失败摘要。 */
+    fallback: {
+        /** unserializableType：原始字段类型。 */
+        unserializableType: string;
+        /** errorMessage：序列化失败原因。 */
+        errorMessage: string;
+    };
+} {
+    try {
+        const serializedValue = JSON.stringify(value);
+        if (typeof serializedValue === "string") {
+            return {
+                ok: true,
+                value: serializedValue,
+            };
+        }
+        return {
+            ok: true,
+            value: String(serializedValue),
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            fallback: {
+                // unserializableType: 原始字段类型，用于定位循环引用、BigInt 等无法直接落盘的值。
+                unserializableType: typeof value,
+                // errorMessage: 序列化失败原因，只记录错误文本，不回填原始对象。
+                errorMessage: error instanceof Error
+                    ? error.message
+                    : String(error),
+            },
+        };
+    }
 }
 
 /**
