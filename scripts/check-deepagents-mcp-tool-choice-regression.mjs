@@ -199,10 +199,10 @@ assertNotContains(
     "deepagents-tool-middleware.ts 只能做 middleware 装配，不得承载 MCP client、getTools、参数补全或结果规范化细节。",
 );
 assert(
-    /MultiServerMCPClient/u.test(mcpToolProviderSource)
+    /createMcpAdapterClient/u.test(mcpToolProviderSource)
     && /getTools\(\)/u.test(mcpToolProviderSource)
     && /McpToolWrapper/u.test(mcpToolProviderSource),
-    "McpToolProvider.ts 必须使用官方 MultiServerMCPClient.getTools() 并返回中心服务包装后的 MCP tools。",
+    "McpToolProvider.ts 必须通过官方 MCP adapter client getTools() 并返回中心服务包装后的 MCP tools。",
 );
 assert(
     /class McpToolWrapper/u.test(mcpToolWrapperSource)

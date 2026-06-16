@@ -21,11 +21,8 @@ import {
     DisbandAgentTeamStructuredTool,
 } from "./DisbandAgentTeamStructuredTool.js";
 import {
-    createMcpAdapterClient,
-} from "./mcp-adapter-config.js";
-import {
-    wrapMcpAdapterToolsForCenter,
-} from "./McpAdapterStructuredTool.js";
+    buildMcpToolsForDeepAgents,
+} from "./McpToolProvider.js";
 import {
     RemoveAgentTeamMemberStructuredTool,
 } from "./RemoveAgentTeamMemberStructuredTool.js";
@@ -48,18 +45,8 @@ export function createDeepAgentsStructuredToolMiddleware(
             }
 
             if (context.executionAgent.canUseToolCapability("builtin.mcp.call")) {
-                const mcpClient = createMcpAdapterClient(
-                    context.centerDirectory,
-                    context.projectId,
-                );
-                context.cleanupCallbacks.push(async () => {
-                    await mcpClient.close();
-                });
-                const mcpTools = await mcpClient.getTools();
-                tools.push(...wrapMcpAdapterToolsForCenter(
-                    context,
-                    mcpTools,
-                ));
+                const mcpTools = await buildMcpToolsForDeepAgents(context);
+                tools.push(...mcpTools);
             }
 
             if (context.executionAgent.canUseToolCapability("builtin.agent.createLongTerm")) {
