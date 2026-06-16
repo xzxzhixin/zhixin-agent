@@ -81,7 +81,7 @@ const appTypes = readText("apps/frontend/src/stores/app-types.ts");
 // centerTypes: 中心服务运行时类型来源。
 const centerTypes = readText("services/center/src/types.ts");
 // createSubAgentTool: 子智能体创建工具来源。
-const createSubAgentTool = readText("services/center/src/tools/create-sub-agent-tool.ts");
+const createSubAgentTool = readText("services/center/src/StructuredTool/create-sub-agent-tool.ts");
 // workflowDomain: 子智能体运行记录创建来源。
 const workflowDomain = readText("services/center/src/domain/workflow-domain.ts");
 // baseAgent: 智能体基类来源。
@@ -190,3 +190,4 @@ if (failures.length > 0) {
 }
 
 console.log("智能体上下文、子智能体继承和 todoList 边界检查通过。");
+

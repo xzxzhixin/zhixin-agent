@@ -42,14 +42,20 @@ export interface DeepAgentsToolExecutionContext {
     input: DeepAgentsAgentRunInput;
     /** centerDirectory: 当前中心目录。 */
     centerDirectory: string;
+    /** projectId: 当前会话绑定项目 ID；个人会话或未绑定项目时为 null。 */
+    projectId: string | null;
     /** executionAgent: 当前执行智能体。 */
     executionAgent: ReturnType<typeof createAgentForTask>;
     /** runtime: 当前模型运行时。 */
     runtime: ReturnType<typeof resolveProviderModelRuntime>;
     /** subAgents: 当前轮次运行期子智能体表。 */
     subAgents: Map<string, SubAgentRuntimeRecord>;
+    /** toolFailureCounts: 轮次内工具失败指纹计数，用于阻断同一错误无限重试。 */
+    toolFailureCounts: Map<string, number>;
     /** runtimeSignal: 当前轮次运行期取消信号，供工具执行边界检查用户停止。 */
     runtimeSignal?: AbortSignal;
+    /** cleanupCallbacks: 当前轮次结束时需要释放的外部连接资源。 */
+    cleanupCallbacks: Array<() => Promise<void>>;
 }
 
 /**
@@ -75,17 +81,22 @@ export async function createDeepAgentsToolExecutionContext(
     if (!centerDirectory) {
         throw new Error("CENTER_DIRECTORY_NOT_AVAILABLE");
     }
-    const task = new SessionRepository(input.database).findTask(input.sent.taskId);
+    const sessionRepository = new SessionRepository(input.database);
+    const task = sessionRepository.findTask(input.sent.taskId);
+    const session = sessionRepository.findSession(input.sent.sessionId);
     return {
         input,
         centerDirectory,
+        projectId: session?.projectId ?? null,
         executionAgent: createAgentForTask(task),
         runtime: resolveProviderModelRuntime(
             input.database,
             input.sent.taskId,
         ),
         subAgents: new Map<string, SubAgentRuntimeRecord>(),
+        toolFailureCounts: new Map<string, number>(),
         runtimeSignal: input.runtimeSignal,
+        cleanupCallbacks: [],
     };
 }
 

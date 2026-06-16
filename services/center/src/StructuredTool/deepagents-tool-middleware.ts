@@ -21,16 +21,14 @@ import {
     DisbandAgentTeamStructuredTool,
 } from "./DisbandAgentTeamStructuredTool.js";
 import {
-    listConfiguredMcpModelToolSpecs,
-    readMcpDynamicToolName,
-} from "./mcp-tool-specs.js";
-import {DynamicMcpStructuredTool} from "./DynamicMcpStructuredTool.js";
+    createMcpAdapterClient,
+} from "./mcp-adapter-config.js";
+import {
+    wrapMcpAdapterToolsForCenter,
+} from "./McpAdapterStructuredTool.js";
 import {
     RemoveAgentTeamMemberStructuredTool,
 } from "./RemoveAgentTeamMemberStructuredTool.js";
-
-/** DEEPAGENTS_MCP_TOOL_INJECTION_LIMIT：每轮注入模型的动态 MCP 工具上限，避免兼容供应商在大工具表下返回空工具名。 */
-export const DEEPAGENTS_MCP_TOOL_INJECTION_LIMIT = 12;
 
 /**
  * createDeepAgentsStructuredToolMiddleware：创建 Deep Agents 工具注入中间件。
@@ -50,25 +48,18 @@ export function createDeepAgentsStructuredToolMiddleware(
             }
 
             if (context.executionAgent.canUseToolCapability("builtin.mcp.call")) {
-                const mcpSpecs = await listConfiguredMcpModelToolSpecs(context.centerDirectory);
-                const visibleMcpSpecs = mcpSpecs.slice(
-                    0,
-                    DEEPAGENTS_MCP_TOOL_INJECTION_LIMIT,
+                const mcpClient = createMcpAdapterClient(
+                    context.centerDirectory,
+                    context.projectId,
                 );
-                for (const toolSpec of visibleMcpSpecs) {
-                    const decoded = readMcpDynamicToolName(toolSpec.name);
-                    if (!decoded) {
-                        throw new Error(`MCP_DYNAMIC_TOOL_NAME_INVALID:${toolSpec.name}`);
-                    }
-                    tools.push(new DynamicMcpStructuredTool(
-                        context,
-                        toolSpec.name,
-                        toolSpec.description,
-                        decoded.serverId,
-                        decoded.toolName,
-                        toolSpec.parametersJsonSchema,
-                    ));
-                }
+                context.cleanupCallbacks.push(async () => {
+                    await mcpClient.close();
+                });
+                const mcpTools = await mcpClient.getTools();
+                tools.push(...wrapMcpAdapterToolsForCenter(
+                    context,
+                    mcpTools,
+                ));
             }
 
             if (context.executionAgent.canUseToolCapability("builtin.agent.createLongTerm")) {

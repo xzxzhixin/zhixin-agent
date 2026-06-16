@@ -47,12 +47,12 @@ function assertNotIncludes(text, snippet, message) {
 }
 
 const toolRuntime = [
-  "services/center/src/tools/index.ts",
-  "services/center/src/tools/tool-capability-registry.ts",
-  "services/center/src/tools/tool-model-specs.ts",
-  "services/center/src/tools/deepagents-tool-runtime.ts",
-  "services/center/src/tools/CenterStructuredToolBase.ts",
-  "services/center/src/tools/deepagents-tool-middleware.ts",
+  "services/center/src/StructuredTool/index.ts",
+  "services/center/src/StructuredTool/tool-capability-registry.ts",
+  "services/center/src/StructuredTool/tool-model-specs.ts",
+  "services/center/src/StructuredTool/deepagents-tool-runtime.ts",
+  "services/center/src/StructuredTool/CenterStructuredToolBase.ts",
+  "services/center/src/StructuredTool/deepagents-tool-middleware.ts",
 ].map((path) => readText(path)).join("\n");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
@@ -81,3 +81,4 @@ assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行�
 assertNotIncludes(toolRuntime, "planUnifiedToolCallForUserText", "工具运行时不能继续保留按用户文本猜测工具调用的旧入口");
 assertNotIncludes(deepAgentsAgent, "buildUnifiedToolCallIntentFromModelCall", "Deep Agents 原生入口不能再依赖旧工具意图转换器");
 assertNotIncludes(deepAgentsAgent, "continueProviderModelGatewayWithToolResults", "Deep Agents 原生入口不能再回到旧模型工具回填循环");
+

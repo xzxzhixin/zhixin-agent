@@ -7,7 +7,7 @@ import type {
  *
  * 来源：架构中的命令、智能体创建、MCP 和 skill 统一能力链路。
  * 含义：所有智能体和子智能体先从该注册表发现工具，再进入权限、执行和审计。
- * 约束：插件当前阶段已内联，不再作为模型可见工具占位；skill 尚未绑定具体执行器时只登记不可用原因；MCP 已接入中心服务配置执行器。
+ * 约束：插件当前阶段已内联，不再作为模型可见工具占位；skill 尚未绑定具体执行器时只登记不可用原因；MCP 只登记权限边界，具体工具由官方 adapter 动态注入。
  */
 export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
     {
@@ -272,7 +272,7 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         requiredPermission: "mcp.call",
         availability: "available",
         unavailableReason: null,
-        description: "调用当前会话可用的 MCP Server 工具；优先使用动态列出的 mcp_<server>_<tool> 工具。",
+        description: "调用当前会话可用的 MCP Server 工具；Deep Agents 主路径通过官方 @langchain/mcp-adapters 动态注入具体 MCP 工具。",
         inputSchema: {
             type: "object",
             required: [

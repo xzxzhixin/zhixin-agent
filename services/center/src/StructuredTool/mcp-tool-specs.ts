@@ -1,5 +1,4 @@
 import {existsSync, readFileSync} from "node:fs";
-import {createHash} from "node:crypto";
 import {join} from "node:path";
 import {
     isRecord,
@@ -7,24 +6,7 @@ import {
     tryParseRecord,
 } from "@zhixin/shared";
 
-import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
 import {StdioMcpSession} from "./StdioMcpSession.js";
-
-/** MCP_MODEL_TOOL_NAME_MAX_LENGTH：动态 MCP 工具名保守长度上限，避免兼容供应商贴近 OpenAI 64 字符边界后丢失工具名。 */
-export const MCP_MODEL_TOOL_NAME_MAX_LENGTH = 48;
-
-/** McpModelToolNameRecord：模型可见短工具名与真实 MCP 工具定位的映射。 */
-export interface McpModelToolNameRecord {
-    /** modelToolName: 模型可见短工具名。 */
-    modelToolName: string;
-    /** serverId: MCP Server ID。 */
-    serverId: string;
-    /** toolName: MCP 真实工具名。 */
-    toolName: string;
-}
-
-/** mcpModelToolNameRegistry：当前进程内动态 MCP 短名注册表，来源于 tools/list 发现结果。 */
-const mcpModelToolNameRegistry = new Map<string, McpModelToolNameRecord>();
 
 /**
  * McpToolView：MCP 管理页工具展示行。
@@ -78,33 +60,6 @@ export interface StdioMcpServerConfig {
  * McpServerConfig：MCP Server 配置联合类型。
  */
 export type McpServerConfig = HttpMcpServerConfig | StdioMcpServerConfig;
-
-/**
- * listConfiguredMcpModelToolSpecs：把已配置 MCP Server 暴露的工具转换成模型工具定义。
- *
- * @param centerDirectory 中心目录绝对路径。
- * @returns 可供模型直接选择的 MCP 动态工具列表。
- */
-export async function listConfiguredMcpModelToolSpecs(centerDirectory: string): Promise<OpenAiToolSpec[]> {
-    const specs: OpenAiToolSpec[] = [];
-    for (const serverConfig of readAllMcpServerConfigs(centerDirectory)) {
-        const tools = await listMcpTools(serverConfig).catch(() => {
-            return [];
-        });
-        for (const tool of tools) {
-            specs.push({
-                name: registerDynamicMcpModelToolName(
-                    serverConfig.serverId,
-                    tool.name,
-                ),
-                sourceToolId: "builtin.mcp.call",
-                description: `调用 MCP Server ${serverConfig.serverId} 的 ${tool.name} 工具。${tool.description}`,
-                parametersJsonSchema: tool.inputSchema,
-            });
-        }
-    }
-    return specs;
-}
 
 /**
  * listConfiguredMcpToolViews：读取已配置 MCP Server 暴露的工具，供管理页展示。
@@ -227,169 +182,31 @@ export async function listMcpToolViewsForServerConfig(
 }
 
 /**
- * readMcpDynamicToolName：把动态 MCP 模型工具名解码为 serverId 和 toolName。
- *
- * @param modelToolName 模型返回的工具名。
- * @returns 动态 MCP 工具定位；不是动态 MCP 工具时返回 null。
- */
-export function readMcpDynamicToolName(modelToolName: string): {
-    serverId: string;
-    toolName: string;
-} | null {
-    const record = mcpModelToolNameRegistry.get(modelToolName);
-    return record
-        ? {
-            serverId: record.serverId,
-            toolName: record.toolName,
-        }
-        : null;
-}
-
-/**
- * toDynamicMcpModelToolName：把 MCP Server 和工具名编码成模型协议安全名称。
- *
- * @param serverId MCP Server ID。
- * @param toolName MCP 工具名。
- * @returns 只包含字母、数字和下划线的可读模型工具名。
- */
-export function toDynamicMcpModelToolName(
-    serverId: string,
-    toolName: string,
-): string {
-    const readablePrefix = buildReadableMcpToolNamePrefix(
-        serverId,
-        toolName,
-    );
-    const digest = createHash("sha256")
-        .update(`${serverId}\u0000${toolName}`)
-        .digest("hex")
-        .slice(
-            0,
-            12,
-        );
-    const hashSuffix = `_${digest}`;
-    const maxReadableLength = MCP_MODEL_TOOL_NAME_MAX_LENGTH - hashSuffix.length;
-    const trimmedReadablePrefix = readablePrefix.slice(
-        0,
-        maxReadableLength,
-    );
-    return `${trimmedReadablePrefix}${hashSuffix}`;
-}
-
-/**
- * buildReadableMcpToolNamePrefix：生成模型可读的 MCP 工具名前缀。
- *
- * @param serverId MCP Server ID。
- * @param toolName MCP 真实工具名。
- * @returns 已清理的可读前缀，至少包含 mcp 前缀。
- */
-function buildReadableMcpToolNamePrefix(
-    serverId: string,
-    toolName: string,
-): string {
-    const sourceName = `mcp_${serverId}_${toolName}`;
-    const normalizedName = sourceName
-        .replace(/[^a-zA-Z0-9_]/gu, "_")
-        .replace(/_+/gu, "_")
-        .replace(/^_+|_+$/gu, "");
-    return normalizedName.length > 0
-        ? normalizedName
-        : "mcp_tool";
-}
-
-/**
- * registerDynamicMcpModelToolName：注册一个模型可见短 MCP 工具名。
- *
- * @param serverId MCP Server ID。
- * @param toolName MCP 真实工具名。
- * @returns 模型可见短工具名。
- */
-export function registerDynamicMcpModelToolName(
-    serverId: string,
-    toolName: string,
-): string {
-    const modelToolName = toDynamicMcpModelToolName(
-        serverId,
-        toolName,
-    );
-    if (modelToolName.length > MCP_MODEL_TOOL_NAME_MAX_LENGTH) {
-        throw new Error(`MCP_MODEL_TOOL_NAME_TOO_LONG:${modelToolName}`);
-    }
-    const existing = mcpModelToolNameRegistry.get(modelToolName);
-    if (
-        existing
-        && (
-            existing.serverId !== serverId
-            || existing.toolName !== toolName
-        )
-    ) {
-        throw new Error(`MCP_MODEL_TOOL_NAME_COLLISION:${modelToolName}`);
-    }
-    mcpModelToolNameRegistry.set(
-        modelToolName,
-        {
-            modelToolName,
-            serverId,
-            toolName,
-        },
-    );
-    return modelToolName;
-}
-
-/**
- * createMcpModelToolNameRegistry：为测试和诊断生成独立 MCP 短名注册表。
- *
- * @param tools 真实 MCP 工具定位列表。
- * @returns 模型可见短工具名映射。
- */
-export function createMcpModelToolNameRegistry(
-    tools: Array<{
-        serverId: string;
-        toolName: string;
-    }>,
-): Map<string, McpModelToolNameRecord> {
-    const registry = new Map<string, McpModelToolNameRecord>();
-    for (const tool of tools) {
-        const modelToolName = toDynamicMcpModelToolName(
-            tool.serverId,
-            tool.toolName,
-        );
-        if (modelToolName.length > MCP_MODEL_TOOL_NAME_MAX_LENGTH) {
-            throw new Error(`MCP_MODEL_TOOL_NAME_TOO_LONG:${modelToolName}`);
-        }
-        const existing = registry.get(modelToolName);
-        if (
-            existing
-            && (
-                existing.serverId !== tool.serverId
-                || existing.toolName !== tool.toolName
-            )
-        ) {
-            throw new Error(`MCP_MODEL_TOOL_NAME_COLLISION:${modelToolName}`);
-        }
-        registry.set(
-            modelToolName,
-            {
-                modelToolName,
-                serverId: tool.serverId,
-                toolName: tool.toolName,
-            },
-        );
-    }
-    return registry;
-}
-
-/**
- * readAllMcpServerConfigs：读取全局 MCP 配置中的 Server。
+ * readAllMcpServerConfigs：读取当前会话可用 MCP 配置中的 Server。
  *
  * @param centerDirectory 中心目录绝对路径。
+ * @param projectId 当前会话绑定项目 ID；为空时只读取全局配置。
  * @returns 可执行 MCP Server 配置列表。
  */
-export function readAllMcpServerConfigs(centerDirectory: string): McpServerConfig[] {
+export function readAllMcpServerConfigs(
+    centerDirectory: string,
+    projectId: string | null = null,
+): McpServerConfig[] {
     const globalConfig = readMcpConfigJson(join(centerDirectory, "mcp", "global.json"));
-    const servers = isRecord(globalConfig.mcpServers)
+    const projectConfig = projectId
+        ? readMcpConfigJson(join(centerDirectory, "mcp", `project-${projectId}.json`))
+        : {};
+    const globalServers = isRecord(globalConfig.mcpServers)
         ? globalConfig.mcpServers
         : {};
+    const projectServers = isRecord(projectConfig.mcpServers)
+        ? projectConfig.mcpServers
+        : {};
+    // servers: 项目级 Server 与全局 Server 同名时覆盖全局配置，满足项目能力优先规则。
+    const servers = {
+        ...globalServers,
+        ...projectServers,
+    };
     return Object.entries(servers)
         .map(([serverId, rawConfig]) => readMcpServerConfigFromValue(serverId, rawConfig))
         .filter((config): config is McpServerConfig => config !== null);
@@ -405,8 +222,12 @@ export function readAllMcpServerConfigs(centerDirectory: string): McpServerConfi
 export function readMcpServerConfig(
     centerDirectory: string,
     serverId: string,
+    projectId: string | null = null,
 ): McpServerConfig {
-    const config = readAllMcpServerConfigs(centerDirectory).find((item) => item.serverId === serverId);
+    const config = readAllMcpServerConfigs(
+        centerDirectory,
+        projectId,
+    ).find((item) => item.serverId === serverId);
     if (!config) {
         throw new Error(`MCP_SERVER_NOT_CONFIGURED:${serverId}`);
     }

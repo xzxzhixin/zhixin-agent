@@ -33,10 +33,10 @@ import {
 import {
     searchSemanticMemories,
 } from "./memory-engine.js";
-import {listAvailableModelToolSpecsForCenter} from "./tools/index.js";
+import {listAvailableModelToolSpecsForCenter} from "./StructuredTool/index.js";
 import {
     COMMAND_TOOL_MODEL_NAME,
-} from "./tools/tool-choice-policy.js";
+} from "./StructuredTool/tool-choice-policy.js";
 import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,

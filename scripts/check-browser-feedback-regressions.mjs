@@ -102,8 +102,8 @@ const sessionMessageRoute = readProjectFile("services/center/src/api/session-mes
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const toolRuntime = [
-  readProjectFile("services/center/src/tools/index.ts"),
-  readProjectFile("services/center/src/tools/command-tool-executor.ts"),
+  readProjectFile("services/center/src/StructuredTool/index.ts"),
+  readProjectFile("services/center/src/StructuredTool/command-tool-executor.ts"),
 ].join("\n");
 const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDetailDialog.vue");
 
@@ -208,3 +208,4 @@ for (const signal of [
     `编辑弹框缺少会话删除入口或取消路径：${signal}`,
   );
 }
+

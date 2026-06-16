@@ -18,7 +18,7 @@ export type AgentToolName =
  *
  * 来源：中心服务统一工具注册表和智能体权限边界设计。
  * 含义：调用方只传中心服务工具 ID，由智能体类层级统一判断可见性。
- * 约束：动态 MCP 工具不写入该表，统一通过 `mcp_` 前缀继承 MCP 权限。
+ * 约束：MCP adapter 工具由中心服务包装为 builtin.mcp.call 权限边界，不在调用点猜测权限。
  */
 const TOOL_CAPABILITY_AGENT_TOOL_MAP: Readonly<Record<string, AgentToolName>> = {
     /** builtin.command.run: 中心服务内置命令执行工具。 */
@@ -35,7 +35,7 @@ const TOOL_CAPABILITY_AGENT_TOOL_MAP: Readonly<Record<string, AgentToolName>> = 
     "add-agent-team-member": "add-agent-team-member",
     /** remove-agent-team-member: 主智能体专属 team 成员移除工具。 */
     "remove-agent-team-member": "remove-agent-team-member",
-    /** builtin.mcp.call: MCP 动态工具的统一权限边界。 */
+    /** builtin.mcp.call: MCP adapter 工具的统一权限边界。 */
     "builtin.mcp.call": "mcp-call",
     /** builtin.skill.use: skill 工作流使用权限。 */
     "builtin.skill.use": "skill-use",
@@ -73,7 +73,7 @@ export interface TodoListCreationInput {
  * AgentVisibleToolInput：模型工具可见性判断输入。
  */
 export interface AgentVisibleToolInput {
-    /** toolId: 统一工具注册表中的工具 ID，或 MCP 动态工具名。 */
+    /** toolId: 统一工具注册表中的工具 ID，或 MCP adapter 工具名。 */
     toolId: string;
 }
 
@@ -209,7 +209,7 @@ export abstract class BaseAgent {
  * @returns 智能体工具名；未知工具返回 null 以便默认拒绝。
  */
 export function mapToolCapabilityToAgentToolName(toolId: string): AgentToolName | null {
-    // MCP 动态工具没有单独注册 ID，统一继承 builtin.mcp.call 的权限边界。
+    // 兼容历史 mcp_ 前缀工具名；新 MCP adapter 工具由 wrapper 统一使用 builtin.mcp.call。
     if (toolId.startsWith("mcp_")) {
         return "mcp-call";
     }

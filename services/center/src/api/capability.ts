@@ -1,5 +1,5 @@
 import {createSuccessResponse} from "../helpers.js";
-import {listUnifiedToolCapabilities} from "../tools/index.js";
+import {listUnifiedToolCapabilities} from "../StructuredTool/index.js";
 import type {CenterApiRouteContext} from "./route-context.js";
 
 /**

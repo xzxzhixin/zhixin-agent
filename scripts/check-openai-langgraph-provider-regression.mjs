@@ -97,7 +97,7 @@ const sessionRepository = readText("services/center/src/data-access/session-repo
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const openAiChatProtocol = readText("services/center/src/openai-chat-protocol.ts");
 const providerRoutes = readText("services/center/src/api/provider-routes.ts");
-const toolRuntime = readText("services/center/src/tools/index.ts") + readText("services/center/src/tools/tool-capability-registry.ts");
+const toolRuntime = readText("services/center/src/StructuredTool/index.ts") + readText("services/center/src/StructuredTool/tool-capability-registry.ts");
 const providerDomain = readText("services/center/src/domain/provider-domain.ts");
 const providerPage = readText("apps/frontend/src/views/Providers/RouterIndex.vue");
 const rootPackage = readText("package.json");
@@ -114,7 +114,7 @@ const protocolSearchSources = [
     modelGateway,
   ],
   [
-    "services/center/src/tools/index.ts",
+    "services/center/src/StructuredTool/index.ts",
     toolRuntime,
   ],
   [
@@ -302,3 +302,4 @@ if (failures.length > 0) {
 }
 
 console.log("OpenAI/Deep Agents/供应商回归检查通过。");
+

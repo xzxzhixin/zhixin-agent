@@ -1,11 +1,10 @@
 import {randomUUID} from "node:crypto";
 
-import {AIMessage} from "@langchain/core/messages";
 import type {StructuredToolInterface} from "@langchain/core/tools";
 import type {ToolCallStream} from "@langchain/langgraph";
-import {createMiddleware} from "langchain";
 import {createDeepAgent, registerHarnessProfile, type DeepAgentRunStream} from "deepagents";
 
+import {CenterToolChoiceMiddleware} from "./AgentMiddleware/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
     recordModelUsageAfterTurn,
@@ -31,17 +30,13 @@ import {
     appendToolVisibilityEvents,
     createDeepAgentsStructuredToolMiddleware,
     createDeepAgentsToolExecutionContext,
-    listAvailableModelToolSpecsForCenter,
     listUnifiedToolCapabilities,
     toModelSafeToolName,
-} from "./tools/index.js";
-import {
-    COMMAND_TOOL_MODEL_NAME,
-} from "./tools/tool-choice-policy.js";
+} from "./StructuredTool/index.js";
 import type {
     DeepAgentsAgentRunInput,
     DeepAgentsToolExecutionContext,
-} from "./tools/index.js";
+} from "./StructuredTool/index.js";
 
 type CenterDeepAgentRunStream = DeepAgentRunStream<
     Record<string, unknown>,
@@ -75,6 +70,7 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         ...input,
         runtimeSignal: runtimeController.signal,
     };
+    let context: DeepAgentsToolExecutionContext | null = null;
     try {
         startWorkerTask(
             runtimeInput.database,
@@ -82,7 +78,7 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             runtimeInput.sent.taskId,
         );
 
-        const context = await createDeepAgentsToolExecutionContext(runtimeInput);
+        context = await createDeepAgentsToolExecutionContext(runtimeInput);
         appendToolVisibilityEvents(
             runtimeInput.events,
             runtimeInput.sent.sessionId,
@@ -143,10 +139,53 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             error,
         );
     } finally {
+        await cleanupDeepAgentsTurnResources(
+            runtimeInput,
+            context,
+        );
         unregisterRunningTurnRuntime(
             input.sent.turnId,
             runtimeController,
         );
+    }
+}
+
+/**
+ * cleanupDeepAgentsTurnResources：释放当前轮次创建的外部连接资源。
+ *
+ * @param input 当前轮次运行输入。
+ * @param context 当前轮次工具执行上下文；上下文创建失败时允许为空。
+ * @returns 没有返回值。
+ */
+async function cleanupDeepAgentsTurnResources(
+    input: DeepAgentsAgentRunInput,
+    context: DeepAgentsToolExecutionContext | null,
+): Promise<void> {
+    if (!context) {
+        return;
+    }
+    for (const cleanupCallback of context.cleanupCallbacks) {
+        try {
+            await cleanupCallback();
+        } catch (error) {
+            const errorMessage = error instanceof Error
+                ? error.message
+                : "DEEPAGENTS_RESOURCE_CLEANUP_FAILED";
+            input.events.append({
+                eventType: "tool.resource.cleanup.failed",
+                scopeType: "tool",
+                scopeId: input.sent.taskId,
+                sessionId: input.sent.sessionId,
+                turnId: input.sent.turnId,
+                taskId: input.sent.taskId,
+                status: "failed",
+                title: "工具资源释放失败",
+                summary: errorMessage,
+                payload: {
+                    errorMessage,
+                },
+            });
+        }
     }
 }
 
@@ -175,14 +214,17 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
             toolCount: tools.length,
         },
     });
-    const systemPrompt = await buildCenterDeepAgentSystemPrompt(context);
+    const systemPrompt = await buildCenterDeepAgentSystemPrompt(
+        context,
+        tools,
+    );
     registerCenterDeepAgentsHarnessProfile();
     return createDeepAgent({
         model: createLangChainChatModel(context.runtime),
         tools,
         systemPrompt,
         middleware: [
-            createCenterToolChoiceMiddleware(context),
+            new CenterToolChoiceMiddleware(context).create(),
         ],
     });
 }
@@ -215,322 +257,26 @@ function registerCenterDeepAgentsHarnessProfile(): void {
 }
 
 /**
- * createCenterToolChoiceMiddleware：为 Deep Agents 原生入口补齐中心服务工具选择策略。
- *
- * 关键逻辑：中心服务只把真实工具定义注入模型，不再按用户文本固定解析并强制选择工具；
- * 工具是否调用必须由模型返回的结构化工具调用决定。
- *
- * @param context 当前轮次工具执行上下文。
- * @param userText 用户本轮原文。
- * @returns LangChain Agent 中间件。
- */
-function createCenterToolChoiceMiddleware(
-    context: DeepAgentsToolExecutionContext,
-) {
-    let latestModelTools: readonly StructuredToolInterface[] = [];
-    return createMiddleware({
-        name: "CenterToolChoiceMiddleware",
-        afterModel: async (state) => {
-            const lastMessage = state.messages.at(-1);
-            if (!AIMessage.isInstance(lastMessage)) {
-                return;
-            }
-            context.input.events.append({
-                eventType: "model.tool_calls.received",
-                scopeType: "model",
-                scopeId: context.input.sent.taskId,
-                sessionId: context.input.sent.sessionId,
-                turnId: context.input.sent.turnId,
-                taskId: context.input.sent.taskId,
-                status: "completed",
-                title: "模型工具调用结果",
-                summary: lastMessage.tool_calls && lastMessage.tool_calls.length > 0
-                    ? "模型返回了结构化工具调用。"
-                    : "模型未返回结构化工具调用。",
-                payload: {
-                    // toolCalls: 只记录工具名和参数字段，避免把长参数或敏感输出写入诊断事件。
-                    toolCalls: lastMessage.tool_calls?.map((toolCall) => {
-                        return {
-                            id: toolCall.id,
-                            name: toolCall.name,
-                            argumentKeys: Object.keys(toolCall.args ?? {}),
-                        };
-                    }) ?? [],
-                    invalidToolCalls: lastMessage.invalid_tool_calls?.map((toolCall) => {
-                        return {
-                            id: toolCall.id,
-                            name: toolCall.name,
-                            hasArgs: Boolean(toolCall.args),
-                            error: toolCall.error,
-                        };
-                    }) ?? [],
-                    rawToolCalls: readRawToolCallDiagnostics(lastMessage.additional_kwargs),
-                },
-            });
-        },
-        wrapToolCall: async (request, handler) => {
-            const restoredToolName = resolveEmptyToolNameByArguments(
-                request.toolCall.name,
-                request.toolCall.args,
-                latestModelTools,
-            );
-            if (
-                request.tool
-                || restoredToolName === null
-            ) {
-                return handler(request);
-            }
-            context.input.events.append({
-                eventType: "model.tool_call.name_restored",
-                scopeType: "tool",
-                scopeId: context.input.sent.taskId,
-                sessionId: context.input.sent.sessionId,
-                turnId: context.input.sent.turnId,
-                taskId: context.input.sent.taskId,
-                status: "completed",
-                title: "工具名恢复",
-                summary: "模型返回了空工具名，已按结构化参数唯一匹配恢复工具名。",
-                payload: {
-                    toolCallId: request.toolCall.id,
-                    restoredToolName,
-                    argumentKeys: Object.keys(request.toolCall.args ?? {}),
-                },
-            });
-            // toolCall: 这里不解析用户文本，只在模型已经返回结构化参数且唯一匹配当前可见工具 schema 时恢复名称。
-            return handler({
-                ...request,
-                toolCall: {
-                    ...request.toolCall,
-                    name: restoredToolName,
-                },
-            });
-        },
-        wrapModelCall: async (request, handler) => {
-            const hasToolResultMessage = request.messages.some((message) => {
-                return message.getType() === "tool";
-            });
-            latestModelTools = request.tools;
-            context.input.events.append({
-                eventType: "model.tool_choice.evaluated",
-                scopeType: "model",
-                scopeId: context.input.sent.taskId,
-                sessionId: context.input.sent.sessionId,
-                turnId: context.input.sent.turnId,
-                taskId: context.input.sent.taskId,
-                status: "completed",
-                title: "工具选择策略",
-                summary: "Deep Agents 使用模型自主结构化工具选择。",
-                payload: {
-                    // toolNames: 当前请求注入给模型的真实工具名，用于排查模型是否看到了工具。
-                    toolNames: request.tools.map((tool) => tool.name),
-                    hasToolResultMessage,
-                },
-            });
-            return handler(request);
-        },
-    });
-}
-
-/**
- * resolveEmptyToolNameByArguments：按结构化参数唯一匹配恢复空工具名。
- *
- * @param toolCallName 模型返回的工具名。
- * @param args 模型返回的结构化工具参数。
- * @returns 可唯一确认的工具名；无法确认时返回 null。
- */
-function resolveEmptyToolNameByArguments(
-    toolCallName: string | undefined,
-    args: Record<string, unknown> | undefined,
-    modelTools: readonly StructuredToolInterface[],
-): string | null {
-    if (
-        typeof toolCallName === "string"
-        && toolCallName.length > 0
-    ) {
-        return null;
-    }
-    if (!args) {
-        return null;
-    }
-    const argumentKeys = Object.keys(args);
-    const hasCommandArgument = [
-        "shellCommand",
-        "executablePath",
-        "args",
-    ].some((key) => {
-        return argumentKeys.includes(key);
-    });
-    const hasInputSummary = argumentKeys.includes("inputSummary");
-    if (hasInputSummary) {
-        return hasCommandArgument
-            ? COMMAND_TOOL_MODEL_NAME
-            : null;
-    }
-
-    const matchedTools = modelTools.filter((tool) => {
-        return toolSchemaMatchesArgumentKeys(
-            tool.schema,
-            argumentKeys,
-        );
-    });
-    return matchedTools.length === 1
-        ? matchedTools[0]?.name ?? null
-        : null;
-}
-
-/**
- * toolSchemaMatchesArgumentKeys：判断模型参数字段是否能归入某个工具 schema。
- *
- * @param schema 模型可见工具参数 schema。
- * @param argumentKeys 模型实际返回的参数字段集合。
- * @returns 参数字段满足 schema 必填字段且没有 schema 未声明字段时返回 true。
- */
-function toolSchemaMatchesArgumentKeys(
-    schema: StructuredToolInterface["schema"],
-    argumentKeys: string[],
-): boolean {
-    const schemaRecord = schema as {
-        shape?: Record<string, unknown>;
-        _def?: {
-            shape?: (() => Record<string, unknown>) | Record<string, unknown>;
-        };
-        properties?: Record<string, unknown>;
-        required?: unknown;
-        additionalProperties?: unknown;
-    };
-    const propertyNames = readToolSchemaPropertyNames(schemaRecord);
-    if (propertyNames.length === 0) {
-        return false;
-    }
-    const requiredNames = readToolSchemaRequiredNames(schemaRecord);
-    const hasAllRequiredArguments = requiredNames.every((name) => {
-        return argumentKeys.includes(name);
-    });
-    const allowsAdditionalProperties = schemaRecord.additionalProperties === true;
-    const hasOnlyDeclaredArguments = allowsAdditionalProperties || argumentKeys.every((name) => {
-        return propertyNames.includes(name);
-    });
-    return hasAllRequiredArguments
-        && hasOnlyDeclaredArguments;
-}
-
-/**
- * readToolSchemaPropertyNames：读取 Zod 或 JSON Schema 的属性名。
- *
- * @param schemaRecord 工具 schema 对象。
- * @returns schema 声明的属性名。
- */
-function readToolSchemaPropertyNames(schemaRecord: {
-    shape?: Record<string, unknown>;
-    _def?: {
-        shape?: (() => Record<string, unknown>) | Record<string, unknown>;
-    };
-    properties?: Record<string, unknown>;
-}): string[] {
-    if (schemaRecord.properties) {
-        return Object.keys(schemaRecord.properties);
-    }
-    const zodShape = typeof schemaRecord._def?.shape === "function"
-        ? schemaRecord._def.shape()
-        : schemaRecord._def?.shape ?? schemaRecord.shape;
-    return zodShape
-        ? Object.keys(zodShape)
-        : [];
-}
-
-/**
- * readToolSchemaRequiredNames：读取 JSON Schema required 字段或 Zod 必填字段。
- *
- * @param schemaRecord 工具 schema 对象。
- * @returns 必填字段名。
- */
-function readToolSchemaRequiredNames(schemaRecord: {
-    _def?: {
-        shape?: (() => Record<string, unknown>) | Record<string, unknown>;
-    };
-    required?: unknown;
-}): string[] {
-    if (Array.isArray(schemaRecord.required)) {
-        return schemaRecord.required.filter((item): item is string => {
-            return typeof item === "string";
-        });
-    }
-    const zodShape = typeof schemaRecord._def?.shape === "function"
-        ? schemaRecord._def.shape()
-        : schemaRecord._def?.shape ?? {};
-    return Object.entries(zodShape)
-        .filter(([, propertySchema]) => {
-            return !isZodOptionalSchema(propertySchema);
-        })
-        .map(([name]) => name);
-}
-
-/**
- * isZodOptionalSchema：判断 Zod 字段是否为可选字段。
- *
- * @param propertySchema Zod 字段 schema。
- * @returns 可选字段返回 true。
- */
-function isZodOptionalSchema(propertySchema: unknown): boolean {
-    const zodProperty = propertySchema as {
-        isOptional?: () => boolean;
-    };
-    return typeof zodProperty.isOptional === "function"
-        && zodProperty.isOptional();
-}
-
-/**
- * readRawToolCallDiagnostics：读取供应商原始工具调用诊断信息。
- *
- * @param additionalKwargs LangChain AIMessage 附加字段。
- * @returns 原始工具调用摘要；没有时返回空数组。
- */
-function readRawToolCallDiagnostics(additionalKwargs: AIMessage["additional_kwargs"]): Array<{
-    id: unknown;
-    name: unknown;
-    hasArguments: boolean;
-}> {
-    const rawToolCalls = additionalKwargs.tool_calls;
-    if (!Array.isArray(rawToolCalls)) {
-        return [];
-    }
-    return rawToolCalls.map((toolCall) => {
-        const toolCallRecord = toolCall as {
-            id?: unknown;
-            function?: {
-                name?: unknown;
-                arguments?: unknown;
-            };
-        };
-        return {
-            id: toolCallRecord.id,
-            name: toolCallRecord.function?.name,
-            hasArguments: typeof toolCallRecord.function?.arguments === "string"
-                && toolCallRecord.function.arguments.length > 0,
-        };
-    });
-}
-
-/**
  * buildCenterDeepAgentSystemPrompt：构造中心服务当前轮次的系统提示。
  *
  * @param context 当前轮次工具执行上下文。
+ * @param tools 当前轮次真实注入 Deep Agents 的工具列表。
  * @returns 系统提示。
  */
-async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecutionContext): Promise<string> {
+async function buildCenterDeepAgentSystemPrompt(
+    context: DeepAgentsToolExecutionContext,
+    tools: StructuredToolInterface[],
+): Promise<string> {
     const staticCapabilities = listUnifiedToolCapabilities()
         .filter((capability) => {
             return capability.availability === "available"
+                && capability.toolKind !== "mcp"
                 && context.executionAgent.canUseToolCapability(capability.toolId);
         })
         .map((capability) => toModelSafeToolName(capability.toolId));
-    const mcpSpecs = await listAvailableModelToolSpecsForCenter(
-        context.centerDirectory,
-        context.executionAgent,
-    );
-    const dynamicMcpNames = mcpSpecs
-        .filter((item) => item.sourceToolId === "builtin.mcp.call")
-        .map((item) => item.name);
+    const dynamicMcpNames = tools
+        .filter((tool) => tool.name.startsWith("mcp__"))
+        .map((tool) => tool.name);
     const memoryEntries = await listMainAgentMemoryPromptEntries(
         context.input.database,
         context.input.userText,
@@ -565,8 +311,8 @@ async function buildCenterDeepAgentSystemPrompt(context: DeepAgentsToolExecution
             ? `当前中心服务静态工具能力：${staticCapabilities.join(", ")}`
             : "当前没有可用静态工具能力。",
         dynamicMcpNames.length > 0
-            ? `当前可用 MCP 动态工具：${dynamicMcpNames.join(", ")}`
-            : "当前没有可用 MCP 动态工具。",
+            ? `当前可用 MCP adapter 工具：${dynamicMcpNames.join(", ")}`
+            : "当前没有可用 MCP adapter 工具。",
         memoryPrompt
             ? `主智能体长期记忆：\n${memoryPrompt}`
             : "主智能体长期记忆：无。",

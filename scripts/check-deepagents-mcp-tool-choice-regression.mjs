@@ -7,7 +7,7 @@ const policyPath = join(
     "services",
     "center",
     "src",
-    "tools",
+    "StructuredTool",
     "tool-choice-policy.ts",
 );
 const deepAgentsPath = join(
@@ -22,24 +22,32 @@ const mcpToolSpecsPath = join(
     "services",
     "center",
     "src",
-    "tools",
+    "StructuredTool",
     "mcp-tool-specs.ts",
-);
-const dynamicMcpStructuredToolPath = join(
-    rootDirectory,
-    "services",
-    "center",
-    "src",
-    "tools",
-    "DynamicMcpStructuredTool.ts",
 );
 const deepAgentsToolMiddlewarePath = join(
     rootDirectory,
     "services",
     "center",
     "src",
-    "tools",
+    "StructuredTool",
     "deepagents-tool-middleware.ts",
+);
+const mcpAdapterConfigPath = join(
+    rootDirectory,
+    "services",
+    "center",
+    "src",
+    "StructuredTool",
+    "mcp-adapter-config.ts",
+);
+const toolChoiceMiddlewarePath = join(
+    rootDirectory,
+    "services",
+    "center",
+    "src",
+    "AgentMiddleware",
+    "CenterToolChoiceMiddleware.ts",
 );
 
 const policySource = readFileSync(
@@ -54,12 +62,16 @@ const mcpToolSpecsSource = readFileSync(
     mcpToolSpecsPath,
     "utf8",
 );
-const dynamicMcpStructuredToolSource = readFileSync(
-    dynamicMcpStructuredToolPath,
-    "utf8",
-);
 const deepAgentsToolMiddlewareSource = readFileSync(
     deepAgentsToolMiddlewarePath,
+    "utf8",
+);
+const mcpAdapterConfigSource = readFileSync(
+    mcpAdapterConfigPath,
+    "utf8",
+);
+const toolChoiceMiddlewareSource = readFileSync(
+    toolChoiceMiddlewarePath,
     "utf8",
 );
 
@@ -96,36 +108,24 @@ assertNotContains(
     /toolChoice:\s*["{]/u,
     "deepagents-agent.ts 不得在中心服务侧强制指定工具选择。",
 );
-assert(
-    /MCP_MODEL_TOOL_NAME_MAX_LENGTH\s*=\s*48/u.test(mcpToolSpecsSource),
-    "mcp-tool-specs.ts 必须使用保守长度限制 MCP 动态工具名，避免兼容供应商贴近 OpenAI 上限后丢失工具名。",
-);
-assert(
-    /createMcpModelToolNameRegistry/u.test(mcpToolSpecsSource),
-    "mcp-tool-specs.ts 必须通过短名注册表反查 MCP 真实 serverId 和 toolName。",
-);
-assert(
-    /buildReadableMcpToolNamePrefix/u.test(mcpToolSpecsSource),
-    "mcp-tool-specs.ts 必须让 MCP 动态工具名保留可读 serverId 和 toolName 前缀。",
-);
 assertNotContains(
     mcpToolSpecsSource,
-    /return `mcp_\$\{encodeHexUtf8\(serverId\)\}_\$\{encodeHexUtf8\(toolName\)\}`/u,
-    "MCP 动态工具名不得继续使用超长 hex 全量编码。",
+    /registerDynamicMcpModelToolName|createMcpModelToolNameRegistry|readMcpDynamicToolName|toDynamicMcpModelToolName|MCP_MODEL_TOOL_NAME_MAX_LENGTH/u,
+    "mcp-tool-specs.ts 不得继续维护自建 MCP 短名注册表，Deep Agents MCP 主路径必须使用官方 @langchain/mcp-adapters。",
 );
 assert(
-    /resolveEmptyToolNameByArguments/u.test(deepAgentsSource),
-    "deepagents-agent.ts 必须在结构化参数唯一匹配工具 schema 时恢复空工具名。",
+    /resolveEmptyToolNameByArguments/u.test(toolChoiceMiddlewareSource),
+    "CenterToolChoiceMiddleware.ts 必须在结构化参数唯一匹配工具 schema 时恢复空工具名。",
 );
 assert(
-    /toolSchemaMatchesArgumentKeys/u.test(deepAgentsSource)
-    && /latestModelTools/u.test(deepAgentsSource)
-    && /readToolSchemaPropertyNames/u.test(deepAgentsSource),
-    "deepagents-agent.ts 必须基于当前可见工具 schema 做通用空工具名恢复，不能只识别命令工具参数。",
+    /toolSchemaMatchesArgumentKeys/u.test(toolChoiceMiddlewareSource)
+    && /latestModelTools/u.test(toolChoiceMiddlewareSource)
+    && /readToolSchemaPropertyNames/u.test(toolChoiceMiddlewareSource),
+    "CenterToolChoiceMiddleware.ts 必须基于当前可见工具 schema 做通用空工具名恢复，不能只识别命令工具参数。",
 );
 assert(
-    /model\.tool_call\.name_restored/u.test(deepAgentsSource),
-    "deepagents-agent.ts 必须记录空工具名恢复诊断事件。",
+    /model\.tool_call\.name_restored/u.test(toolChoiceMiddlewareSource),
+    "CenterToolChoiceMiddleware.ts 必须记录空工具名恢复诊断事件。",
 );
 assert(
     /registerHarnessProfile/u.test(deepAgentsSource)
@@ -141,24 +141,27 @@ assert(
     "deepagents-agent.ts 必须明确排除 Deep Agents 默认 todo、文件和 task 工具。",
 );
 assert(
-    /parametersJsonSchema/u.test(deepAgentsToolMiddlewareSource)
-    && /toolSpec\.parametersJsonSchema/u.test(deepAgentsToolMiddlewareSource),
-    "deepagents-tool-middleware.ts 必须把 MCP tools/list 发现到的 JSON Schema 传给动态 MCP 结构化工具。",
+    /MultiServerMCPClient/u.test(deepAgentsToolMiddlewareSource)
+    || /createMcpAdapterClient/u.test(deepAgentsToolMiddlewareSource),
+    "deepagents-tool-middleware.ts 必须通过官方 @langchain/mcp-adapters 注入 MCP tools。",
 );
 assert(
-    /DEEPAGENTS_MCP_TOOL_INJECTION_LIMIT\s*=\s*12/u.test(deepAgentsToolMiddlewareSource)
-    && /mcpSpecs\.slice\(/u.test(deepAgentsToolMiddlewareSource),
-    "deepagents-tool-middleware.ts 必须限制单轮动态 MCP 工具注入数量，避免大工具表导致兼容供应商返回空工具名。",
+    /getTools\(\)/u.test(deepAgentsToolMiddlewareSource),
+    "deepagents-tool-middleware.ts 必须使用 MultiServerMCPClient.getTools() 获取官方 LangChain MCP tools。",
 );
 assert(
-    /inputJsonSchema/u.test(dynamicMcpStructuredToolSource)
-    && /createMcpToolSchema/u.test(dynamicMcpStructuredToolSource),
-    "DynamicMcpStructuredTool.ts 必须基于 MCP 原始 JSON Schema 构造模型可见参数 schema，不能统一暴露任意对象。",
+    /wrapMcpAdapterToolsForCenter/u.test(deepAgentsToolMiddlewareSource),
+    "deepagents-tool-middleware.ts 必须包装官方 MCP tools，以保留中心服务审计、结果回填和失败收尾。",
 );
 assertNotContains(
-    dynamicMcpStructuredToolSource,
-    /export const MCP_TOOL_SCHEMA\s*=\s*z\.record\(z\.unknown\(\)\)/u,
-    "DynamicMcpStructuredTool.ts 不得继续把所有 MCP 工具统一暴露为 z.record(z.unknown())。",
+    deepAgentsToolMiddlewareSource,
+    /DynamicMcpStructuredTool|listConfiguredMcpModelToolSpecs|readMcpDynamicToolName/u,
+    "deepagents-tool-middleware.ts 不得继续使用自建动态 MCP 结构化工具主路径。",
+);
+assert(
+    /@langchain\/mcp-adapters/u.test(mcpAdapterConfigSource)
+    && /MultiServerMCPClient/u.test(mcpAdapterConfigSource),
+    "mcp-adapter-config.ts 必须以官方 @langchain/mcp-adapters 的 MultiServerMCPClient 作为 MCP client 配置目标。",
 );
 
-console.log("Deep Agents MCP 工具选择回归检查通过。");
+console.log("Deep Agents 官方 MCP adapter 回归检查通过。");

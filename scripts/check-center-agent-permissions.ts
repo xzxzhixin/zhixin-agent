@@ -15,7 +15,7 @@ import {
   SubAgent,
 } from "../services/center/src/agents/index";
 import {formatCenterLocalDateTime} from "../services/center/src/time";
-import {listUnifiedToolCapabilities} from "../services/center/src/tools/tool-capability-registry";
+import {listUnifiedToolCapabilities} from "../services/center/src/StructuredTool/tool-capability-registry";
 
 /**
  * LOCAL_DATE_TIME_PATTERN：中心服务本机时间固定格式。
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     plannedStepCount: 2,
   }), "子智能体仍可通过 Deep Agents 自带 todoList 维护自己的多步骤任务状态");
   assert(!subAgent.canUseToolCapability("builtin.deepagents.write_todos"), "中心服务不能再把 Deep Agents write_todos 包装成模型可见工具");
-  assert(mapToolCapabilityToAgentToolName("mcp_global_files_read") === "mcp-call", "MCP 动态工具必须继承 MCP 权限边界");
+  assert(mapToolCapabilityToAgentToolName("mcp_global_files_read") === "mcp-call", "MCP adapter 工具必须继承 MCP 权限边界");
   assert(!listUnifiedToolCapabilities().some((capability) => {
     return capability.toolId === "builtin.deepagents.write_todos";
   }), "统一工具注册表不能继续保留 builtin.deepagents.write_todos 包装工具");
@@ -79,8 +79,8 @@ async function main(): Promise<void> {
 
   await assertNoIsoTimeInTargetFile("services/center/src/domain/agent-domain.ts");
   await assertNoIsoTimeInTargetFile("services/center/src/domain/workflow-domain.ts");
-  await assertNoIsoTimeInTargetFile("services/center/src/tools/CreateAgentTeamStructuredTool.ts");
-  await assertNoIsoTimeInTargetFile("services/center/src/tools/AddAgentTeamMemberStructuredTool.ts");
+  await assertNoIsoTimeInTargetFile("services/center/src/StructuredTool/CreateAgentTeamStructuredTool.ts");
+  await assertNoIsoTimeInTargetFile("services/center/src/StructuredTool/AddAgentTeamMemberStructuredTool.ts");
   await assertNoIsoTimeInTargetFile("services/center/src/events.ts");
 }
 
@@ -105,3 +105,4 @@ void main().catch((error) => {
   // exitCode: 交给 pnpm 返回非零状态。
   process.exitCode = 1;
 });
+

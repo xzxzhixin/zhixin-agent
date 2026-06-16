@@ -31,11 +31,15 @@ const chatHelperFilePath = path.join(
 );
 const mcpToolSpecsFilePath = path.join(
   workspaceRoot,
-  "services/center/src/tools/mcp-tool-specs.ts",
+  "services/center/src/StructuredTool/mcp-tool-specs.ts",
 );
-const mcpToolExecutorFilePath = path.join(
+const mcpAdapterConfigFilePath = path.join(
   workspaceRoot,
-  "services/center/src/tools/mcp-tool-executor.ts",
+  "services/center/src/StructuredTool/mcp-adapter-config.ts",
+);
+const mcpAdapterToolFilePath = path.join(
+  workspaceRoot,
+  "services/center/src/StructuredTool/McpAdapterStructuredTool.ts",
 );
 const recordUtilsFilePath = path.join(
   workspaceRoot,
@@ -52,12 +56,12 @@ const mcpRequestUtilsFilePath = path.join(
 
 assertIncludes(
   mcpViewFilePath,
-  "formatMcpToolSchema(tool.inputSchema)",
+  "formatMcpToolSchema(selectedMcpTool.inputSchema)",
   "MCP 管理页必须展示工具 inputSchema。",
 );
 assertIncludes(
   mcpViewFilePath,
-  "tool.description",
+  "selectedMcpTool.description",
   "MCP 管理页必须展示工具描述。",
 );
 assertIncludes(
@@ -106,39 +110,34 @@ assertIncludes(
   "MCP tools/list 必须从共享包读取 tryParseRecord。",
 );
 assertIncludes(
-  mcpToolExecutorFilePath,
-  "from \"@zhixin/shared\"",
-  "MCP tools/call 必须改为引用共享包。",
-);
-assertIncludes(
-  mcpToolExecutorFilePath,
-  "randomMcpRequestId",
-  "MCP tools/call 必须从共享包读取 randomMcpRequestId。",
-);
-assertIncludes(
-  mcpToolExecutorFilePath,
-  "tryParseRecord",
-  "MCP tools/call 必须从共享包读取 tryParseRecord。",
-);
-assertIncludes(
-  path.join(workspaceRoot, "services/center/src/tools/StdioMcpSession.ts"),
+  path.join(workspaceRoot, "services/center/src/StructuredTool/StdioMcpSession.ts"),
   "from \"@zhixin/shared\"",
   "StdioMcpSession 必须改为引用共享包。",
 );
 assertIncludes(
-  path.join(workspaceRoot, "services/center/src/tools/StdioMcpSession.ts"),
+  path.join(workspaceRoot, "services/center/src/StructuredTool/StdioMcpSession.ts"),
   "randomMcpRequestId",
   "StdioMcpSession 必须从共享包读取 randomMcpRequestId。",
 );
 assertIncludes(
-  path.join(workspaceRoot, "services/center/src/tools/StdioMcpSession.ts"),
+  path.join(workspaceRoot, "services/center/src/StructuredTool/StdioMcpSession.ts"),
   "tryParseRecord",
   "StdioMcpSession 必须从共享包读取 tryParseRecord。",
 );
 assertIncludes(
-  mcpToolExecutorFilePath,
-  "function stringifyMcpValue(value: unknown): string",
-  "MCP tools/call 仍需保留本地输出摘要逻辑。",
+  mcpAdapterConfigFilePath,
+  "MultiServerMCPClient",
+  "Deep Agents MCP 主路径必须使用官方 MultiServerMCPClient。",
+);
+assertIncludes(
+  mcpAdapterToolFilePath,
+  "this.adapterTool.invoke(arg)",
+  "MCP tools/call 必须由官方 adapter tool 执行，中心服务只做包装审计。",
+);
+assertIncludes(
+  mcpAdapterToolFilePath,
+  "normalizeMcpAdapterOutput",
+  "MCP adapter 工具仍需保留输出摘要归一化逻辑。",
 );
 assertIncludes(
   path.join(workspaceRoot, "services/center/src/domain/extension-domain.ts"),

@@ -184,7 +184,7 @@ assertExists(
 ].forEach((fileName) => {
   assertNotExists(
     `services/center/src/${fileName}`,
-    `services/center/src/${fileName}: 工具运行时必须迁入 services/center/src/tools。`,
+    `services/center/src/${fileName}: 工具运行时必须迁入 services/center/src/StructuredTool。`,
   );
 });
 
@@ -196,9 +196,9 @@ assertExists(
   "command-tool-executor.ts",
   "CenterStructuredToolBase.ts",
   "CommandStructuredTool.ts",
-  "mcp-tool-executor.ts",
+  "mcp-adapter-config.ts",
   "mcp-tool-specs.ts",
-  "DynamicMcpStructuredTool.ts",
+  "McpAdapterStructuredTool.ts",
   "StdioMcpSession.ts",
   "CreateLongTermAgentStructuredTool.ts",
   "CreateSubAgentStructuredTool.ts",
@@ -208,8 +208,18 @@ assertExists(
   "RemoveAgentTeamMemberStructuredTool.ts",
 ].forEach((fileName) => {
   assertExists(
-    `services/center/src/tools/${fileName}`,
-    `services/center/src/tools/${fileName}: 工具目录缺少确认后的工具模块。`,
+    `services/center/src/StructuredTool/${fileName}`,
+    `services/center/src/StructuredTool/${fileName}: 工具目录缺少确认后的工具模块。`,
+  );
+});
+
+[
+  "mcp-tool-executor.ts",
+  "DynamicMcpStructuredTool.ts",
+].forEach((fileName) => {
+  assertNotExists(
+    `services/center/src/StructuredTool/${fileName}`,
+    `services/center/src/StructuredTool/${fileName}: Deep Agents MCP 主路径必须使用官方 @langchain/mcp-adapters。`,
   );
 });
 
@@ -272,7 +282,7 @@ assertIncludes(
   "session-repository.ts: 会话删除必须物理删除该会话的 team 成员关系。",
 );
 
-const toolSources = listFiles("services/center/src/tools")
+const toolSources = listFiles("services/center/src/StructuredTool")
   .filter((filePath) => filePath.endsWith(".ts"))
   .map((filePath) => readText(filePath))
   .join("\n");
@@ -308,3 +318,4 @@ if (failures.length > 0) {
 }
 
 console.log("中心服务源码组织与会话 team 工具检查通过。");
+

@@ -1,6 +1,5 @@
 import type {OpenAiToolSpec} from "../openai-chat-protocol.js";
 import type {BaseAgent} from "../agents/index.js";
-import {listConfiguredMcpModelToolSpecs} from "./mcp-tool-specs.js";
 import {
     listUnifiedToolCapabilities,
     toModelSafeToolName,
@@ -18,6 +17,10 @@ export function listAvailableModelToolSpecs(agent?: BaseAgent): OpenAiToolSpec[]
             return capability.availability === "available";
         })
         .filter((capability) => {
+            // MCP 工具由官方 adapter 生成具体 tool name，builtin.mcp.call 只作为权限边界，不作为模型可调用静态工具。
+            return capability.toolKind !== "mcp";
+        })
+        .filter((capability) => {
             return agent
                 ? agent.canUseToolCapability(capability.toolId)
                 : true;
@@ -31,9 +34,9 @@ export function listAvailableModelToolSpecs(agent?: BaseAgent): OpenAiToolSpec[]
 }
 
 /**
- * listAvailableModelToolSpecsForCenter：读取静态工具和中心目录中的 MCP 动态工具。
+ * listAvailableModelToolSpecsForCenter：读取中心服务静态模型工具定义。
  *
- * @param centerDirectory 中心目录绝对路径。
+ * @param centerDirectory 中心目录绝对路径；MCP 官方 adapter 工具由 Deep Agents 注入层动态读取。
  * @param agent 当前执行智能体。
  * @returns 模型可见工具定义列表。
  */
@@ -42,11 +45,8 @@ export async function listAvailableModelToolSpecsForCenter(
     agent?: BaseAgent,
 ): Promise<OpenAiToolSpec[]> {
     const staticTools = listAvailableModelToolSpecs(agent);
-    const dynamicMcpTools = centerDirectory && (!agent || agent.canUseToolCapability("builtin.mcp.call"))
-        ? await listConfiguredMcpModelToolSpecs(centerDirectory)
-        : [];
+    void centerDirectory;
     return [
         ...staticTools,
-        ...dynamicMcpTools,
     ];
 }

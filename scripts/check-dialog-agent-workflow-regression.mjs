@@ -111,16 +111,17 @@ const sessionDomain = readProjectFile("services/center/src/domain/session-domain
 const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
 const deepAgentsAgent = readProjectFile("services/center/src/deepagents-agent.ts");
 const toolRuntime = [
-  readProjectFile("services/center/src/tools/index.ts"),
-  readProjectFile("services/center/src/tools/deepagents-tool-runtime.ts"),
-  readProjectFile("services/center/src/tools/CenterStructuredToolBase.ts"),
-  readProjectFile("services/center/src/tools/command-tool-executor.ts"),
-  readProjectFile("services/center/src/tools/mcp-tool-executor.ts"),
-  readProjectFile("services/center/src/tools/mcp-tool-specs.ts"),
-  readProjectFile("services/center/src/tools/tool-model-specs.ts"),
+  readProjectFile("services/center/src/StructuredTool/index.ts"),
+  readProjectFile("services/center/src/StructuredTool/deepagents-tool-runtime.ts"),
+  readProjectFile("services/center/src/StructuredTool/CenterStructuredToolBase.ts"),
+  readProjectFile("services/center/src/StructuredTool/command-tool-executor.ts"),
+  readProjectFile("services/center/src/StructuredTool/mcp-adapter-config.ts"),
+  readProjectFile("services/center/src/StructuredTool/McpAdapterStructuredTool.ts"),
+  readProjectFile("services/center/src/StructuredTool/mcp-tool-specs.ts"),
+  readProjectFile("services/center/src/StructuredTool/tool-model-specs.ts"),
 ].join("\n");
-const toolCapabilityRegistry = readProjectFile("services/center/src/tools/tool-capability-registry.ts");
-const toolEvents = readProjectFile("services/center/src/tools/tool-events.ts");
+const toolCapabilityRegistry = readProjectFile("services/center/src/StructuredTool/tool-capability-registry.ts");
+const toolEvents = readProjectFile("services/center/src/StructuredTool/tool-events.ts");
 const capabilityApi = readProjectFile("services/center/src/api/capability.ts");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;

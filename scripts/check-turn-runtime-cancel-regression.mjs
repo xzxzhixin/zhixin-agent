@@ -35,8 +35,8 @@ function assertIncludes(text, snippet, message) {
 const cancelRegistry = readText("services/center/src/domain/turn-runtime-cancel-registry.ts");
 const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
 const syncRoute = readText("services/center/src/api/sync-route.ts");
-const toolRuntime = readText("services/center/src/tools/deepagents-tool-runtime.ts");
-const structuredToolBase = readText("services/center/src/tools/CenterStructuredToolBase.ts");
+const toolRuntime = readText("services/center/src/StructuredTool/deepagents-tool-runtime.ts");
+const structuredToolBase = readText("services/center/src/StructuredTool/CenterStructuredToolBase.ts");
 
 assertIncludes(cancelRegistry, "AbortController", "运行时取消注册表必须使用 AbortController 管理真实中止信号");
 assertIncludes(cancelRegistry, "registerRunningTurnRuntime", "运行时取消注册表缺少轮次注册入口");
@@ -48,3 +48,4 @@ assertIncludes(deepAgentsAgent, "isTurnRuntimeAbortError", "Deep Agents 入口�
 assertIncludes(syncRoute, "abortRunningTurnRuntime", "实时取消 API 必须触发运行时中止");
 assertIncludes(toolRuntime, "runtimeSignal?: AbortSignal", "工具上下文必须携带运行时 AbortSignal");
 assertIncludes(structuredToolBase, "throwIfTurnRuntimeAborted", "结构化工具基类必须在执行前后检查取消状态");
+

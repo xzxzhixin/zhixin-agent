@@ -192,17 +192,17 @@ assertIncludes(
   "WebSocket tokenizer.count 必须调用中心服务 tokenizer。",
 );
 assertIncludes(
-  "services/center/src/tools/index.ts",
+  "services/center/src/StructuredTool/index.ts",
   "listAvailableModelToolSpecsForCenter",
   "命令工具必须通过统一工具定义进入模型可见入口。",
 );
 assertIncludes(
-  "services/center/src/tools/index.ts",
+  "services/center/src/StructuredTool/index.ts",
   "UNIFIED_TOOL_CAPABILITY_REGISTRY",
   "必须建立统一工具能力注册表。",
 );
 assertIncludes(
-  "services/center/src/tools/index.ts",
+  "services/center/src/StructuredTool/index.ts",
   "listAvailableModelToolSpecs",
   "Agent 编排必须把统一工具能力转换为模型工具定义。",
 );
@@ -212,7 +212,7 @@ assertIncludes(
   "命令工具真实执行结果必须在 Deep Agents 原生入口回填模型。",
 );
 assertNotIncludes(
-  "services/center/src/tools/command-tool-executor.ts",
+  "services/center/src/StructuredTool/command-tool-executor.ts",
   "planCommandToolForUserText",
   "命令工具不得保留用户文本规划入口，必须通过模型结构化 tool_calls 调用。",
 );
@@ -291,3 +291,4 @@ if (failures.length > 0) {
 }
 
 console.log("本轮 P01-P11 静态回归检查通过。");
+

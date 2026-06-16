@@ -165,7 +165,7 @@ const centerTypes = readText("services/center/src/types.ts");
 const database = readText("services/center/src/database.ts");
 const sessionRepository = readText("services/center/src/data-access/session-repository.ts");
 const sessionTurnEffects = readText("services/center/src/domain/session-turn-effects.ts");
-const toolCapabilityRegistry = readText("services/center/src/tools/tool-capability-registry.ts");
+const toolCapabilityRegistry = readText("services/center/src/StructuredTool/tool-capability-registry.ts");
 const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
 const baseAgent = readText("services/center/src/agents/base-agent.ts");
 const realtime = readText("services/center/src/realtime.ts");
@@ -235,11 +235,11 @@ assertIncludes(
   "旧 task_steps 数据的 source 必须默认迁移为 graph。",
 );
 assertPathNotExists(
-  "services/center/src/tools/todo-list-tool.ts",
+  "services/center/src/StructuredTool/todo-list-tool.ts",
   "旧 todo-list-tool.ts 必须删除，避免继续保留原来的 todolist 代码。",
 );
 assertPathNotExists(
-  "services/center/src/tools/deepagents-todo-tool.ts",
+  "services/center/src/StructuredTool/deepagents-todo-tool.ts",
   "Deep Agents 自带 todoList，中心服务不得继续保留 deepagents-todo-tool.ts 包装工具。",
 );
 assertIncludes(
@@ -614,20 +614,20 @@ assertPathExists(
   "中心服务对外暴露 API 必须集中到 services/center/src/api。",
 );
 assertPathExists(
-  "services/center/src/tools",
-  "中心服务内联工具必须集中到 services/center/src/tools。",
+  "services/center/src/StructuredTool",
+  "中心服务内联工具必须集中到 services/center/src/StructuredTool。",
 );
 assertPathExists(
   "services/center/src/agents",
   "智能体执行类必须集中到 services/center/src/agents。",
 );
 assertPathExists(
-  "services/center/src/tools/create-long-term-agent-tool.ts",
-  "创建长期智能体工具必须是 tools 下独立文件。",
+  "services/center/src/StructuredTool/CreateLongTermAgentStructuredTool.ts",
+  "创建长期智能体工具必须是 StructuredTool 下独立文件。",
 );
 assertPathExists(
-  "services/center/src/tools/create-sub-agent-tool.ts",
-  "创建子智能体工具必须是 tools 下独立文件。",
+  "services/center/src/StructuredTool/CreateSubAgentStructuredTool.ts",
+  "创建子智能体工具必须是 StructuredTool 下独立文件。",
 );
 for (const agentFile of [
   "services/center/src/agents/base-agent.ts",
@@ -646,7 +646,7 @@ const agentSources = existsSync(join(root, "services/center/src/agents"))
       .map((file) => readText(file))
       .join("\n")
   : "";
-const toolRuntime = readText("services/center/src/tools/index.ts") + readText("services/center/src/tools/tool-capability-registry.ts");
+const toolRuntime = readText("services/center/src/StructuredTool/index.ts") + readText("services/center/src/StructuredTool/tool-capability-registry.ts");
 for (const className of [
   "class BaseAgent",
   "class MainAgent",
@@ -721,3 +721,4 @@ if (failures.length > 0) {
 }
 
 console.log("本轮长任务/WebSocket/LangChain/智能体架构回归检查通过。");
+

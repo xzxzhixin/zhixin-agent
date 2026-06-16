@@ -4,7 +4,7 @@ import {
     listMcpConfigs,
     saveExtensionJson,
 } from "../domain/extension-domain.js";
-import {listMcpToolViewsForServerConfig} from "../tools/index.js";
+import {listMcpToolViewsForServerConfig} from "../StructuredTool/index.js";
 import type {CenterApiRouteContext} from "./route-context.js";
 
 /**

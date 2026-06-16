@@ -64,10 +64,11 @@ const sessionDomain = readProjectFile("services/center/src/domain/session-domain
 const sessionTurnEffects = readProjectFile("services/center/src/domain/session-turn-effects.ts");
 const workflowDomain = readProjectFile("services/center/src/domain/workflow-domain.ts");
 const toolRuntime = [
-  readProjectFile("services/center/src/tools/index.ts"),
-  readProjectFile("services/center/src/tools/command-tool-executor.ts"),
-  readProjectFile("services/center/src/tools/mcp-tool-executor.ts"),
-  readProjectFile("services/center/src/tools/mcp-tool-specs.ts"),
+  readProjectFile("services/center/src/StructuredTool/index.ts"),
+  readProjectFile("services/center/src/StructuredTool/command-tool-executor.ts"),
+  readProjectFile("services/center/src/StructuredTool/mcp-adapter-config.ts"),
+  readProjectFile("services/center/src/StructuredTool/McpAdapterStructuredTool.ts"),
+  readProjectFile("services/center/src/StructuredTool/mcp-tool-specs.ts"),
 ].join("\n");
 const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
 const sharedTypes = readProjectFile("packages/shared/src/index.ts");
