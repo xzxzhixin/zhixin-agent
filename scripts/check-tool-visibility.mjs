@@ -131,8 +131,8 @@ assertIncludes(
 );
 assertIncludes(
   mcpAdapterToolFilePath,
-  "this.adapterTool.invoke(arg)",
-  "MCP tools/call 必须由官方 adapter tool 执行，中心服务只做包装审计。",
+  "this.adapterTool.invoke(normalizedArg)",
+  "MCP tools/call 必须由官方 adapter tool 执行，中心服务只做参数规范化、包装审计。",
 );
 assertIncludes(
   mcpAdapterToolFilePath,

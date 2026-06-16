@@ -53,7 +53,14 @@ export function createMcpAdapterClientConfig(
         mcpServers,
         prefixToolNameWithServerName: true,
         additionalToolNamePrefix: MCP_ADAPTER_TOOL_NAME_PREFIX,
-        useStandardContentBlocks: true,
+        // outputHandling: 文本结果进入模型上下文，资源类结果保留为 artifact，遵循官方 adapter 默认语义。
+        outputHandling: {
+            text: "content",
+            image: "content",
+            audio: "content",
+            resource: "artifact",
+            resource_link: "artifact",
+        },
         throwOnLoadError: false,
         onConnectionError: "ignore",
     };

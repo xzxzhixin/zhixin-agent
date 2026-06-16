@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 
 import type {StructuredToolInterface} from "@langchain/core/tools";
 import type {ToolCallStream} from "@langchain/langgraph";
-import {createDeepAgent, registerHarnessProfile, type DeepAgentRunStream} from "deepagents";
+import {createDeepAgent, type DeepAgentRunStream} from "deepagents";
 
 import {CenterToolChoiceMiddleware} from "./AgentMiddleware/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
@@ -21,42 +21,23 @@ import {commitMainAgentMemoryAfterTurn} from "./domain/session-turn-effects.js";
 import {handleWorkerMessage, startWorkerTask} from "./domain/workflow-domain.js";
 import {
     createLangChainChatModel,
-    listMainAgentMemoryPromptEntries,
-    listSessionHistoryPromptMessages,
     type ProviderModelGatewayResult,
 } from "./model-gateway-runtime.js";
 import {formatCenterLocalDateTime} from "./time.js";
+import type {
+    DeepAgentsAgentRunInput,
+    DeepAgentsToolExecutionContext,
+} from "./StructuredTool/index.js";
 import {
     appendToolVisibilityEvents,
     createDeepAgentsStructuredToolMiddleware,
     createDeepAgentsToolExecutionContext,
-    listUnifiedToolCapabilities,
-    toModelSafeToolName,
-} from "./StructuredTool/index.js";
-import type {
-    DeepAgentsAgentRunInput,
-    DeepAgentsToolExecutionContext,
 } from "./StructuredTool/index.js";
 
 type CenterDeepAgentRunStream = DeepAgentRunStream<
     Record<string, unknown>,
     readonly StructuredToolInterface[]
 >;
-
-/** DEEPAGENTS_BUILTIN_TOOL_NAMES：Deep Agents 默认内置工具名；中心服务当前只允许模型看到中心统一注入的真实工具。 */
-const DEEPAGENTS_BUILTIN_TOOL_NAMES = [
-    "write_todos",
-    "ls",
-    "read_file",
-    "write_file",
-    "edit_file",
-    "glob",
-    "grep",
-    "task",
-];
-
-/** centerDeepAgentsProfileRegistered：避免同进程重复注册中心服务专用 Deep Agents profile。 */
-let centerDeepAgentsProfileRegistered = false;
 
 /**
  * runDeepAgentsAgentTurn：直接用 Deep Agents 原生 agent 执行当前轮次。
@@ -211,115 +192,24 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
             : "当前轮次没有可用工具。",
         payload: {
             toolNames: tools.map((tool) => tool.name),
+            // tools: 记录本轮真实注入给模型的工具名与描述，便于和 MCP 管理页展示做事实对照。
+            tools: tools.map((tool) => {
+                return {
+                    name: tool.name,
+                    description: tool.description,
+                };
+            }),
             toolCount: tools.length,
         },
     });
-    const systemPrompt = await buildCenterDeepAgentSystemPrompt(
-        context,
-        tools,
-    );
-    registerCenterDeepAgentsHarnessProfile();
     return createDeepAgent({
         model: createLangChainChatModel(context.runtime),
         tools,
-        systemPrompt,
+        systemPrompt: `你是通用型智能助手，长任务要拆解成小任务执行。`,
         middleware: [
             new CenterToolChoiceMiddleware(context).create(),
         ],
     });
-}
-
-/**
- * registerCenterDeepAgentsHarnessProfile：注册中心服务专用 Deep Agents profile。
- *
- * @remarks
- * Deep Agents 默认会给模型追加 todo、文件和 task 内置工具；本项目的工具调用必须全部通过中心服务
- * StructuredTool 和 MCP 工具闭环完成，所以这里只按 Deep Agents 官方 profile 能力排除内置工具名，
- * 不解析用户提示词，也不指定 tool_choice。
- */
-function registerCenterDeepAgentsHarnessProfile(): void {
-    if (centerDeepAgentsProfileRegistered) {
-        return;
-    }
-
-    for (const providerName of ["openai", "anthropic"]) {
-        registerHarnessProfile(
-            providerName,
-            {
-                excludedTools: DEEPAGENTS_BUILTIN_TOOL_NAMES,
-                generalPurposeSubagent: {
-                    enabled: false,
-                },
-            },
-        );
-    }
-    centerDeepAgentsProfileRegistered = true;
-}
-
-/**
- * buildCenterDeepAgentSystemPrompt：构造中心服务当前轮次的系统提示。
- *
- * @param context 当前轮次工具执行上下文。
- * @param tools 当前轮次真实注入 Deep Agents 的工具列表。
- * @returns 系统提示。
- */
-async function buildCenterDeepAgentSystemPrompt(
-    context: DeepAgentsToolExecutionContext,
-    tools: StructuredToolInterface[],
-): Promise<string> {
-    const staticCapabilities = listUnifiedToolCapabilities()
-        .filter((capability) => {
-            return capability.availability === "available"
-                && capability.toolKind !== "mcp"
-                && context.executionAgent.canUseToolCapability(capability.toolId);
-        })
-        .map((capability) => toModelSafeToolName(capability.toolId));
-    const dynamicMcpNames = tools
-        .filter((tool) => tool.name.startsWith("mcp__"))
-        .map((tool) => tool.name);
-    const memoryEntries = await listMainAgentMemoryPromptEntries(
-        context.input.database,
-        context.input.userText,
-    );
-    const memoryPrompt = memoryEntries.map((memory, index) => {
-        const source = memory.sourceSessionId && memory.sourceTurnId
-            ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
-            : "来源未绑定";
-        return `${index + 1}. 关键词：${memory.keywords || "无"}；摘要：${memory.summary || "无"}；${source}`;
-    }).join("\n");
-    const sessionHistoryPrompt = listSessionHistoryPromptMessages(
-        context.input.database,
-        context.input.sent.sessionId,
-        context.input.sent.turnId,
-    ).map((message) => {
-        return `${message.role}: ${message.content ?? ""}`;
-    }).join("\n");
-
-    return [
-        "中心服务负责事实源、权限、安全、审计、消息持久化、记忆写入、用量记录和多端同步。",
-        "你必须通过结构化工具执行命令、MCP 和智能体领域动作，不得在自然语言里伪造工具已执行。",
-        "用户明确要求使用命令工具、执行命令、查看本机环境、读取 Node/pnpm/npm/git 等本机版本或让你实际检查系统状态时，必须调用 `builtin_command_run`；不要只回复代码块、命令文本或说自己可以执行。",
-        "如果需要调用工具，必须返回结构化工具调用和合法 JSON 参数；不要用自然语言、Markdown 代码块或伪 JSON 代替工具调用。",
-        "当长期记忆或当前会话历史明确记录了用户对助手称呼、自称方式、身份偏好或稳定事实时，相关回答必须优先遵循这些记录。",
-        "如果用户询问你的名称、称呼、身份或用户自己的稳定身份，而记忆与会话历史里没有明确记录，只能如实说明当前没有可确认记录，不能自行编造通用自我介绍或名称。",
-        "Deep Agents 自带 todoList、文件系统和 task 工具只作为执行内核能力，不得绕过中心服务事实源去宣称写入核心数据。",
-        `当前模型：${context.runtime.modelSelection.model}`,
-        context.runtime.modelSelection.reasoningEffort
-            ? `当前推理深度：${context.runtime.modelSelection.reasoningEffort}`
-            : "当前推理深度：未设置",
-        staticCapabilities.length > 0
-            ? `当前中心服务静态工具能力：${staticCapabilities.join(", ")}`
-            : "当前没有可用静态工具能力。",
-        dynamicMcpNames.length > 0
-            ? `当前可用 MCP adapter 工具：${dynamicMcpNames.join(", ")}`
-            : "当前没有可用 MCP adapter 工具。",
-        memoryPrompt
-            ? `主智能体长期记忆：\n${memoryPrompt}`
-            : "主智能体长期记忆：无。",
-        sessionHistoryPrompt
-            ? `当前会话历史：\n${sessionHistoryPrompt}`
-            : "当前会话历史：无。",
-    ].join("\n\n");
 }
 
 /**

@@ -249,9 +249,39 @@ function resolveEmptyToolNameByArguments(
             argumentKeys,
         );
     });
+    const projectPathOnlyIdeaContextTool = resolveProjectPathOnlyIdeaContextTool(
+        argumentKeys,
+        matchedTools,
+    );
+    if (projectPathOnlyIdeaContextTool) {
+        return projectPathOnlyIdeaContextTool;
+    }
     return matchedTools.length === 1
         ? matchedTools[0]?.name ?? null
         : null;
+}
+
+/**
+ * resolveProjectPathOnlyIdeaContextTool：恢复供应商丢失工具名的 IDEA 项目上下文工具。
+ *
+ * @param argumentKeys 模型实际返回的参数字段集合。
+ * @param matchedTools 当前参数字段可匹配的工具列表。
+ * @returns 可安全恢复的 IDEA 上下文工具名；无法确认时返回 null。
+ */
+function resolveProjectPathOnlyIdeaContextTool(
+    argumentKeys: string[],
+    matchedTools: StructuredToolInterface[],
+): string | null {
+    const isProjectPathOnly = argumentKeys.length === 1
+        && argumentKeys[0] === "projectPath";
+    if (!isProjectPathOnly) {
+        return null;
+    }
+    const ideaContextTool = matchedTools.find((tool) => {
+        return tool.name === "mcp__idea__get_all_open_file_paths";
+    });
+    // 该恢复只基于结构化参数和当前可见工具集合，不读取用户原文；目标工具为只读 IDEA 上下文工具。
+    return ideaContextTool?.name ?? null;
 }
 
 /**

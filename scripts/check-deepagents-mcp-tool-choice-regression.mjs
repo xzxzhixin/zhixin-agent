@@ -49,6 +49,14 @@ const toolChoiceMiddlewarePath = join(
     "AgentMiddleware",
     "CenterToolChoiceMiddleware.ts",
 );
+const mcpAdapterStructuredToolPath = join(
+    rootDirectory,
+    "services",
+    "center",
+    "src",
+    "StructuredTool",
+    "McpAdapterStructuredTool.ts",
+);
 
 const policySource = readFileSync(
     policyPath,
@@ -72,6 +80,10 @@ const mcpAdapterConfigSource = readFileSync(
 );
 const toolChoiceMiddlewareSource = readFileSync(
     toolChoiceMiddlewarePath,
+    "utf8",
+);
+const mcpAdapterStructuredToolSource = readFileSync(
+    mcpAdapterStructuredToolPath,
     "utf8",
 );
 
@@ -128,17 +140,30 @@ assert(
     "CenterToolChoiceMiddleware.ts 必须记录空工具名恢复诊断事件。",
 );
 assert(
-    /registerHarnessProfile/u.test(deepAgentsSource)
-    && /DEEPAGENTS_BUILTIN_TOOL_NAMES/u.test(deepAgentsSource)
-    && /providerName of \["openai", "anthropic"\]/u.test(deepAgentsSource)
-    && /excludedTools/u.test(deepAgentsSource),
-    "deepagents-agent.ts 必须注册中心服务专用 Deep Agents profile，排除默认内置工具，避免模型工具表被非中心工具污染。",
+    /resolveProjectPathOnlyIdeaContextTool/u.test(toolChoiceMiddlewareSource)
+    && /mcp__idea__get_all_open_file_paths/u.test(toolChoiceMiddlewareSource),
+    "CenterToolChoiceMiddleware.ts 必须兼容供应商返回空工具名且仅带 projectPath 的 IDEA 只读上下文工具调用。",
 );
 assert(
-    /"write_todos"/u.test(deepAgentsSource)
-    && /"read_file"/u.test(deepAgentsSource)
-    && /"task"/u.test(deepAgentsSource),
-    "deepagents-agent.ts 必须明确排除 Deep Agents 默认 todo、文件和 task 工具。",
+    /normalizeMcpToolArguments/u.test(mcpAdapterStructuredToolSource)
+    && /resolveCurrentProjectPath/u.test(mcpAdapterStructuredToolSource)
+    && /projectPath:\s*currentProjectPath/u.test(mcpAdapterStructuredToolSource),
+    "McpAdapterStructuredTool.ts 必须把 IDEA MCP 空 projectPath 或根路径补全为当前项目会话路径，避免模型选对工具但参数为空时触发 MCP schema 异常。",
+);
+assert(
+    /isContentAndArtifactOutput/u.test(mcpAdapterStructuredToolSource)
+    && /isMcpTextContentBlock/u.test(mcpAdapterStructuredToolSource),
+    "McpAdapterStructuredTool.ts 必须优先提取官方 adapter content 文本，避免 MCP content/artifact 重复回填模型和前端卡片。",
+);
+assert(
+    /toolNames: tools\.map/u.test(deepAgentsSource)
+    && /description: tool\.description/u.test(deepAgentsSource),
+    "deepagents-agent.ts 必须在工具快照中记录当前模型真实可见的工具名和描述，便于排查 MCP 管理页与模型注入差异。",
+);
+assert(
+    !/excludedTools/u.test(deepAgentsSource)
+    && !/DEEPAGENTS_BUILTIN_TOOL_NAMES/u.test(deepAgentsSource),
+    "deepagents-agent.ts 不得在回归脚本要求下恢复 Deep Agents 默认工具排除；工具选择应以当前实际注入工具快照为准。",
 );
 assert(
     /MultiServerMCPClient/u.test(deepAgentsToolMiddlewareSource)

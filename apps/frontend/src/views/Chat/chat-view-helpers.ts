@@ -982,17 +982,12 @@ function resolveProcessGroupTitle(event: EventRecord): string {
         ) || "工具";
     }
     if (event.eventType.startsWith("tool.mcp.")) {
-        const serverId = readEventText(
-            event,
-            "serverId",
-        );
         const toolName = readEventText(
             event,
             "toolName",
         );
-        return serverId || toolName
-            ? `MCP：${serverId}${toolName ? ` · ${toolName}` : ""}`
-            : "MCP";
+        // MCP 过程卡片标题直接使用模型实际调用的安全工具名，和命令卡片一样展示真实工具入口。
+        return toolName || "MCP";
     }
     if (event.eventType.startsWith("tool.plugin.")) {
         const pluginName = readEventText(

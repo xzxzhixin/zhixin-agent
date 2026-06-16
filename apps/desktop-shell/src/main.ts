@@ -160,6 +160,12 @@ const EXTERNAL_LINK_PROTOCOLS = new Set([
   "https:",
   "mailto:",
 ]);
+// hasSingleInstanceLock: Electron 应用级单例锁，开发期和发布后都禁止第二个桌面壳重复拉起中心服务。
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
 
 // mainWindow: 主窗口引用，避免被垃圾回收。
 let mainWindow: BrowserWindow | null = null;
@@ -1229,6 +1235,29 @@ function createTray(): void {
   ]));
 }
 
+/**
+ * focusMainWindow：唤醒已经存在的桌面主窗口。
+ *
+ * @returns 没有返回值。
+ */
+function focusMainWindow(): void {
+  if (!mainWindow) {
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+}
+
+app.on("second-instance", () => {
+  // second-instance: 第二次双击或再次启动只唤醒已有窗口，不再创建新窗口或重复启动中心服务。
+  focusMainWindow();
+});
+
 void app.whenReady().then(async () => {
   registerIpc();
   startCenterService();
@@ -1245,7 +1274,9 @@ app.on("window-all-closed", () => {
 app.on("activate", () => {
   if (!mainWindow) {
     void createWindow();
+    return;
   }
+  focusMainWindow();
 });
 
 app.on("before-quit", () => {
