@@ -4,7 +4,7 @@
 
 **目标：** 删除当前 Deep Agents 注入 MCP tools 的旧链路，按 Provider、Wrapper、ResultNormalizer 三层重建 Agent 对话主链路 MCP 工具运行时。
 
-**架构：** `deepagents-tool-middleware.ts` 只保留 middleware 装配职责；MCP 配置读取和官方 adapter 工具发现进入 `McpToolProvider.ts`；中心服务审计包装进入 `McpToolWrapper.ts`；adapter 输出规范化进入 `McpToolResultNormalizer.ts`。MCP 协议发现和调用仍只通过 `@langchain/mcp-adapters` 的 `MultiServerMCPClient.getTools()` 与官方 tool `invoke()` 完成。
+**架构：** `DeepAgentsToolFactory.ts` 只保留当前轮次工具工厂装配职责；MCP 配置读取和官方 adapter 工具发现进入 `McpToolProvider.ts`；中心服务审计包装进入 `McpToolWrapperStructuredTool.ts`；adapter 输出规范化进入 `McpToolResultNormalizer.ts`。MCP 协议发现和调用仍只通过 `@langchain/mcp-adapters` 的 `MultiServerMCPClient.getTools()` 与官方 tool `invoke()` 完成。
 
 **技术栈：** Node.js 20+、TypeScript、pnpm workspace、Deep Agents、LangChain `StructuredTool`、`@langchain/mcp-adapters`。
 
@@ -14,20 +14,20 @@
 
 - 创建：`services/center/src/StructuredTool/McpToolResultNormalizer.ts`  
   职责：把官方 adapter 返回值规范成模型回填文本、UI 摘要和审计 artifact，隔离 schema mismatch 与巨大 artifact。
-- 创建：`services/center/src/StructuredTool/McpToolWrapper.ts`  
+- 创建：`services/center/src/StructuredTool/McpToolWrapperStructuredTool.ts`  
   职责：继承 `CenterStructuredToolBase`，包装官方 adapter tool，写入 `tool.mcp.started/completed/failed`，处理 IDEA 项目路径补参。
 - 创建：`services/center/src/StructuredTool/McpToolProvider.ts`  
   职责：读取当前会话 MCP 配置，创建官方 `MultiServerMCPClient`，调用 `getTools()`，注册 cleanup，返回 wrapper 后的 MCP tools。
-- 修改：`services/center/src/StructuredTool/deepagents-tool-middleware.ts`  
-  职责收缩：只合并命令、MCP provider、agent/team 工具，不再直接创建 MCP client、调用 `getTools()` 或包装 adapter tool。
+- 创建：`services/center/src/StructuredTool/DeepAgentsToolFactory.ts`  
+  职责：只合并命令、MCP provider、agent/team 工具，不直接创建 MCP client、调用 `getTools()` 或包装 adapter tool。
 - 修改：`services/center/src/StructuredTool/index.ts`  
   导出新的 provider、wrapper、normalizer；移除旧 `McpAdapterStructuredTool` 主链路导出。
 - 删除：`services/center/src/StructuredTool/McpAdapterStructuredTool.ts`  
   删除旧 wrapper、参数补全、事件、结果规范化混合文件，避免新旧链路并存。
 - 修改：`scripts/check-deepagents-mcp-tool-choice-regression.mjs`  
-  更新静态断言，确认 middleware 文件不再承载 MCP 细节，主链路使用新三层文件。
+  更新静态断言，确认工具工厂文件不再承载 MCP 细节，主链路使用新三层文件。
 - 修改：`scripts/check-tool-visibility.mjs`  
-  更新静态断言，指向 `McpToolWrapper.ts` 和 `McpToolResultNormalizer.ts`。
+  更新静态断言，指向 `McpToolWrapperStructuredTool.ts` 和 `McpToolResultNormalizer.ts`。
 - 修改：`设计.md`、`架构.md`、`功能清单与关系.md`  
   实现完成后同步实际模块边界与回归范围。
 
@@ -69,7 +69,7 @@ const mcpToolWrapperPath = join(
     "center",
     "src",
     "StructuredTool",
-    "McpToolWrapper.ts",
+    "McpToolWrapperStructuredTool.ts",
 );
 const mcpToolResultNormalizerPath = join(
     rootDirectory,
@@ -108,11 +108,11 @@ const mcpToolResultNormalizerSource = readFileSync(
 assertNotContains(
     deepAgentsToolMiddlewareSource,
     /MultiServerMCPClient|createMcpAdapterClient|getTools\(\)|invoke\(normalizedArg\)|normalizeMcpToolArguments|normalizeMcpAdapterOutput/u,
-    "deepagents-tool-middleware.ts 只能做 middleware 装配，不得承载 MCP client、getTools、参数补全或结果规范化细节。",
+    "DeepAgentsToolFactory.ts 只能做工具工厂装配，不得承载 MCP client、getTools、参数补全或结果规范化细节。",
 );
 assert(
     /buildMcpToolsForDeepAgents/u.test(deepAgentsToolMiddlewareSource),
-    "deepagents-tool-middleware.ts 必须通过 McpToolProvider 提供 MCP tools。",
+    "DeepAgentsToolFactory.ts 必须通过 McpToolProvider 提供 MCP tools。",
 );
 ```
 
@@ -124,14 +124,14 @@ assert(
 assert(
     /MultiServerMCPClient/u.test(mcpToolProviderSource)
     && /getTools\(\)/u.test(mcpToolProviderSource)
-    && /McpToolWrapper/u.test(mcpToolProviderSource),
+    && /McpToolWrapperStructuredTool/u.test(mcpToolProviderSource),
     "McpToolProvider.ts 必须使用官方 MultiServerMCPClient.getTools() 并返回中心服务包装后的 MCP tools。",
 );
 assert(
-    /class McpToolWrapper/u.test(mcpToolWrapperSource)
+    /class McpToolWrapperStructuredTool/u.test(mcpToolWrapperSource)
     && /extends CenterStructuredToolBase/u.test(mcpToolWrapperSource)
     && /this\.adapterTool\.invoke\(normalizedArg\)/u.test(mcpToolWrapperSource),
-    "McpToolWrapper.ts 必须继承中心服务 StructuredTool 基类，并由官方 adapter tool 执行 MCP tools/call。",
+    "McpToolWrapperStructuredTool.ts 必须继承中心服务 StructuredTool 基类，并由官方 adapter tool 执行 MCP tools/call。",
 );
 assert(
     /normalizeMcpToolResult/u.test(mcpToolResultNormalizerSource)
@@ -149,7 +149,7 @@ assert(
 node scripts/check-deepagents-mcp-tool-choice-regression.mjs
 ```
 
-预期：失败，提示缺少 `McpToolProvider.ts`、`McpToolWrapper.ts` 或 `McpToolResultNormalizer.ts`。
+预期：失败，提示缺少 `McpToolProvider.ts`、`McpToolWrapperStructuredTool.ts` 或 `McpToolResultNormalizer.ts`。
 
 - [ ] **步骤 6：提交脚本边界**
 
@@ -282,7 +282,7 @@ git commit -m "feat: 新增 MCP 工具结果规范化模块"
 ## 任务 3：创建 MCP 工具包装类
 
 **文件：**
-- 创建：`services/center/src/StructuredTool/McpToolWrapper.ts`
+- 创建：`services/center/src/StructuredTool/McpToolWrapperStructuredTool.ts`
 - 后续删除：`services/center/src/StructuredTool/McpAdapterStructuredTool.ts`
 
 - [ ] **步骤 1：创建 wrapper 类骨架**
@@ -307,8 +307,8 @@ import {normalizeMcpToolResult} from "./McpToolResultNormalizer.js";
 /** MCP_TOOL_INTERNAL_TOOL_ID：官方 MCP adapter 工具统一继承的中心服务权限 ID。 */
 export const MCP_TOOL_INTERNAL_TOOL_ID = "builtin.mcp.call";
 
-/** McpToolWrapper：中心服务对官方 MCP adapter tool 的审计包装。 */
-export class McpToolWrapper extends CenterStructuredToolBase<ToolInputSchemaBase> {
+/** McpToolWrapperStructuredTool：中心服务对官方 MCP adapter tool 的审计包装。 */
+export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolInputSchemaBase> {
     /** description: 复用并补充官方 adapter tool 描述。 */
     override description: string;
     /** schema: 复用官方 adapter tool schema。 */
@@ -495,12 +495,12 @@ function normalizeMcpToolDescription(adapterTool: StructuredToolInterface): stri
 node scripts/check-deepagents-mcp-tool-choice-regression.mjs
 ```
 
-预期：仍失败，但失败原因不再是 `McpToolWrapper.ts` 缺失。
+预期：仍失败，但失败原因不再是 `McpToolWrapperStructuredTool.ts` 缺失。
 
 - [ ] **步骤 7：提交 wrapper**
 
 ```powershell
-git add -- services/center/src/StructuredTool/McpToolWrapper.ts
+git add -- services/center/src/StructuredTool/McpToolWrapperStructuredTool.ts
 git commit -m "feat: 新增 MCP 工具审计包装类"
 ```
 
@@ -508,7 +508,7 @@ git commit -m "feat: 新增 MCP 工具审计包装类"
 
 **文件：**
 - 创建：`services/center/src/StructuredTool/McpToolProvider.ts`
-- 修改：`services/center/src/StructuredTool/deepagents-tool-middleware.ts`
+- 创建：`services/center/src/StructuredTool/DeepAgentsToolFactory.ts`
 
 - [ ] **步骤 1：创建 Provider**
 
@@ -519,7 +519,7 @@ import type {StructuredToolInterface} from "@langchain/core/tools";
 
 import type {DeepAgentsToolExecutionContext} from "./deepagents-tool-runtime.js";
 import {createMcpAdapterClient} from "./mcp-adapter-config.js";
-import {McpToolWrapper} from "./McpToolWrapper.js";
+import {McpToolWrapperStructuredTool} from "./McpToolWrapperStructuredTool.js";
 
 /**
  * buildMcpToolsForDeepAgents：按当前轮次上下文发现并包装 MCP tools。
@@ -539,7 +539,7 @@ export async function buildMcpToolsForDeepAgents(
     });
     const adapterTools = await mcpClient.getTools();
     return adapterTools.map((adapterTool) => {
-        return new McpToolWrapper(
+        return new McpToolWrapperStructuredTool(
             context,
             adapterTool,
         );
@@ -549,7 +549,7 @@ export async function buildMcpToolsForDeepAgents(
 
 - [ ] **步骤 2：修改 middleware 导入**
 
-在 `deepagents-tool-middleware.ts` 删除：
+在 `DeepAgentsToolFactory.ts` 中不要引入：
 
 ```ts
 import {
@@ -607,7 +607,7 @@ node scripts/check-deepagents-mcp-tool-choice-regression.mjs
 - [ ] **步骤 5：提交 provider 与 middleware**
 
 ```powershell
-git add -- services/center/src/StructuredTool/McpToolProvider.ts services/center/src/StructuredTool/deepagents-tool-middleware.ts
+git add -- services/center/src/StructuredTool/McpToolProvider.ts services/center/src/StructuredTool/DeepAgentsToolFactory.ts
 git commit -m "feat: 重建 MCP 工具 provider 注入链路"
 ```
 
@@ -636,8 +636,8 @@ export {
 } from "./McpToolProvider.js";
 export {
     MCP_TOOL_INTERNAL_TOOL_ID,
-    McpToolWrapper,
-} from "./McpToolWrapper.js";
+    McpToolWrapperStructuredTool,
+} from "./McpToolWrapperStructuredTool.js";
 export {
     normalizeMcpToolResult,
 } from "./McpToolResultNormalizer.js";
@@ -691,7 +691,7 @@ services/center/src/StructuredTool/McpAdapterStructuredTool.ts
 替换为：
 
 ```text
-services/center/src/StructuredTool/McpToolWrapper.ts
+services/center/src/StructuredTool/McpToolWrapperStructuredTool.ts
 ```
 
 涉及结果规范化的断言改为读取：
@@ -712,7 +712,7 @@ services/center/src/StructuredTool/McpToolResultNormalizer.ts
 
 ```js
 "McpToolProvider.ts",
-"McpToolWrapper.ts",
+"McpToolWrapperStructuredTool.ts",
 "McpToolResultNormalizer.ts",
 ```
 
@@ -750,8 +750,8 @@ git commit -m "test: 更新 MCP 工具运行时回归检查"
 在“Deep Agents 工具三层重构设计”或新增“Deep Agents MCP 工具运行时重建设计”一级标题中记录：
 
 ```md
-- ✅ Deep Agents MCP 对话主链路拆为 `McpToolProvider`、`McpToolWrapper` 和 `McpToolResultNormalizer`。
-- ✅ `deepagents-tool-middleware.ts` 只承担 Deep Agents middleware 工具装配职责，不再内嵌 MCP client、`getTools()`、IDEA 参数补全或结果规范化细节。
+- ✅ Deep Agents MCP 对话主链路拆为 `McpToolProvider`、`McpToolWrapperStructuredTool` 和 `McpToolResultNormalizer`。
+- ✅ `DeepAgentsToolFactory.ts` 只承担 Deep Agents 当前轮次工具工厂职责，不使用 middleware 命名，也不内嵌 MCP client、`getTools()`、IDEA 参数补全或结果规范化细节。
 - ✅ MCP adapter 返回的 `structuredContent` 和 `artifact` 只进入审计 payload，不再要求与 MCP Server 声明输出 schema 匹配后才允许轮次继续。
 ```
 
@@ -760,7 +760,7 @@ git commit -m "test: 更新 MCP 工具运行时回归检查"
 在 `services/center/src/StructuredTool` 目录说明中补充：
 
 ```md
-MCP 对话主链路使用 `McpToolProvider` 读取配置并调用官方 `MultiServerMCPClient.getTools()`，`McpToolWrapper` 继承中心服务 `StructuredTool` 基类做权限和审计包装，`McpToolResultNormalizer` 负责模型文本、UI 摘要和审计 artifact 规范化；`deepagents-tool-middleware.ts` 只负责工具装配。
+MCP 对话主链路使用 `McpToolProvider` 读取配置并调用官方 `MultiServerMCPClient.getTools()`，`McpToolWrapperStructuredTool` 继承中心服务 `StructuredTool` 基类做权限和审计包装，`McpToolResultNormalizer` 负责模型文本、UI 摘要和审计 artifact 规范化；`DeepAgentsToolFactory.ts` 只负责工具工厂装配。
 ```
 
 - [ ] **步骤 3：更新功能清单与关系.md**
@@ -769,9 +769,9 @@ MCP 对话主链路使用 `McpToolProvider` 读取配置并调用官方 `MultiSe
 
 ```text
 services/center/src/StructuredTool/McpToolProvider.ts
-services/center/src/StructuredTool/McpToolWrapper.ts
+services/center/src/StructuredTool/McpToolWrapperStructuredTool.ts
 services/center/src/StructuredTool/McpToolResultNormalizer.ts
-services/center/src/StructuredTool/deepagents-tool-middleware.ts
+services/center/src/StructuredTool/DeepAgentsToolFactory.ts
 ```
 
 测试关注点增加：

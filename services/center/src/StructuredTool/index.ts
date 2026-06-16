@@ -13,8 +13,9 @@ export {
     appendToolVisibilityEvents,
 } from "./tool-events.js";
 export {
-    createDeepAgentsStructuredToolMiddleware,
-} from "./deepagents-tool-middleware.js";
+    createDeepAgentsStructuredToolFactory,
+    DeepAgentsToolFactory,
+} from "./DeepAgentsToolFactory.js";
 export {
     createDeepAgentsToolExecutionContext,
 } from "./deepagents-tool-runtime.js";
@@ -72,8 +73,8 @@ export {
 } from "./McpToolProvider.js";
 export {
     MCP_TOOL_INTERNAL_TOOL_ID,
-    McpToolWrapper,
-} from "./McpToolWrapper.js";
+    McpToolWrapperStructuredTool,
+} from "./McpToolWrapperStructuredTool.js";
 export {
     normalizeMcpToolResult,
 } from "./McpToolResultNormalizer.js";

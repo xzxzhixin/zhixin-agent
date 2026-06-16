@@ -25,13 +25,13 @@ const mcpToolSpecsPath = join(
     "StructuredTool",
     "mcp-tool-specs.ts",
 );
-const deepAgentsToolMiddlewarePath = join(
+const deepAgentsToolFactoryPath = join(
     rootDirectory,
     "services",
     "center",
     "src",
     "StructuredTool",
-    "deepagents-tool-middleware.ts",
+    "DeepAgentsToolFactory.ts",
 );
 const mcpAdapterConfigPath = join(
     rootDirectory,
@@ -63,7 +63,7 @@ const mcpToolWrapperPath = join(
     "center",
     "src",
     "StructuredTool",
-    "McpToolWrapper.ts",
+    "McpToolWrapperStructuredTool.ts",
 );
 const mcpToolResultNormalizerPath = join(
     rootDirectory,
@@ -86,8 +86,8 @@ const mcpToolSpecsSource = readFileSync(
     mcpToolSpecsPath,
     "utf8",
 );
-const deepAgentsToolMiddlewareSource = readFileSync(
-    deepAgentsToolMiddlewarePath,
+const deepAgentsToolFactorySource = readFileSync(
+    deepAgentsToolFactoryPath,
     "utf8",
 );
 const mcpAdapterConfigSource = readFileSync(
@@ -172,7 +172,7 @@ assert(
     /normalizeMcpToolArguments/u.test(mcpToolWrapperSource)
     && /resolveCurrentProjectPath/u.test(mcpToolWrapperSource)
     && /projectPath:\s*currentProjectPath/u.test(mcpToolWrapperSource),
-    "McpToolWrapper.ts 必须把 IDEA MCP 空 projectPath 或根路径补全为当前项目会话路径，避免模型选对工具但参数为空时触发 MCP schema 异常。",
+    "McpToolWrapperStructuredTool.ts 必须把 IDEA MCP 空 projectPath 或根路径补全为当前项目会话路径，避免模型选对工具但参数为空时触发 MCP schema 异常。",
 );
 assert(
     /isContentAndArtifactOutput/u.test(mcpToolResultNormalizerSource)
@@ -190,25 +190,25 @@ assert(
     "deepagents-agent.ts 不得在回归脚本要求下恢复 Deep Agents 默认工具排除；工具选择应以当前实际注入工具快照为准。",
 );
 assert(
-    /buildMcpToolsForDeepAgents/u.test(deepAgentsToolMiddlewareSource),
-    "deepagents-tool-middleware.ts 必须通过 McpToolProvider 提供 MCP tools。",
+    /buildMcpToolsForDeepAgents/u.test(deepAgentsToolFactorySource),
+    "DeepAgentsToolFactory.ts 必须通过 McpToolProvider 提供 MCP tools。",
 );
 assertNotContains(
-    deepAgentsToolMiddlewareSource,
+    deepAgentsToolFactorySource,
     /MultiServerMCPClient|createMcpAdapterClient|getTools\(\)|invoke\(normalizedArg\)|normalizeMcpToolArguments|normalizeMcpAdapterOutput/u,
-    "deepagents-tool-middleware.ts 只能做 middleware 装配，不得承载 MCP client、getTools、参数补全或结果规范化细节。",
+    "DeepAgentsToolFactory.ts 只能做工具装配，不得承载 MCP client、getTools、参数补全或结果规范化细节。",
 );
 assert(
     /createMcpAdapterClient/u.test(mcpToolProviderSource)
     && /getTools\(\)/u.test(mcpToolProviderSource)
-    && /McpToolWrapper/u.test(mcpToolProviderSource),
+    && /McpToolWrapperStructuredTool/u.test(mcpToolProviderSource),
     "McpToolProvider.ts 必须通过官方 MCP adapter client getTools() 并返回中心服务包装后的 MCP tools。",
 );
 assert(
-    /class McpToolWrapper/u.test(mcpToolWrapperSource)
+    /class McpToolWrapperStructuredTool/u.test(mcpToolWrapperSource)
     && /extends CenterStructuredToolBase/u.test(mcpToolWrapperSource)
     && /this\.adapterTool\.invoke\(normalizedArg\)/u.test(mcpToolWrapperSource),
-    "McpToolWrapper.ts 必须继承中心服务 StructuredTool 基类，并由官方 adapter tool 执行 MCP tools/call。",
+    "McpToolWrapperStructuredTool.ts 必须继承中心服务 StructuredTool 基类，并由官方 adapter tool 执行 MCP tools/call。",
 );
 assert(
     /normalizeMcpToolResult/u.test(mcpToolResultNormalizerSource)
@@ -217,9 +217,9 @@ assert(
     "McpToolResultNormalizer.ts 必须输出模型文本、UI 摘要和审计 artifact。",
 );
 assertNotContains(
-    deepAgentsToolMiddlewareSource,
+    deepAgentsToolFactorySource,
     /DynamicMcpStructuredTool|listConfiguredMcpModelToolSpecs|readMcpDynamicToolName/u,
-    "deepagents-tool-middleware.ts 不得继续使用自建动态 MCP 结构化工具主路径。",
+    "DeepAgentsToolFactory.ts 不得继续使用自建动态 MCP 结构化工具主路径。",
 );
 assert(
     /@langchain\/mcp-adapters/u.test(mcpAdapterConfigSource)

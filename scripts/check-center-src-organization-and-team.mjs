@@ -199,7 +199,7 @@ assertExists(
   "mcp-adapter-config.ts",
   "mcp-tool-specs.ts",
   "McpToolProvider.ts",
-  "McpToolWrapper.ts",
+  "McpToolWrapperStructuredTool.ts",
   "McpToolResultNormalizer.ts",
   "StdioMcpSession.ts",
   "CreateLongTermAgentStructuredTool.ts",

@@ -43,9 +43,9 @@
 - 模型回填文本。
 - MCP 调用失败收尾。
 
-### McpToolWrapper
+### McpToolWrapperStructuredTool
 
-`McpToolWrapper` 负责把每个官方 adapter tool 包装成中心服务 `StructuredTool`。
+`McpToolWrapperStructuredTool` 负责把每个官方 adapter tool 包装成中心服务 `StructuredTool`。
 
 它必须：
 
@@ -67,15 +67,15 @@
 
 `structuredContent` 与 MCP Server 声明 schema 不一致时，不得让 schema mismatch 继续向外扩散为中心服务进程异常。规范化层应把它转成可审计 artifact，并用文本结果或结构化失败结果回填 Deep Agents。
 
-### Middleware 文件边界
+### 工具工厂文件边界
 
-`deepagents-tool-middleware.ts` 如果继续保留 `middleware` 后缀，必须只承担 Deep Agents middleware 装配职责：
+`DeepAgentsToolFactory.ts` 只承担 Deep Agents 当前轮次工具工厂职责：
 
 - 合并命令工具、agent/team 工具和 MCP provider 输出。
 - 注册工具到当前 Deep Agents 轮次。
 - 不内嵌 MCP adapter 配置转换、结果规范化、IDEA 参数补全或审计包装细节。
 
-如果现有文件无法保持这个职责边界，应改名或拆分，把 MCP 运行时细节迁移到语义明确的 provider、wrapper 和 normalizer 文件中。
+不属于 `AgentMiddleware` 基类体系的工具工厂不得使用 middleware 命名；真正的 Agent middleware 必须放在 `services/center/src/AgentMiddleware` 并继承项目中间件基类。
 
 ## 失败收尾
 
@@ -92,11 +92,11 @@ MCP 工具调用失败分两层处理：
 - MCP 工具成功时，页面展示真实 MCP 调用过程和摘要，模型收到规范化后的文本结果。
 - MCP 工具失败时，页面展示失败卡片或失败回复，发送按钮恢复可用。
 - 代码检索不再出现 Deep Agents MCP 对话主链路依赖自建动态 MCP 短名注册表、自写 `tools/call` 或按提示词强制选择 IDEA MCP 工具。
-- `deepagents-tool-middleware.ts` 若保留名称，内容只承担 middleware 装配职责；否则必须改名或拆分。
+- `DeepAgentsToolFactory.ts` 不使用 middleware 命名，只承担工具工厂装配职责。
 
 ## 文档同步
 
 - `需求.md` 当前已覆盖官方 MCP adapter 主路径和中心服务包装边界，本次无需新增产品需求。
 - `设计.md` 需要在实现完成后同步 MCP 工具运行时重建的实际模块边界。
-- `架构.md` 需要在实现完成后同步 provider、wrapper、normalizer 和 middleware 文件边界。
+- `架构.md` 需要在实现完成后同步 provider、StructuredTool、normalizer 和工具工厂文件边界。
 - `功能清单与关系.md` 需要在实现完成后同步 Deep Agents MCP 官方 adapter 真实调用链路的最小回归范围。

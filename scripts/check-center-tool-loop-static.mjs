@@ -52,7 +52,7 @@ const toolRuntime = [
   "services/center/src/StructuredTool/tool-model-specs.ts",
   "services/center/src/StructuredTool/deepagents-tool-runtime.ts",
   "services/center/src/StructuredTool/CenterStructuredToolBase.ts",
-  "services/center/src/StructuredTool/deepagents-tool-middleware.ts",
+  "services/center/src/StructuredTool/DeepAgentsToolFactory.ts",
 ].map((path) => readText(path)).join("\n");
 const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
 const sessionDomain = readText("services/center/src/domain/session-domain.ts");
@@ -74,7 +74,7 @@ assertIncludes(toolRuntime, "model.tool.requested", "Deep Agents StructuredTool 
 assertIncludes(toolRuntime, "model.tool.result.appended", "Deep Agents StructuredTool 基类缺少工具结果回填事件");
 assertIncludes(deepAgentsAgent, "tool.plan.created", "Deep Agents 原生入口缺少工具计划事件");
 assertIncludes(toolRuntime, "extends StructuredTool", "Deep Agents 工具没有按 StructuredTool 类实现");
-assertIncludes(toolRuntime, "createDeepAgentsStructuredToolMiddleware", "Deep Agents 工具缺少 middleware 注册入口");
+assertIncludes(toolRuntime, "createDeepAgentsStructuredToolFactory", "Deep Agents 工具缺少工具工厂注册入口");
 assertIncludes(sessionDomain, "runDeepAgentsAgentTurn", "会话域必须直接切到新 Deep Agents 原生入口");
 assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时仍通过 node 文本硬编码触发工具");
 assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行时仍通过 python 文本硬编码触发工具");

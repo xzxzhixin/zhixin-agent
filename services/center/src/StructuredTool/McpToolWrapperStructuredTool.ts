@@ -18,8 +18,8 @@ import {
 /** MCP_TOOL_INTERNAL_TOOL_ID：官方 MCP adapter 工具统一继承的中心服务权限 ID。 */
 export const MCP_TOOL_INTERNAL_TOOL_ID = "builtin.mcp.call";
 
-/** McpToolWrapper：中心服务对官方 MCP adapter tool 的审计包装。 */
-export class McpToolWrapper extends CenterStructuredToolBase<ToolInputSchemaBase> {
+/** McpToolWrapperStructuredTool：中心服务对官方 MCP adapter tool 的审计包装。 */
+export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolInputSchemaBase> {
     /** description: 复用并补充官方 adapter tool 描述。 */
     override description: string;
     /** schema: 复用官方 adapter tool schema。 */

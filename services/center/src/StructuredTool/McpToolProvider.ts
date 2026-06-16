@@ -2,7 +2,7 @@ import type {StructuredToolInterface} from "@langchain/core/tools";
 
 import type {DeepAgentsToolExecutionContext} from "./deepagents-tool-runtime.js";
 import {createMcpAdapterClient} from "./mcp-adapter-config.js";
-import {McpToolWrapper} from "./McpToolWrapper.js";
+import {McpToolWrapperStructuredTool} from "./McpToolWrapperStructuredTool.js";
 
 /**
  * buildMcpToolsForDeepAgents：按当前轮次上下文发现并包装 MCP tools。
@@ -22,7 +22,7 @@ export async function buildMcpToolsForDeepAgents(
     });
     const adapterTools = await mcpClient.getTools();
     return adapterTools.map((adapterTool) => {
-        return new McpToolWrapper(
+        return new McpToolWrapperStructuredTool(
             context,
             adapterTool,
         );

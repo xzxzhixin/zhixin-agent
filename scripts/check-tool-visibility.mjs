@@ -39,7 +39,7 @@ const mcpAdapterConfigFilePath = path.join(
 );
 const mcpToolWrapperFilePath = path.join(
   workspaceRoot,
-  "services/center/src/StructuredTool/McpToolWrapper.ts",
+  "services/center/src/StructuredTool/McpToolWrapperStructuredTool.ts",
 );
 const mcpToolResultNormalizerFilePath = path.join(
   workspaceRoot,

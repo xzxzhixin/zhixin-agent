@@ -30,7 +30,7 @@ import type {
 } from "./StructuredTool/index.js";
 import {
     appendToolVisibilityEvents,
-    createDeepAgentsStructuredToolMiddleware,
+    createDeepAgentsStructuredToolFactory,
     createDeepAgentsToolExecutionContext,
 } from "./StructuredTool/index.js";
 
@@ -177,7 +177,7 @@ async function cleanupDeepAgentsTurnResources(
  * @returns 已组装好的 Deep Agents agent。
  */
 async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
-    const tools = await createDeepAgentsStructuredToolMiddleware(context).buildTools();
+    const tools = await createDeepAgentsStructuredToolFactory(context).buildTools();
     context.input.events.append({
         eventType: "tool.available.snapshot",
         scopeType: "tool",
