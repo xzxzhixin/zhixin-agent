@@ -88,7 +88,7 @@ MCP 工具调用失败分两层处理：
 
 ## 验收口径
 
-- `mcp__idea__get_all_open_file_paths` 返回 `structuredContent` 与声明 schema 不一致时，轮次不会卡在运行中，中心服务不会停机。
+- 任一 MCP adapter 工具返回的 `structuredContent` 与声明 schema 不一致时，轮次不会卡在运行中，中心服务不会停机。
 - MCP 工具成功时，页面展示真实 MCP 调用过程和摘要，模型收到规范化后的文本结果。
 - MCP 工具失败时，页面展示失败卡片或失败回复，发送按钮恢复可用。
 - 代码检索不再出现 Deep Agents MCP 对话主链路依赖自建动态 MCP 短名注册表、自写 `tools/call` 或按提示词强制选择 IDEA MCP 工具。

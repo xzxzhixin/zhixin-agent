@@ -4,7 +4,6 @@ import type {
     ToolInputSchemaOutputType,
 } from "@langchain/core/tools";
 
-import {SessionRepository} from "../data-access/session-repository.js";
 import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
 import type {
     DeepAgentsToolExecutionContext,
@@ -20,7 +19,7 @@ export const MCP_TOOL_INTERNAL_TOOL_ID = "builtin.mcp.call";
 
 /** McpToolWrapperStructuredTool：中心服务对官方 MCP adapter tool 的审计包装。 */
 export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolInputSchemaBase> {
-    /** description: 复用并补充官方 adapter tool 描述。 */
+    /** description: 复用官方 adapter tool 描述，不做额外增强。 */
     override description: string;
     /** schema: 复用官方 adapter tool schema。 */
     override schema: ToolInputSchemaBase;
@@ -43,7 +42,7 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
             adapterTool.name,
         );
         this.adapterTool = adapterTool;
-        this.description = normalizeMcpToolDescription(adapterTool);
+        this.description = adapterTool.description;
         this.schema = adapterTool.schema;
     }
 
@@ -58,13 +57,12 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
         arg: ToolInputSchemaOutputType<ToolInputSchemaBase>,
         toolCallId: string,
     ): Promise<DeepAgentsToolExecutionResult> {
-        const normalizedArg = this.normalizeMcpToolArguments(arg);
         this.appendMcpStartedEvent(
-            normalizedArg as Record<string, unknown>,
+            arg as Record<string, unknown>,
             toolCallId,
         );
         try {
-            const output = await this.adapterTool.invoke(normalizedArg);
+            const output = await this.adapterTool.invoke(arg);
             const normalizedResult = normalizeMcpToolResult(output);
             this.appendMcpCompletedEvent(
                 normalizedResult,
@@ -87,55 +85,6 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
                 status: "failed",
             };
         }
-    }
-
-    /**
-     * normalizeMcpToolArguments：补全 MCP 工具执行所需的宿主上下文参数。
-     *
-     * @param arg 模型传入的 MCP 工具参数。
-     * @returns 可直接交给官方 adapter tool 的参数。
-     */
-    private normalizeMcpToolArguments(
-        arg: ToolInputSchemaOutputType<ToolInputSchemaBase>,
-    ): ToolInputSchemaOutputType<ToolInputSchemaBase> {
-        if (this.name !== "mcp__idea__get_all_open_file_paths") {
-            return arg;
-        }
-        if (!arg || typeof arg !== "object" || Array.isArray(arg)) {
-            return arg;
-        }
-        const argumentRecord = arg as Record<string, unknown>;
-        const projectPath = argumentRecord.projectPath;
-        if (typeof projectPath === "string" && projectPath.trim() && projectPath.trim() !== "/") {
-            return arg;
-        }
-        const currentProjectPath = this.resolveCurrentProjectPath();
-        if (!currentProjectPath) {
-            return arg;
-        }
-        return {
-            ...argumentRecord,
-            // projectPath：只使用当前项目会话登记路径补参，不读取用户提示词。
-            projectPath: currentProjectPath,
-        } as ToolInputSchemaOutputType<ToolInputSchemaBase>;
-    }
-
-    /**
-     * resolveCurrentProjectPath：读取当前项目会话登记的最近项目根目录。
-     *
-     * @returns 当前项目路径；普通会话或项目未登记时返回空字符串。
-     */
-    private resolveCurrentProjectPath(): string {
-        if (!this.context.projectId) {
-            return "";
-        }
-        const project = new SessionRepository(this.context.input.database).findProject(this.context.projectId) as {
-            /** latestPath: 项目登记时保存的最近项目根目录。 */
-            latestPath?: unknown;
-        } | null;
-        return typeof project?.latestPath === "string"
-            ? project.latestPath
-            : "";
     }
 
     /**
@@ -234,20 +183,4 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
             },
         });
     }
-}
-
-/**
- * normalizeMcpToolDescription：补充官方 adapter 工具描述中缺失的宿主语义。
- *
- * @param adapterTool 官方 adapter 返回的 LangChain tool。
- * @returns 给模型选择工具时使用的描述。
- */
-function normalizeMcpToolDescription(adapterTool: StructuredToolInterface): string {
-    if (adapterTool.name === "mcp__idea__get_all_open_file_paths") {
-        return [
-            adapterTool.description,
-            "在 IDEA MCP 多项目场景中，本工具也会返回当前 IDE 打开的 projects 路径；用户询问 IDEA 当前打开了哪些项目、项目路径或打开文件上下文时，优先考虑本工具。",
-        ].join("\n");
-    }
-    return adapterTool.description;
 }

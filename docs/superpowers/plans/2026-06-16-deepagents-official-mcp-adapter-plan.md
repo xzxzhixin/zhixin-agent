@@ -19,9 +19,9 @@
 
 脚本必须断言 `services/center/src/StructuredTool/deepagents-tool-middleware.ts` 使用 `MultiServerMCPClient` 或官方 adapter helper，且不能再引用 `DynamicMcpStructuredTool`。
 
-- [ ] **步骤 2：保留工具自主选择和空工具名恢复约束**
+- [ ] **步骤 2：保留工具自主选择和空工具名失败收尾约束**
 
-继续保留“不按用户文本强制 tool_choice”“空工具名只能按结构化参数唯一匹配恢复”“Deep Agents 默认工具排除”的断言。
+继续保留“不按用户文本强制 tool_choice”“空工具名按协议错误失败收尾”“Deep Agents 默认工具排除”的断言。
 
 ### 任务 2：依赖与配置转换
 

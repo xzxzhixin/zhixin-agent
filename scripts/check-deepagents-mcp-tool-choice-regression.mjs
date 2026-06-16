@@ -149,30 +149,35 @@ assertNotContains(
     /registerDynamicMcpModelToolName|createMcpModelToolNameRegistry|readMcpDynamicToolName|toDynamicMcpModelToolName|MCP_MODEL_TOOL_NAME_MAX_LENGTH/u,
     "mcp-tool-specs.ts 不得继续维护自建 MCP 短名注册表，Deep Agents MCP 主路径必须使用官方 @langchain/mcp-adapters。",
 );
-assert(
-    /resolveEmptyToolNameByArguments/u.test(toolChoiceMiddlewareSource),
-    "CenterToolChoiceMiddleware.ts 必须在结构化参数唯一匹配工具 schema 时恢复空工具名。",
+assertNotContains(
+    toolChoiceMiddlewareSource,
+    /resolveEmptyToolNameByArguments|toolSchemaMatchesArgumentKeys|readToolSchemaPropertyNames|latestModelTools/u,
+    "CenterToolChoiceMiddleware.ts 不得继续保留按参数或 schema 恢复空工具名的链路。",
+);
+assertNotContains(
+    toolChoiceMiddlewareSource,
+    /model\.tool_call\.name_restored|model\.tool_call\.name_restore_failed/u,
+    "CenterToolChoiceMiddleware.ts 不得继续记录空工具名恢复事件。",
+);
+assertNotContains(
+    toolChoiceMiddlewareSource,
+    /resolveProjectPathOnlyIdeaContextTool|mcp__idea__get_all_open_file_paths/u,
+    "CenterToolChoiceMiddleware.ts 不得在逻辑代码硬编码具体 MCP 工具名。",
 );
 assert(
-    /toolSchemaMatchesArgumentKeys/u.test(toolChoiceMiddlewareSource)
-    && /latestModelTools/u.test(toolChoiceMiddlewareSource)
-    && /readToolSchemaPropertyNames/u.test(toolChoiceMiddlewareSource),
-    "CenterToolChoiceMiddleware.ts 必须基于当前可见工具 schema 做通用空工具名恢复，不能只识别命令工具参数。",
+    /model\.tool_call\.name_missing/u.test(toolChoiceMiddlewareSource)
+    && /MODEL_TOOL_NAME_MISSING/u.test(toolChoiceMiddlewareSource),
+    "CenterToolChoiceMiddleware.ts 必须把模型空工具名作为协议错误记录并失败收尾。",
 );
-assert(
-    /model\.tool_call\.name_restored/u.test(toolChoiceMiddlewareSource),
-    "CenterToolChoiceMiddleware.ts 必须记录空工具名恢复诊断事件。",
+assertNotContains(
+    mcpToolWrapperSource,
+    /normalizeMcpToolArguments|resolveCurrentProjectPath|toolSchemaHasProjectPath|projectPath:\s*currentProjectPath/u,
+    "McpToolWrapperStructuredTool.ts 不得继续做 MCP 工具参数补参，参数必须按官方 adapter tool 原样执行。",
 );
-assert(
-    /resolveProjectPathOnlyIdeaContextTool/u.test(toolChoiceMiddlewareSource)
-    && /mcp__idea__get_all_open_file_paths/u.test(toolChoiceMiddlewareSource),
-    "CenterToolChoiceMiddleware.ts 必须兼容供应商返回空工具名且仅带 projectPath 的 IDEA 只读上下文工具调用。",
-);
-assert(
-    /normalizeMcpToolArguments/u.test(mcpToolWrapperSource)
-    && /resolveCurrentProjectPath/u.test(mcpToolWrapperSource)
-    && /projectPath:\s*currentProjectPath/u.test(mcpToolWrapperSource),
-    "McpToolWrapperStructuredTool.ts 必须把 IDEA MCP 空 projectPath 或根路径补全为当前项目会话路径，避免模型选对工具但参数为空时触发 MCP schema 异常。",
+assertNotContains(
+    mcpToolWrapperSource,
+    /mcp__idea__get_all_open_file_paths/u,
+    "McpToolWrapperStructuredTool.ts 不得硬编码具体 MCP 工具名处理参数或描述。",
 );
 assert(
     /isContentAndArtifactOutput/u.test(mcpToolResultNormalizerSource)
@@ -207,8 +212,8 @@ assert(
 assert(
     /class McpToolWrapperStructuredTool/u.test(mcpToolWrapperSource)
     && /extends CenterStructuredToolBase/u.test(mcpToolWrapperSource)
-    && /this\.adapterTool\.invoke\(normalizedArg\)/u.test(mcpToolWrapperSource),
-    "McpToolWrapperStructuredTool.ts 必须继承中心服务 StructuredTool 基类，并由官方 adapter tool 执行 MCP tools/call。",
+    && /this\.adapterTool\.invoke\(arg\)/u.test(mcpToolWrapperSource),
+    "McpToolWrapperStructuredTool.ts 必须继承中心服务 StructuredTool 基类，并由官方 adapter tool 原样执行 MCP tools/call。",
 );
 assert(
     /normalizeMcpToolResult/u.test(mcpToolResultNormalizerSource)

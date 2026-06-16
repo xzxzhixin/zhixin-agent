@@ -26,7 +26,7 @@ export const COMMAND_TOOL_SCHEMA = z.object({
  */
 export class CommandStructuredTool extends CenterStructuredToolBase<typeof COMMAND_TOOL_SCHEMA> {
     /** description: 工具说明。 */
-    override description = "仅在用户明确要求执行 shell、运行脚本、查看 Node/pnpm/npm/git 等本机环境版本或发起系统命令时使用；IDE 打开项目、打开文件、运行配置和代码搜索等宿主状态应优先使用对应 MCP 工具。";
+    override description = "在中心服务受控环境中执行明确的本机命令。";
     /** schema: 命令工具参数。 */
     override schema = COMMAND_TOOL_SCHEMA;
 
