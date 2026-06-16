@@ -6,6 +6,41 @@ import {
     type CenterAgentMiddlewareDefinition,
 } from "./CenterAgentMiddleware.js";
 
+/** ModelMessageDiagnostics：模型最后一条 AIMessage 的诊断快照。 */
+interface ModelMessageDiagnostics {
+    /** contentText：模型自然语言正文或非文本内容摘要。 */
+    contentText: string;
+    /** toolCalls：LangChain 解析出的结构化工具调用摘要。 */
+    toolCalls: Array<{
+        /** id：工具调用 ID。 */
+        id: string | undefined;
+        /** name：模型返回的工具名。 */
+        name: string | undefined;
+        /** argumentKeys：工具参数字段名。 */
+        argumentKeys: string[];
+    }>;
+    /** invalidToolCalls：LangChain 解析失败的工具调用摘要。 */
+    invalidToolCalls: Array<{
+        /** id：工具调用 ID。 */
+        id: string | undefined;
+        /** name：模型返回的工具名。 */
+        name: string | undefined;
+        /** hasArgs：是否包含原始参数。 */
+        hasArgs: boolean;
+        /** error：LangChain 解析错误。 */
+        error: string | undefined;
+    }>;
+    /** rawToolCalls：供应商原始工具调用摘要。 */
+    rawToolCalls: Array<{
+        /** id：供应商原始工具调用 ID。 */
+        id: unknown;
+        /** name：供应商原始函数名。 */
+        name: unknown;
+        /** hasArguments：原始工具调用是否带有参数字符串。 */
+        hasArguments: boolean;
+    }>;
+}
+
 /**
  * CenterToolChoiceMiddleware：中心服务工具选择策略中间件。
  *
@@ -16,6 +51,9 @@ import {
 export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
     /** context：当前轮次工具执行上下文，提供事件、任务和会话事实源。 */
     private readonly context: DeepAgentsToolExecutionContext;
+
+    /** lastModelMessageDiagnostics：最近一次模型返回的 AIMessage 诊断快照，用于空工具名失败定位。 */
+    private lastModelMessageDiagnostics: ModelMessageDiagnostics | null = null;
 
     /**
      * constructor：创建中心工具选择中间件。
@@ -40,6 +78,7 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
                 if (!AIMessage.isInstance(lastMessage)) {
                     return;
                 }
+                this.lastModelMessageDiagnostics = buildModelMessageDiagnostics(lastMessage);
                 this.context.input.events.append({
                     eventType: "model.tool_calls.received",
                     scopeType: "model",
@@ -53,23 +92,8 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
                         ? "模型返回了结构化工具调用。"
                         : "模型未返回结构化工具调用。",
                     payload: {
-                        // toolCalls: 只记录工具名和参数字段，避免把长参数或敏感输出写入诊断事件。
-                        toolCalls: lastMessage.tool_calls?.map((toolCall) => {
-                            return {
-                                id: toolCall.id,
-                                name: toolCall.name,
-                                argumentKeys: Object.keys(toolCall.args ?? {}),
-                            };
-                        }) ?? [],
-                        invalidToolCalls: lastMessage.invalid_tool_calls?.map((toolCall) => {
-                            return {
-                                id: toolCall.id,
-                                name: toolCall.name,
-                                hasArgs: Boolean(toolCall.args),
-                                error: toolCall.error,
-                            };
-                        }) ?? [],
-                        rawToolCalls: readRawToolCallDiagnostics(lastMessage.additional_kwargs),
+                        // lastModelMessage: 只记录模型输出诊断摘要，不读取用户原文，不把完整工具参数写入事件。
+                        lastModelMessage: this.lastModelMessageDiagnostics,
                     },
                 });
             },
@@ -94,6 +118,8 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
                             argumentKeys,
                             // failureReason: 统一错误码，供轮次失败收尾和日志检索使用。
                             failureReason,
+                            // lastModelMessage: 记录导致空工具名的最后一条模型输出摘要，便于排查供应商回调。
+                            lastModelMessage: this.lastModelMessageDiagnostics,
                         },
                     });
                     throw new Error(failureReason);
@@ -124,6 +150,53 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
             },
         };
     }
+}
+
+/**
+ * buildModelMessageDiagnostics：生成模型最后一条消息的诊断快照。
+ *
+ * @param message LangChain AIMessage。
+ * @returns 可写入事件 payload 的模型输出摘要。
+ */
+function buildModelMessageDiagnostics(message: AIMessage): ModelMessageDiagnostics {
+    return {
+        contentText: normalizeModelMessageContent(message.content),
+        toolCalls: message.tool_calls?.map((toolCall) => {
+            return {
+                id: toolCall.id,
+                name: toolCall.name,
+                argumentKeys: Object.keys(toolCall.args ?? {}),
+            };
+        }) ?? [],
+        invalidToolCalls: message.invalid_tool_calls?.map((toolCall) => {
+            return {
+                id: toolCall.id,
+                name: toolCall.name,
+                hasArgs: Boolean(toolCall.args),
+                error: toolCall.error,
+            };
+        }) ?? [],
+        rawToolCalls: readRawToolCallDiagnostics(message.additional_kwargs),
+    };
+}
+
+/**
+ * normalizeModelMessageContent：把模型正文压缩成诊断文本。
+ *
+ * @param content AIMessage content 字段。
+ * @returns 文本正文或内容结构摘要。
+ */
+function normalizeModelMessageContent(content: AIMessage["content"]): string {
+    if (typeof content === "string") {
+        return content.slice(
+            0,
+            4000,
+        );
+    }
+    return JSON.stringify(content).slice(
+        0,
+        4000,
+    );
 }
 
 /**
