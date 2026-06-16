@@ -37,9 +37,13 @@ const mcpAdapterConfigFilePath = path.join(
   workspaceRoot,
   "services/center/src/StructuredTool/mcp-adapter-config.ts",
 );
-const mcpAdapterToolFilePath = path.join(
+const mcpToolWrapperFilePath = path.join(
   workspaceRoot,
-  "services/center/src/StructuredTool/McpAdapterStructuredTool.ts",
+  "services/center/src/StructuredTool/McpToolWrapper.ts",
+);
+const mcpToolResultNormalizerFilePath = path.join(
+  workspaceRoot,
+  "services/center/src/StructuredTool/McpToolResultNormalizer.ts",
 );
 const recordUtilsFilePath = path.join(
   workspaceRoot,
@@ -130,13 +134,13 @@ assertIncludes(
   "Deep Agents MCP 主路径必须使用官方 MultiServerMCPClient。",
 );
 assertIncludes(
-  mcpAdapterToolFilePath,
+  mcpToolWrapperFilePath,
   "this.adapterTool.invoke(normalizedArg)",
   "MCP tools/call 必须由官方 adapter tool 执行，中心服务只做参数规范化、包装审计。",
 );
 assertIncludes(
-  mcpAdapterToolFilePath,
-  "normalizeMcpAdapterOutput",
+  mcpToolResultNormalizerFilePath,
+  "normalizeMcpToolResult",
   "MCP adapter 工具仍需保留输出摘要归一化逻辑。",
 );
 assertIncludes(
