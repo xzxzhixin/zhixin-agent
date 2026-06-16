@@ -116,7 +116,9 @@ const toolRuntime = [
   readProjectFile("services/center/src/StructuredTool/CenterStructuredToolBase.ts"),
   readProjectFile("services/center/src/StructuredTool/command-tool-executor.ts"),
   readProjectFile("services/center/src/StructuredTool/mcp-adapter-config.ts"),
-  readProjectFile("services/center/src/StructuredTool/McpAdapterStructuredTool.ts"),
+  readProjectFile("services/center/src/StructuredTool/McpToolProvider.ts"),
+  readProjectFile("services/center/src/StructuredTool/McpToolWrapper.ts"),
+  readProjectFile("services/center/src/StructuredTool/McpToolResultNormalizer.ts"),
   readProjectFile("services/center/src/StructuredTool/mcp-tool-specs.ts"),
   readProjectFile("services/center/src/StructuredTool/tool-model-specs.ts"),
 ].join("\n");

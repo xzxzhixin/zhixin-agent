@@ -68,9 +68,18 @@ export {
     MCP_ADAPTER_TOOL_NAME_PREFIX,
 } from "./mcp-adapter-config.js";
 export {
-    McpAdapterStructuredTool,
-    wrapMcpAdapterToolsForCenter,
-} from "./McpAdapterStructuredTool.js";
+    buildMcpToolsForDeepAgents,
+} from "./McpToolProvider.js";
+export {
+    MCP_TOOL_INTERNAL_TOOL_ID,
+    McpToolWrapper,
+} from "./McpToolWrapper.js";
+export {
+    normalizeMcpToolResult,
+} from "./McpToolResultNormalizer.js";
+export type {
+    McpToolNormalizedResult,
+} from "./McpToolResultNormalizer.js";
 export {
     listConfiguredMcpToolViews,
     listConfiguredMcpToolViewsByServer,
