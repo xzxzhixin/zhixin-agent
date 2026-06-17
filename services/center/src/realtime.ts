@@ -31,17 +31,28 @@ export function broadcastEvents(
     session: ConversationSession,
     events: EventRecord[],
 ): void {
-    for (const client of clients.values()) {
+    for (const client of Array.from(clients.values())) {
         if (client.clientType === "ide-plugin" && client.projectId !== session.projectId) {
             continue;
         }
 
         for (const event of events) {
-            client.send({
-                type: "event.appended",
-                payload: event,
-            });
-            broadcastDomainEnvelopeForEvent(client, event);
+            const sent = safeSendRealtimeEnvelope(
+                clients,
+                client,
+                {
+                    type: "event.appended",
+                    payload: event,
+                },
+            );
+            if (!sent) {
+                break;
+            }
+            broadcastDomainEnvelopeForEvent(
+                clients,
+                client,
+                event,
+            );
         }
     }
 }
@@ -54,56 +65,77 @@ export function broadcastEvents(
  * @returns 没有返回值。
  */
 export function broadcastDomainEnvelopeForEvent(
+    clients: Map<string, RealtimeClientConnection>,
     client: RealtimeClientConnection,
     event: EventRecord,
 ): void {
     // task.updated: 任务状态需要独立协议包，前端可以不解析通用事件就刷新任务卡片。
     if (event.eventType === "task.updated") {
-        client.send({
-            type: "task.updated",
-            payload: event.payload,
-            traceId: event.traceId,
-        });
+        safeSendRealtimeEnvelope(
+            clients,
+            client,
+            {
+                type: "task.updated",
+                payload: event.payload,
+                traceId: event.traceId,
+            },
+        );
         return;
     }
 
     // agent.state.changed: 智能体状态栏使用专项协议，避免 UI 从事件类型猜测运行状态。
     if (event.eventType === "agent.state.changed") {
-        client.send({
-            type: "agent.state.changed",
-            payload: event.payload,
-            traceId: event.traceId,
-        });
+        safeSendRealtimeEnvelope(
+            clients,
+            client,
+            {
+                type: "agent.state.changed",
+                payload: event.payload,
+                traceId: event.traceId,
+            },
+        );
         return;
     }
 
     // notification.created: 通知需要直接触发浏览器或页面内提醒，不能只依赖审计事件列表。
     if (event.eventType === "notification.created") {
-        client.send({
-            type: "notification.created",
-            payload: event.payload,
-            traceId: event.traceId,
-        });
+        safeSendRealtimeEnvelope(
+            clients,
+            client,
+            {
+                type: "notification.created",
+                payload: event.payload,
+                traceId: event.traceId,
+            },
+        );
         return;
     }
 
     // session.updated: 会话标题等列表字段需要专项推送，浏览器端收到后刷新列表和当前详情。
     if (event.eventType === "session.updated") {
-        client.send({
-            type: "session.updated",
-            payload: event.payload,
-            traceId: event.traceId,
-        });
+        safeSendRealtimeEnvelope(
+            clients,
+            client,
+            {
+                type: "session.updated",
+                payload: event.payload,
+                traceId: event.traceId,
+            },
+        );
         return;
     }
 
     // session.deleted: 会话删除会影响导航和当前详情，必须用专项包让前端立即迁移到草稿或其他会话。
     if (event.eventType === "session.deleted") {
-        client.send({
-            type: "session.deleted",
-            payload: event.payload,
-            traceId: event.traceId,
-        });
+        safeSendRealtimeEnvelope(
+            clients,
+            client,
+            {
+                type: "session.deleted",
+                payload: event.payload,
+                traceId: event.traceId,
+            },
+        );
     }
 }
 
@@ -118,17 +150,28 @@ export function broadcastGlobalEvent(
     clients: Map<string, RealtimeClientConnection>,
     event: EventRecord,
 ): void {
-    for (const client of clients.values()) {
+    for (const client of Array.from(clients.values())) {
         // ide-plugin: 插件端只关注当前项目会话，全局通知和全局智能体状态先不越权推送给插件。
         if (client.clientType === "ide-plugin") {
             continue;
         }
 
-        client.send({
-            type: "event.appended",
-            payload: event,
-        });
-        broadcastDomainEnvelopeForEvent(client, event);
+        const sent = safeSendRealtimeEnvelope(
+            clients,
+            client,
+            {
+                type: "event.appended",
+                payload: event,
+            },
+        );
+        if (!sent) {
+            continue;
+        }
+        broadcastDomainEnvelopeForEvent(
+            clients,
+            client,
+            event,
+        );
     }
 }
 
@@ -146,4 +189,27 @@ export function sendSocketEnvelope(
     envelope: WebSocketEnvelope,
 ): void {
     socket.send(JSON.stringify(envelope));
+}
+
+/**
+ * safeSendRealtimeEnvelope：向实时客户端发送协议包并隔离断连异常。
+ *
+ * @param clients 当前在线同步客户端表。
+ * @param client 目标客户端连接。
+ * @param envelope 待发送协议包。
+ * @returns 发送成功返回 true；连接已不可用并清理后返回 false。
+ */
+function safeSendRealtimeEnvelope(
+    clients: Map<string, RealtimeClientConnection>,
+    client: RealtimeClientConnection,
+    envelope: WebSocketEnvelope,
+): boolean {
+    try {
+        client.send(envelope);
+        return true;
+    } catch {
+        // catch: WebSocket 断连是客户端状态变化，不能让广播异常影响中心服务事实源写入和后台执行。
+        clients.delete(client.clientId);
+        return false;
+    }
 }

@@ -60,11 +60,8 @@ export function cancelConversationTurnById(
         "cancelled",
     );
     const now = updatedTurn?.endedAt ?? formatCenterLocalDateTime();
-    const cancelledStepCount = repository.updateRunningTaskStepsByTurn({
-        turnId: runningTurn.turnId,
-        endedAt: now,
-        summary: input.reason,
-    });
+    // cancelledStepCount: 先用 0 固化取消主事件，步骤收尾随后执行，避免步骤更新异常留下半截取消事实源。
+    let cancelledStepCount = 0;
 
     events.append({
         eventType: "turn.cancelled",
@@ -104,6 +101,11 @@ export function cancelConversationTurnById(
             turnId: runningTurn.turnId,
             source: input.source,
         },
+    });
+    cancelledStepCount = repository.updateRunningTaskStepsByTurn({
+        turnId: runningTurn.turnId,
+        endedAt: now,
+        summary: input.reason,
     });
 
     return {

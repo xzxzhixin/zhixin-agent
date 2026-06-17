@@ -13,6 +13,16 @@ export class TurnRuntimeAbortError extends Error {
     }
 }
 
+/**
+ * TurnRuntimeExternalAbortReason：传给第三方运行时的取消原因。
+ */
+interface TurnRuntimeExternalAbortReason {
+    /** name: 标记取消来源，供跨包 Error 包装后仍可识别。 */
+    name: "TurnRuntimeAbortError";
+    /** message: 用户或系统触发取消时的可审计原因。 */
+    message: string;
+}
+
 interface RunningTurnRuntime {
     /** controller: 当前轮次真实执行的中止控制器。 */
     controller: AbortController;
@@ -76,9 +86,22 @@ export function abortRunningTurnRuntime(
     }
     runtime.reason = reason;
     if (!runtime.controller.signal.aborted) {
-        runtime.controller.abort(new TurnRuntimeAbortError(reason));
+        runtime.controller.abort(createExternalAbortReason(reason));
     }
     return true;
+}
+
+/**
+ * createExternalAbortReason：创建传给 Deep Agents/LangGraph 的安全取消原因。
+ *
+ * @param reason 取消原因。
+ * @returns 不带 Error 堆栈的普通对象，避免第三方异步投影把中心服务自定义异常当未处理拒绝抛出。
+ */
+export function createExternalAbortReason(reason: string): TurnRuntimeExternalAbortReason {
+    return {
+        name: "TurnRuntimeAbortError",
+        message: reason,
+    };
 }
 
 /**
@@ -95,6 +118,9 @@ export function throwIfTurnRuntimeAborted(signal?: AbortSignal): void {
     if (reason instanceof TurnRuntimeAbortError) {
         throw reason;
     }
+    if (isTurnRuntimeAbortReason(reason)) {
+        throw new TurnRuntimeAbortError(reason.message);
+    }
     throw new TurnRuntimeAbortError("当前轮次已取消。");
 }
 
@@ -108,5 +134,29 @@ export function isTurnRuntimeAbortError(error: unknown): boolean {
     if (error instanceof TurnRuntimeAbortError) {
         return true;
     }
-    return error instanceof Error && error.name === "AbortError";
+    if (isTurnRuntimeAbortReason(error)) {
+        return true;
+    }
+    return error instanceof Error
+        && error.name === "TurnRuntimeAbortError";
+}
+
+/**
+ * isTurnRuntimeAbortReason：判断值是否是跨第三方边界传播的轮次取消原因。
+ *
+ * @param value 待判断值。
+ * @returns 是中心服务取消原因普通对象时返回 true。
+ */
+function isTurnRuntimeAbortReason(value: unknown): value is TurnRuntimeExternalAbortReason {
+    if (!value || typeof value !== "object") {
+        return false;
+    }
+    const reason = value as {
+        /** name: 可能来自 AbortSignal.reason 的错误名。 */
+        name?: unknown;
+        /** message: 可能来自 AbortSignal.reason 的错误消息。 */
+        message?: unknown;
+    };
+    return reason.name === "TurnRuntimeAbortError"
+        && typeof reason.message === "string";
 }

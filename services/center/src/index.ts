@@ -17,9 +17,10 @@ export type {CenterServiceConfig, CenterServiceConfigInput} from "./types.js";
 
 async function runFromCli(): Promise<void> {
     const config = readCenterServiceConfig();
+    const logger = new CenterLogger(config.centerDirectory);
+    installProcessFatalDiagnostics(logger);
     const service = await createCenterService(config);
     const listenResult = await service.listen();
-    const logger = new CenterLogger(config.centerDirectory);
     if (listenResult.reusedExisting) {
         await logger.info("center.server.reused-existing", {
             port: config.port,
@@ -45,6 +46,63 @@ async function runFromCli(): Promise<void> {
     process.once("SIGTERM", () => {
         void shutdown();
     });
+}
+
+/**
+ * installProcessFatalDiagnostics：记录运行期未捕获异常，避免异步取消链路直接沉默打掉中心服务。
+ *
+ * @param logger 中心服务文件日志。
+ * @returns 没有返回值。
+ */
+function installProcessFatalDiagnostics(logger: CenterLogger): void {
+    // uncaughtException: 运行期事件回调中的同步异常必须落日志，便于定位停止按钮等异步链路问题。
+    process.on("uncaughtException", (error: Error) => {
+        void logger.error("center.process.uncaught_exception", {
+            errorName: error.name,
+            errorMessage: error.message,
+            errorStack: error.stack ?? null,
+        }).catch(() => {
+            // catch: 进程级诊断不能因为日志写入失败再次抛错。
+        });
+        process.stderr.write(`${error.stack ?? error.message}\n`);
+    });
+
+    // unhandledRejection: 第三方流或工具 Promise 拒绝必须消费成日志，不能让 Node 默认策略退出服务。
+    process.on("unhandledRejection", (reason: unknown) => {
+        const normalizedReason = normalizeFatalReason(reason);
+        void logger.error("center.process.unhandled_rejection", normalizedReason).catch(() => {
+            // catch: 进程级诊断不能因为日志写入失败再次抛错。
+        });
+        process.stderr.write(`${normalizedReason.errorStack ?? normalizedReason.errorMessage}\n`);
+    });
+}
+
+/**
+ * normalizeFatalReason：把进程级异常原因转成可写入 JSON 日志的结构。
+ *
+ * @param reason 未处理拒绝或异常原因。
+ * @returns 标准化错误日志载荷。
+ */
+function normalizeFatalReason(reason: unknown): {
+    /** errorName: 错误类型名。 */
+    errorName: string;
+    /** errorMessage: 错误说明。 */
+    errorMessage: string;
+    /** errorStack: 错误堆栈；非 Error 时为空。 */
+    errorStack: string | null;
+} {
+    if (reason instanceof Error) {
+        return {
+            errorName: reason.name,
+            errorMessage: reason.message,
+            errorStack: reason.stack ?? null,
+        };
+    }
+    return {
+        errorName: "NonErrorRejection",
+        errorMessage: String(reason),
+        errorStack: null,
+    };
 }
 
 // currentFilePath: 当前模块真实路径，用于判断是否由 tsx 直接执行。

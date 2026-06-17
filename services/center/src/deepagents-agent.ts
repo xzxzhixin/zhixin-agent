@@ -41,6 +41,16 @@ type CenterDeepAgentRunStream = DeepAgentRunStream<
     readonly StructuredToolInterface[]
 >;
 
+type DeepAgentOutputState = {
+    /** messages: Deep Agents 最终状态中的消息列表。 */
+    messages?: Array<{
+        /** role: 消息角色。 */
+        role?: string;
+        /** content: 消息正文。 */
+        content?: unknown;
+    }>;
+};
+
 /**
  * runDeepAgentsAgentTurn：直接用 Deep Agents 原生 agent 执行当前轮次。
  *
@@ -54,6 +64,10 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         runtimeSignal: runtimeController.signal,
     };
     let context: DeepAgentsToolExecutionContext | null = null;
+    let run: CenterDeepAgentRunStream | null = null;
+    let messageCollector: Promise<string> | null = null;
+    let toolCollector: Promise<ProviderModelGatewayResult> | null = null;
+    let outputCollector: Promise<DeepAgentOutputState | null> | null = null;
     try {
         startWorkerTask(
             runtimeInput.database,
@@ -62,6 +76,7 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         );
 
         context = await createDeepAgentsToolExecutionContext(runtimeInput);
+        throwIfTurnRuntimeAborted(runtimeController.signal);
         appendToolVisibilityEvents(
             runtimeInput.events,
             runtimeInput.sent.sessionId,
@@ -70,7 +85,8 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         );
 
         const deepAgent = await createCenterDeepAgent(context);
-        const run = await deepAgent.streamEvents(
+        throwIfTurnRuntimeAborted(runtimeController.signal);
+        run = await deepAgent.streamEvents(
             {
                 messages: [
                     {
@@ -81,29 +97,28 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             },
             {
                 version: "v3",
-                signal: runtimeController.signal,
+                // 取消信号只在中心服务自有边界内消费，不直接交给 Deep Agents。
+                // Deep Agents/LangGraph 的 abort 监听器可能同步抛出异常，导致 Node 作为未捕获异常退出。
             },
         ) as CenterDeepAgentRunStream;
 
-        const messageCollector = collectDeepAgentMessages(runtimeInput, run);
-        const toolCollector = collectDeepAgentToolCalls(context, run);
+        messageCollector = collectDeepAgentMessages(runtimeInput, run);
+        toolCollector = collectDeepAgentToolCalls(context, run);
+        outputCollector = resolveDeepAgentOutputWhenActive(runtimeInput, run);
 
         const [
             streamedAssistantText,
             finalModelResult,
+            output,
         ] = await Promise.all([
             messageCollector,
             toolCollector,
+            outputCollector,
         ]);
 
-        const output = await run.output as {
-            messages?: Array<{
-                role?: string;
-                content?: unknown;
-            }>;
-        };
+        throwIfTurnRuntimeAborted(runtimeController.signal);
         const assistantText = resolveFinalAssistantText(
-            output,
+            output ?? {},
             streamedAssistantText,
         );
         throwIfTurnRuntimeAborted(runtimeController.signal);
@@ -115,8 +130,21 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         );
     } catch (error) {
         if (isTurnRuntimeAbortError(error)) {
+            await consumeDeepAgentCancellation(
+                runtimeInput,
+                [
+                    messageCollector,
+                    toolCollector,
+                    outputCollector,
+                ],
+            );
             return;
         }
+        detachDeepAgentCollectors([
+            messageCollector,
+            toolCollector,
+            outputCollector,
+        ]);
         await failDeepAgentTurn(
             runtimeInput,
             error,
@@ -130,6 +158,70 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             input.sent.turnId,
             runtimeController,
         );
+    }
+}
+
+/**
+ * resolveDeepAgentOutputWhenActive：提前消费 Deep Agents 最终输出 Promise。
+ *
+ * @param input 当前轮次输入。
+ * @param run Deep Agents 运行流。
+ * @returns 未取消时返回最终状态；取消时返回 null。
+ */
+async function resolveDeepAgentOutputWhenActive(
+    input: DeepAgentsAgentRunInput,
+    run: CenterDeepAgentRunStream,
+): Promise<DeepAgentOutputState | null> {
+    try {
+        return await run.output as DeepAgentOutputState;
+    } catch (error) {
+        if (input.runtimeSignal?.aborted) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+/**
+ * consumeDeepAgentCancellation：消费取消后 Deep Agents 残留异步投影。
+ *
+ * @param input 当前轮次输入。
+ * @param collectors 已挂载的消息、工具和最终输出收集器。
+ * @returns 没有返回值。
+ */
+async function consumeDeepAgentCancellation(
+    input: DeepAgentsAgentRunInput,
+    collectors: Array<Promise<unknown> | null>,
+): Promise<void> {
+    if (!input.runtimeSignal?.aborted) {
+        return;
+    }
+    await settleDeepAgentCollectors(collectors);
+}
+
+/**
+ * settleDeepAgentCollectors：等待已创建的 Deep Agents 异步投影落定。
+ *
+ * @param collectors 已挂载的异步投影 Promise。
+ * @returns 没有返回值。
+ */
+async function settleDeepAgentCollectors(collectors: Array<Promise<unknown> | null>): Promise<void> {
+    await Promise.allSettled(collectors.filter((collector): collector is Promise<unknown> => {
+        return collector !== null;
+    }));
+}
+
+/**
+ * detachDeepAgentCollectors：后台消费失败路径残留投影，避免形成未处理拒绝。
+ *
+ * @param collectors 已挂载的异步投影 Promise。
+ * @returns 没有返回值。
+ */
+function detachDeepAgentCollectors(collectors: Array<Promise<unknown> | null>): void {
+    for (const collector of collectors) {
+        collector?.catch(() => {
+            // 普通失败已经由 failDeepAgentTurn 收尾；这里仅消费残留投影拒绝，避免进程级未处理异常。
+        });
     }
 }
 
@@ -180,10 +272,12 @@ async function cleanupDeepAgentsTurnResources(
  */
 async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
     const tools = await createDeepAgentsStructuredToolFactory(context).buildTools();
+    throwIfTurnRuntimeAborted(context.runtimeSignal);
     const mainAgentMemoryPrompt = buildMainAgentMemoryPrompt(await listMainAgentMemoryPromptEntries(
         context.input.database,
         context.input.userText,
     ));
+    throwIfTurnRuntimeAborted(context.runtimeSignal);
     context.input.events.append({
         eventType: "tool.available.snapshot",
         scopeType: "tool",
@@ -235,28 +329,36 @@ async function collectDeepAgentMessages(
     run: CenterDeepAgentRunStream,
 ): Promise<string> {
     let finalAssistantText = "";
-    for await (const message of run.messages) {
-        throwIfTurnRuntimeAborted(input.runtimeSignal);
-        for await (const textChunk of message.text) {
+    try {
+        for await (const message of run.messages) {
             throwIfTurnRuntimeAborted(input.runtimeSignal);
-            finalAssistantText += textChunk;
-            input.events.append({
-                eventType: "model.stream.delta",
-                scopeType: "model",
-                scopeId: input.sent.taskId,
-                sessionId: input.sent.sessionId,
-                turnId: input.sent.turnId,
-                taskId: input.sent.taskId,
-                status: "running",
-                title: "模型流式片段",
-                summary: textChunk.slice(0, 120),
-                payload: {
-                    deltaText: textChunk,
-                    streamSource: "deepagents-v3",
-                },
-            });
+            for await (const textChunk of message.text) {
+                throwIfTurnRuntimeAborted(input.runtimeSignal);
+                finalAssistantText += textChunk;
+                input.events.append({
+                    eventType: "model.stream.delta",
+                    scopeType: "model",
+                    scopeId: input.sent.taskId,
+                    sessionId: input.sent.sessionId,
+                    turnId: input.sent.turnId,
+                    taskId: input.sent.taskId,
+                    status: "running",
+                    title: "模型流式片段",
+                    summary: textChunk.slice(0, 120),
+                    payload: {
+                        deltaText: textChunk,
+                        streamSource: "deepagents-v3",
+                    },
+                });
+            }
         }
+    } catch (error) {
+        if (input.runtimeSignal?.aborted) {
+            throwIfTurnRuntimeAborted(input.runtimeSignal);
+        }
+        throw error;
     }
+    throwIfTurnRuntimeAborted(input.runtimeSignal);
     input.events.append({
         eventType: "model.stream.completed",
         scopeType: "model",
@@ -285,12 +387,19 @@ async function collectDeepAgentToolCalls(
     context: DeepAgentsToolExecutionContext,
     run: CenterDeepAgentRunStream,
 ): Promise<ProviderModelGatewayResult> {
-    for await (const toolCall of run.toolCalls) {
-        throwIfTurnRuntimeAborted(context.runtimeSignal);
-        await recordToolCallLifecycle(
-            context,
-            toolCall,
-        );
+    try {
+        for await (const toolCall of run.toolCalls) {
+            throwIfTurnRuntimeAborted(context.runtimeSignal);
+            await recordToolCallLifecycle(
+                context,
+                toolCall,
+            );
+        }
+    } catch (error) {
+        if (context.runtimeSignal?.aborted) {
+            throwIfTurnRuntimeAborted(context.runtimeSignal);
+        }
+        throw error;
     }
     throwIfTurnRuntimeAborted(context.runtimeSignal);
 
@@ -316,6 +425,10 @@ async function recordToolCallLifecycle(
     context: DeepAgentsToolExecutionContext,
     toolCall: ToolCallStream<string, unknown, unknown>,
 ): Promise<void> {
+    attachToolCallCancellationGuards(
+        context,
+        toolCall,
+    );
     context.input.events.append({
         eventType: "tool.plan.created",
         scopeType: "tool-plan",
@@ -333,11 +446,22 @@ async function recordToolCallLifecycle(
         },
     });
 
-    const status = await toolCall.status;
+    const status = await resolveToolCallValueWhenActive(
+        context,
+        toolCall.status,
+    );
+    throwIfTurnRuntimeAborted(context.runtimeSignal);
     const output = status === "finished"
-        ? await toolCall.output
+        ? await resolveToolCallValueWhenActive(
+            context,
+            toolCall.output,
+        )
         : null;
-    const error = await toolCall.error;
+    const error = await resolveToolCallValueWhenActive(
+        context,
+        toolCall.error,
+    );
+    throwIfTurnRuntimeAborted(context.runtimeSignal);
     context.input.events.append({
         eventType: status === "finished" ? "tool.plan.completed" : "tool.plan.failed",
         scopeType: "tool-plan",
@@ -360,6 +484,71 @@ async function recordToolCallLifecycle(
     });
     if (status !== "finished") {
         throw new Error(error ?? `DEEPAGENTS_TOOL_PLAN_FAILED:${toolCall.name}`);
+    }
+}
+
+/**
+ * attachToolCallCancellationGuards：预先消费工具计划字段的取消拒绝。
+ *
+ * @param context 当前工具执行上下文。
+ * @param toolCall 工具调用流。
+ * @returns 没有返回值。
+ */
+function attachToolCallCancellationGuards(
+    context: DeepAgentsToolExecutionContext,
+    toolCall: ToolCallStream<string, unknown, unknown>,
+): void {
+    consumeToolCallValueWhenCancelled(
+        context,
+        toolCall.status,
+    );
+    consumeToolCallValueWhenCancelled(
+        context,
+        toolCall.output,
+    );
+    consumeToolCallValueWhenCancelled(
+        context,
+        toolCall.error,
+    );
+}
+
+/**
+ * consumeToolCallValueWhenCancelled：取消后消费 Deep Agents 工具字段 Promise。
+ *
+ * @param context 当前工具执行上下文。
+ * @param valuePromise Deep Agents 工具字段 Promise。
+ * @returns 没有返回值。
+ */
+function consumeToolCallValueWhenCancelled(
+    context: DeepAgentsToolExecutionContext,
+    valuePromise: Promise<unknown>,
+): void {
+    valuePromise.catch((error: unknown) => {
+        if (context.runtimeSignal?.aborted || isTurnRuntimeAbortError(error)) {
+            return;
+        }
+        // 普通工具失败由主收集链路记录；这里仅提前消费取消期异步拒绝，避免进程级未处理异常。
+    });
+}
+
+/**
+ * resolveToolCallValueWhenActive：取消感知地等待 Deep Agents 工具计划字段。
+ *
+ * @param context 当前工具执行上下文。
+ * @param valuePromise Deep Agents 工具计划字段 Promise。
+ * @returns 字段解析结果。
+ */
+async function resolveToolCallValueWhenActive<T>(
+    context: DeepAgentsToolExecutionContext,
+    valuePromise: Promise<T>,
+): Promise<T> {
+    try {
+        return await valuePromise;
+    } catch (error) {
+        if (context.runtimeSignal?.aborted) {
+            throwIfTurnRuntimeAborted(context.runtimeSignal);
+        }
+        throw error;
     }
 }
 
@@ -488,6 +677,14 @@ async function failDeepAgentTurn(
     input: DeepAgentsAgentRunInput,
     error: unknown,
 ): Promise<void> {
+    const currentTurn = new SessionRepository(input.database).findTurn(input.sent.turnId);
+    if (
+        !currentTurn
+        || currentTurn.endedAt !== null
+        || currentTurn.status === "cancelled"
+    ) {
+        return;
+    }
     // errorMessage: 失败收尾只写入稳定短文本，避免把堆栈或长输出直接推给前端。
     const errorMessage = error instanceof Error
         ? error.message

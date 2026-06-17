@@ -123,8 +123,44 @@ export class CenterEventStore {
         void writeCenterEventToFile(
             this.logger,
             event,
-        );
-        this.onAppended?.(event);
+        ).catch((error: unknown) => {
+            const errorMessage = error instanceof Error
+                ? error.message
+                : "中心服务事件文件日志写入失败。";
+            centerConsoleLogger.error(
+                {
+                    payload: {
+                        eventType: event.eventType,
+                        turnId: event.turnId,
+                        taskId: event.taskId,
+                        traceId,
+                        errorMessage,
+                    },
+                },
+                "center.event.file_log_failed",
+            );
+        });
+        if (this.onAppended) {
+            try {
+                this.onAppended(event);
+            } catch (error) {
+                const errorMessage = error instanceof Error
+                    ? error.message
+                    : "中心服务事件追加监听器执行失败。";
+                centerConsoleLogger.error(
+                    {
+                        payload: {
+                            eventType: event.eventType,
+                            turnId: event.turnId,
+                            taskId: event.taskId,
+                            traceId,
+                            errorMessage,
+                        },
+                    },
+                    "center.event.append_listener_failed",
+                );
+            }
+        }
         return event;
     }
 

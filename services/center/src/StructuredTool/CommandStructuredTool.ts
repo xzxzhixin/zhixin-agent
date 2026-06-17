@@ -60,6 +60,7 @@ export class CommandStructuredTool extends CenterStructuredToolBase<typeof COMMA
             executablePath: arg.executablePath ?? "",
             args: arg.args ?? [],
             inputSummary: arg.inputSummary,
+            runtimeSignal: this.context.runtimeSignal,
         };
         const result = await executeCommandTool(
             this.context.input.events,

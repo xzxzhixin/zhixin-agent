@@ -45,6 +45,9 @@ import {
     abortRunningTurnRuntime,
 } from "../domain/turn-runtime-cancel-registry.js";
 import {
+    cancelRunningCommandsForTurn,
+} from "../domain/turn-command-cancel-registry.js";
+import {
     listProviderConfigs,
     listRegisteredModelProtocolPlugins,
     readProviderModelList,
@@ -121,12 +124,16 @@ export function registerCenterSyncRoute(context: CenterSyncRouteContext): void {
         let activeClientId: string | null = null;
 
         socket.on("message", (rawMessage: Buffer | ArrayBuffer | Buffer[]) => {
-            // envelope: WebSocket 消息必须使用共享协议包。
-            const envelope = JSON.parse(rawMessage.toString()) as WebSocketEnvelope<{
-                clientId?: string;
-                clientType?: ClientType;
-                projectId?: string | null;
-            }>;
+            const envelope = parseRealtimeEnvelope(rawMessage);
+            if (!envelope) {
+                sendRealtimeError(
+                    socket,
+                    undefined,
+                    "INVALID_ENVELOPE",
+                    "实时同步消息格式无效。",
+                );
+                return;
+            }
 
             if (envelope.type !== "client.hello") {
                 handleRealtimeRequest({
@@ -182,6 +189,37 @@ export function registerCenterSyncRoute(context: CenterSyncRouteContext): void {
             }
         });
     });
+}
+
+/**
+ * parseRealtimeEnvelope：解析 WebSocket 实时同步消息包。
+ *
+ * @param rawMessage WebSocket 原始消息。
+ * @returns 解析成功时返回共享协议包；格式错误时返回 null。
+ */
+function parseRealtimeEnvelope(rawMessage: Buffer | ArrayBuffer | Buffer[]): WebSocketEnvelope<{
+    /** clientId: 客户端握手 ID。 */
+    clientId?: string;
+    /** clientType: 客户端类型。 */
+    clientType?: ClientType;
+    /** projectId: 客户端绑定的项目 ID。 */
+    projectId?: string | null;
+}> | null {
+    try {
+        // envelope: WebSocket 消息必须使用共享协议包，解析失败时不能让事件回调异常退出中心服务。
+        const envelope = JSON.parse(rawMessage.toString()) as WebSocketEnvelope<{
+            clientId?: string;
+            clientType?: ClientType;
+            projectId?: string | null;
+        }>;
+        if (!envelope || typeof envelope !== "object" || typeof envelope.type !== "string") {
+            return null;
+        }
+        return envelope;
+    } catch {
+        // catch: 畸形 WebSocket 文本属于客户端输入错误，必须转成协议错误响应。
+        return null;
+    }
 }
 
 /**
@@ -374,67 +412,87 @@ function handleRealtimeRequest(input: {
             return;
         }
         if (input.envelope.type === "session.turn.cancel") {
-            const payload = input.envelope.payload as {
-                /** sessionId: 当前会话 ID。 */
-                sessionId?: string;
-                /** reason: 用户点击停止时的可审计原因。 */
-                reason?: string;
-            };
-            const sessionId = payload.sessionId ?? "";
-            const session = findSession(
-                input.database,
-                sessionId,
-            );
-            if (!session) {
+            try {
+                const payload = input.envelope.payload as {
+                    /** sessionId: 当前会话 ID。 */
+                    sessionId?: string;
+                    /** reason: 用户点击停止时的可审计原因。 */
+                    reason?: string;
+                };
+                const sessionId = payload.sessionId ?? "";
+                const session = findSession(
+                    input.database,
+                    sessionId,
+                );
+                if (!session) {
+                    sendRealtimeError(
+                        input.socket,
+                        input.envelope.requestId,
+                        "SESSION_NOT_FOUND",
+                        "未找到要停止的会话。",
+                    );
+                    return;
+                }
+                const beforeSequence = listEvents(input.database, {
+                    sessionId,
+                    turnId: null,
+                    afterSequence: 0,
+                }).at(-1)?.sequence ?? 0;
+                const cancelled = cancelActiveConversationTurn(
+                    input.database,
+                    input.events,
+                    {
+                        sessionId,
+                        reason: payload.reason ?? "用户点击停止当前执行。",
+                    },
+                );
+                const appendedEvents = listEvents(input.database, {
+                    sessionId,
+                    turnId: cancelled?.turnId ?? null,
+                    afterSequence: beforeSequence,
+                });
+                broadcastEvents(
+                    input.realtimeClients,
+                    session,
+                    appendedEvents,
+                );
+                sendSocketEnvelope(input.socket, {
+                    type: "session.turn.cancelled",
+                    requestId: input.envelope.requestId,
+                    payload: cancelled ?? {
+                        sessionId,
+                        turnId: null,
+                        taskId: null,
+                        status: "idle",
+                        cancelledStepCount: 0,
+                    },
+                });
+                if (cancelled) {
+                    scheduleTurnRuntimeCancellation(
+                        input.logger,
+                        cancelled.turnId,
+                        payload.reason ?? "用户点击停止当前执行。",
+                    );
+                }
+                return;
+            } catch (error) {
+                const errorMessage = error instanceof Error
+                    ? error.message
+                    : "停止当前轮次失败。";
+                void input.logger.error("center.turn_cancel.failed", {
+                    requestId: input.envelope.requestId ?? null,
+                    errorMessage,
+                }).catch(() => {
+                    // catch: 取消失败诊断日志不能反向影响错误响应。
+                });
                 sendRealtimeError(
                     input.socket,
                     input.envelope.requestId,
-                    "SESSION_NOT_FOUND",
-                    "未找到要停止的会话。",
+                    "TURN_CANCEL_FAILED",
+                    errorMessage,
                 );
                 return;
             }
-            const beforeSequence = listEvents(input.database, {
-                sessionId,
-                turnId: null,
-                afterSequence: 0,
-            }).at(-1)?.sequence ?? 0;
-            const cancelled = cancelActiveConversationTurn(
-                input.database,
-                input.events,
-                {
-                    sessionId,
-                    reason: payload.reason ?? "用户点击停止当前执行。",
-                },
-            );
-            if (cancelled) {
-                abortRunningTurnRuntime(
-                    cancelled.turnId,
-                    payload.reason ?? "用户点击停止当前执行。",
-                );
-            }
-            const appendedEvents = listEvents(input.database, {
-                sessionId,
-                turnId: cancelled?.turnId ?? null,
-                afterSequence: beforeSequence,
-            });
-            broadcastEvents(
-                input.realtimeClients,
-                session,
-                appendedEvents,
-            );
-            sendSocketEnvelope(input.socket, {
-                type: "session.turn.cancelled",
-                requestId: input.envelope.requestId,
-                payload: cancelled ?? {
-                    sessionId,
-                    turnId: null,
-                    taskId: null,
-                    status: "idle",
-                    cancelledStepCount: 0,
-                },
-            });
-            return;
         }
         if (input.envelope.type === "session.guidance.submit") {
             const payload = input.envelope.payload as {
@@ -601,13 +659,68 @@ function handleRealtimeRequest(input: {
             `未知 WebSocket 请求：${input.envelope.type}`,
         );
     } catch (error) {
+        const errorMessage = error instanceof Error
+            ? error.message
+            : "WebSocket 请求处理失败。";
+        void input.logger.error("center.websocket.request_failed", {
+            envelopeType: input.envelope.type,
+            requestId: input.envelope.requestId ?? null,
+            activeClientId: input.activeClientId,
+            errorMessage,
+        }).catch(() => {
+            // catch: WebSocket 错误诊断日志不能反向影响实时请求错误响应。
+        });
         sendRealtimeError(
             input.socket,
             input.envelope.requestId,
-            error instanceof Error ? error.message : "WEBSOCKET_REQUEST_FAILED",
-            error instanceof Error ? error.message : "WebSocket 请求处理失败。",
+            errorMessage,
+            errorMessage,
         );
     }
+}
+
+/**
+ * scheduleTurnRuntimeCancellation：在停止响应完成后异步中止运行时和命令。
+ *
+ * @param logger 中心服务文件日志。
+ * @param turnId 当前轮次 ID。
+ * @param reason 用户或系统触发取消时的原因。
+ * @returns 没有返回值。
+ */
+function scheduleTurnRuntimeCancellation(
+    logger: CenterLogger,
+    turnId: string,
+    reason: string,
+): void {
+    setImmediate(() => {
+        try {
+            const commandCount = cancelRunningCommandsForTurn(
+                turnId,
+                reason,
+            );
+            const runtimeAborted = abortRunningTurnRuntime(
+                turnId,
+                reason,
+            );
+            void logger.info("center.turn_runtime.cancel_requested", {
+                turnId,
+                commandCount,
+                runtimeAborted,
+            }).catch(() => {
+                // catch: 异步取消诊断日志不能反向影响停止动作。
+            });
+        } catch (error) {
+            const errorMessage = error instanceof Error
+                ? error.message
+                : "运行时取消失败。";
+            void logger.error("center.turn_runtime.cancel_failed", {
+                turnId,
+                errorMessage,
+            }).catch(() => {
+                // catch: 异步取消失败日志不能反向影响中心服务进程。
+            });
+        }
+    });
 }
 
 /**
@@ -1402,12 +1515,16 @@ function sendRealtimeError(
     code: string,
     message: string,
 ): void {
-    sendSocketEnvelope(socket, {
-        type: "request.error",
-        requestId,
-        payload: {
-            code,
-            message,
-        },
-    });
+    try {
+        sendSocketEnvelope(socket, {
+            type: "request.error",
+            requestId,
+            payload: {
+                code,
+                message,
+            },
+        });
+    } catch {
+        // catch: 错误响应可能发生在客户端断开之后，不能让二次发送异常影响中心服务进程。
+    }
 }

@@ -11,6 +11,8 @@ import {
     withOptionalGraphCheckpoint,
 } from "../domain/turn-graph-domain.js";
 import {centerConsoleLogger} from "../logger.js";
+import {throwIfTurnRuntimeAborted} from "../domain/turn-runtime-cancel-registry.js";
+import {registerRunningCommandForTurn} from "../domain/turn-command-cancel-registry.js";
 
 /**
  * CommandToolExecutionRequest：命令工具执行请求。
@@ -32,6 +34,8 @@ export interface CommandToolExecutionRequest {
     args: string[];
     /** inputSummary: 命令用途摘要。 */
     inputSummary: string;
+    /** runtimeSignal: 当前轮次取消信号，用于停止按钮中止正在运行的命令子进程。 */
+    runtimeSignal?: AbortSignal;
 }
 
 /**
@@ -122,6 +126,7 @@ export async function executeCommandTool(
         }, graphCheckpoint),
     });
     return new Promise<CommandToolExecutionResult>((resolve) => {
+        throwIfTurnRuntimeAborted(request.runtimeSignal);
         const chunks: string[] = [];
         const child = spawn(
             execution.executablePath,
@@ -132,6 +137,58 @@ export async function executeCommandTool(
             },
         );
         let settled = false;
+        let unregisterRunningCommand: (() => void) | null = null;
+
+        /**
+         * cleanupRunningCommandRegistration：清理当前命令在轮次取消注册表中的入口。
+         *
+         * @returns 没有返回值。
+         */
+        const cleanupRunningCommandRegistration = (): void => {
+            if (!unregisterRunningCommand) {
+                return;
+            }
+            unregisterRunningCommand();
+            unregisterRunningCommand = null;
+        };
+
+        /**
+         * finishCancelledCommand：停止按钮触发后终止子进程并固化取消态。
+         *
+         * @param reason 取消原因。
+         * @returns 没有返回值。
+         */
+        const finishCancelledCommand = (reason: string): void => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanupRunningCommandRegistration();
+            child.kill();
+            resolveCommandToolCancelledResult(
+                events,
+                capability,
+                command,
+                request.toolCallId ?? null,
+                sessionId,
+                taskId,
+                turnId,
+                chunks,
+                reason,
+                resolve,
+                graphCheckpoint,
+            );
+        };
+
+        unregisterRunningCommand = registerRunningCommandForTurn(
+            turnId,
+            finishCancelledCommand,
+        );
+
+        if (request.runtimeSignal?.aborted) {
+            finishCancelledCommand(resolveRuntimeSignalCancelReason(request.runtimeSignal));
+            return;
+        }
 
         /**
          * appendOutputChunk：把命令输出块追加到同一个命令过程卡片。
@@ -177,6 +234,7 @@ export async function executeCommandTool(
                 return;
             }
             settled = true;
+            cleanupRunningCommandRegistration();
             centerConsoleLogger.error(
                 {
                     payload: {
@@ -209,6 +267,7 @@ export async function executeCommandTool(
                 return;
             }
             settled = true;
+            cleanupRunningCommandRegistration();
             resolveCommandToolResult(
                 events,
                 capability,
@@ -224,6 +283,95 @@ export async function executeCommandTool(
             );
         });
     });
+}
+
+/**
+ * resolveCommandToolCancelledResult：根据用户停止写入命令取消事件。
+ *
+ * @param events 事件日志仓储。
+ * @param capability 命令工具能力定义。
+ * @param command 展示用命令。
+ * @param toolCallId 模型工具调用 ID；非模型触发时为 null。
+ * @param sessionId 会话 ID。
+ * @param taskId 任务 ID。
+ * @param turnId 轮次 ID。
+ * @param chunks 已收集的输出块。
+ * @param reason 取消原因。
+ * @param resolve Promise 完成回调。
+ * @param graphCheckpoint Deep Agents 图检查点。
+ * @returns 没有返回值。
+ */
+function resolveCommandToolCancelledResult(
+    events: CenterEventStore,
+    capability: UnifiedToolCapability | null,
+    command: string,
+    toolCallId: string | null,
+    sessionId: string,
+    taskId: string,
+    turnId: string,
+    chunks: string[],
+    reason: string,
+    resolve: (result: CommandToolExecutionResult) => void,
+    graphCheckpoint?: TurnGraphCheckpoint,
+): void {
+    const outputSummary = chunks.join("\n").trim();
+    const failureReason = `COMMAND_CANCELLED: ${reason}`;
+    const event = events.append({
+        eventType: "tool.command.cancelled",
+        scopeType: "tool",
+        scopeId: taskId,
+        sessionId,
+        turnId,
+        taskId,
+        status: "cancelled",
+        title: "命令工具已取消",
+        summary: failureReason,
+        payload: withOptionalGraphCheckpoint({
+            toolId: capability?.toolId ?? "builtin.command.run",
+            toolKind: "command",
+            toolCallId,
+            requiredPermission: capability?.requiredPermission ?? "command.run",
+            command,
+            outputSummary,
+            exitCode: null,
+            failureReason,
+        }, graphCheckpoint),
+    });
+
+    resolve({
+        toolKind: "command",
+        command,
+        status: "failed",
+        outputSummary,
+        failureReason,
+        traceId: event.traceId,
+    });
+}
+
+/**
+ * resolveRuntimeSignalCancelReason：从运行时取消信号中解析可审计取消原因。
+ *
+ * @param signal 当前轮次运行时取消信号。
+ * @returns 取消原因。
+ */
+function resolveRuntimeSignalCancelReason(signal: AbortSignal): string {
+    const reason = signal.reason;
+    if (reason instanceof Error && reason.message.trim().length > 0) {
+        return reason.message;
+    }
+    if (reason && typeof reason === "object") {
+        const reasonLike = reason as {
+            /** message: AbortSignal.reason 可能携带的取消说明。 */
+            message?: unknown;
+        };
+        if (typeof reasonLike.message === "string" && reasonLike.message.trim().length > 0) {
+            return reasonLike.message;
+        }
+    }
+    if (typeof reason === "string" && reason.trim().length > 0) {
+        return reason;
+    }
+    return "用户点击停止当前执行。";
 }
 
 /**
