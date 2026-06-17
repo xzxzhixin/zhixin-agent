@@ -161,6 +161,19 @@ interface AgentMemoryPromptEntry {
     sourceSessionId: string | null;
     /** sourceTurnId: 来源轮次 ID。 */
     sourceTurnId: string | null;
+    /** sourceMemoryPath: Markdown 记忆相对中心目录路径。 */
+    sourceMemoryPath: string | null;
+    /** attachments: 本条记忆关联的归档附件来源。 */
+    attachments: AgentMemoryAttachmentPromptEntry[];
+}
+
+interface AgentMemoryAttachmentPromptEntry {
+    /** attachmentId: 正式附件 ID。 */
+    attachmentId: string;
+    /** fileName: 附件文件名。 */
+    fileName: string;
+    /** archivePath: 归档附件相对中心目录路径。 */
+    archivePath: string;
 }
 
 // MAIN_AGENT_MEMORY_PROMPT_LIMIT：模型请求只注入有限主智能体记忆候选，避免长期记忆无界占用上下文。
@@ -775,6 +788,8 @@ export async function listMainAgentMemoryPromptEntries(
             summary: memory.summary,
             sourceSessionId: memory.sourceSessionId,
             sourceTurnId: memory.sourceTurnId,
+            sourceMemoryPath: memory.memoryPath,
+            attachments: parseAgentMemoryAttachments(memory.attachmentRefsJson),
             sourceKind: "index" as const,
             score: 0,
         };
@@ -799,6 +814,10 @@ export async function listMainAgentMemoryPromptEntries(
             sourceTurnId: typeof memory.metadata.sourceTurnId === "string"
                 ? memory.metadata.sourceTurnId
                 : null,
+            sourceMemoryPath: typeof memory.metadata.sourceMemoryPath === "string"
+                ? memory.metadata.sourceMemoryPath
+                : null,
+            attachments: parseAgentMemoryAttachments(memory.metadata.attachments),
             sourceKind: "mem0" as const,
             score: memory.score ?? 0,
         };
@@ -817,6 +836,8 @@ export async function listMainAgentMemoryPromptEntries(
             summary: memory.summary,
             sourceSessionId: memory.sourceSessionId,
             sourceTurnId: memory.sourceTurnId,
+            sourceMemoryPath: memory.sourceMemoryPath,
+            attachments: memory.attachments,
         };
     });
 }
@@ -838,7 +859,7 @@ function shouldIncludeMainAgentMemoryPromptEntry(summary: string): boolean {
     if (isLowSignalMemorySummary(normalizedSummary)) {
         return false;
     }
-    return !looksLikeIncorrectIdentityAnswer(normalizedSummary);
+    return !looksLikeGenericFailedMemorySummary(normalizedSummary);
 }
 
 /**
@@ -860,14 +881,11 @@ function scoreMainAgentMemoryPromptEntry(memory: {
     if (normalizedSummary.includes("偏好") || normalizedSummary.includes("长期记忆")) {
         score += 20;
     }
-    if (normalizedSummary.includes("作者") || normalizedSummary.includes("喜欢") || normalizedSummary.includes("称呼")) {
+    if (normalizedSummary.includes("附件来源") || normalizedSummary.includes("附件摘要")) {
+        score += 15;
+    }
+    if (normalizedSummary.includes("用户")) {
         score += 10;
-    }
-    if (looksLikePreferenceMemory(normalizedSummary)) {
-        score += 25;
-    }
-    if (looksLikeIdentityMemory(normalizedSummary)) {
-        score += 25;
     }
     return score + memory.score;
 }
@@ -880,13 +898,8 @@ function scoreMainAgentMemoryPromptEntry(memory: {
  */
 function buildMainAgentMemorySearchQuery(userText: string): string {
     const normalizedUserText = userText.replace(/\s+/gu, " ").trim();
-    if (normalizedUserText.length === 0) {
-        return "用户长期偏好 稳定事实 历史设定 常用称呼";
-    }
-    if (looksLikeIdentityQuestion(normalizedUserText)) {
-        return `${normalizedUserText} 用户长期偏好 稳定事实 常用称呼 自称方式 身份记录`;
-    }
-    return `${normalizedUserText} 用户长期偏好 稳定事实 历史上下文`;
+    const searchTerms = buildGenericMemorySearchTerms(normalizedUserText);
+    return searchTerms.join(" ");
 }
 
 /**
@@ -904,6 +917,8 @@ function searchMainAgentIndexedMemories(
     summary: string;
     sourceSessionId: string | null;
     sourceTurnId: string | null;
+    sourceMemoryPath: string | null;
+    attachments: AgentMemoryAttachmentPromptEntry[];
     sourceKind: "index";
     score: number;
 }> {
@@ -919,6 +934,8 @@ function searchMainAgentIndexedMemories(
                 summary: memory.summary,
                 sourceSessionId: memory.sourceSessionId,
                 sourceTurnId: memory.sourceTurnId,
+                sourceMemoryPath: memory.memoryPath,
+                attachments: parseAgentMemoryAttachments(memory.attachmentRefsJson),
                 sourceKind: "index" as const,
                 score: scoreIndexedMemorySearchHit(
                     term,
@@ -939,23 +956,48 @@ function searchMainAgentIndexedMemories(
  */
 function buildMainAgentIndexedMemorySearchTerms(userText: string): string[] {
     const normalizedUserText = userText.replace(/\s+/gu, " ").trim();
+    return buildGenericMemorySearchTerms(normalizedUserText);
+}
+
+/**
+ * buildGenericMemorySearchTerms：构造不依赖具体问题类型的长期记忆检索词。
+ *
+ * @param normalizedUserText 已规整的用户本轮输入。
+ * @returns 可同时用于 Mem0 和 SQLite 的通用检索词。
+ */
+function buildGenericMemorySearchTerms(normalizedUserText: string): string[] {
     const terms = new Set<string>();
     if (normalizedUserText.length > 0) {
         terms.add(normalizedUserText);
-    }
-    if (looksLikeIdentityQuestion(normalizedUserText)) {
-        [
-            "你叫什么",
-            "我叫什么",
-            "我是谁",
-            "徐志翔",
-            "致心",
-            "更喜欢你叫",
-        ].forEach((term) => {
+        extractMeaningfulMemoryTerms(normalizedUserText).forEach((term) => {
             terms.add(term);
         });
     }
-    return Array.from(terms);
+    [
+        "用户长期事实",
+        "用户偏好",
+        "当天事实",
+        "附件来源",
+        "附件摘要",
+        "历史上下文",
+    ].forEach((term) => {
+        terms.add(term);
+    });
+    return Array.from(terms).filter((term) => {
+        return term.trim().length > 0;
+    });
+}
+
+/**
+ * extractMeaningfulMemoryTerms：从用户输入中提取通用检索片段。
+ *
+ * @param text 用户本轮输入。
+ * @returns 去掉标点和过短片段后的检索词。
+ */
+function extractMeaningfulMemoryTerms(text: string): string[] {
+    return text.split(/[^\p{L}\p{N}]+/gu).filter((term) => {
+        return term.length >= 2;
+    }).slice(0, 8);
 }
 
 /**
@@ -978,11 +1020,11 @@ function scoreIndexedMemorySearchHit(
     if (keywords.includes(searchTerm)) {
         score += 20;
     }
-    if (looksLikePreferenceMemory(summary)) {
-        score += 25;
+    if (summary.includes("附件来源") || summary.includes("附件摘要")) {
+        score += 15;
     }
-    if (looksLikeIdentityMemory(summary)) {
-        score += 25;
+    if (summary.includes("用户") || summary.includes("偏好")) {
+        score += 10;
     }
     return score;
 }
@@ -994,104 +1036,44 @@ function scoreIndexedMemorySearchHit(
  * @returns 低信号时返回 true。
  */
 function isLowSignalMemorySummary(summary: string): boolean {
-    const lowSignalPatterns = [
-        "请只回复",
-        "收到。",
-        "收到",
-        "实时刷新验证",
-        "回归验证",
-        "数据库恢复",
-        "完成事件复测",
-        "桌面壳实时刷新验证",
-    ];
-    return lowSignalPatterns.some((pattern) => {
-        return summary.includes(pattern);
-    });
+    const compactSummary = summary.replace(/\s+/gu, "");
+    if (compactSummary.length < 4) {
+        return true;
+    }
+    const uniqueCharacters = new Set(Array.from(compactSummary));
+    if (compactSummary.length >= 4 && uniqueCharacters.size <= 2) {
+        return true;
+    }
+    return /^[\p{P}\p{S}\s]+$/u.test(summary);
 }
 
 /**
- * looksLikeIncorrectIdentityAnswer：识别不应固化或继续召回的错误身份答复。
+ * looksLikeGenericFailedMemorySummary：识别不应继续召回的泛化失败摘要。
  *
  * @param summary 长期记忆摘要。
- * @returns 明显属于错误或空洞身份答复时返回 true。
+ * @returns 失败表达缺少具体可复用事实时返回 true。
  */
-function looksLikeIncorrectIdentityAnswer(summary: string): boolean {
-    const incorrectIdentityPatterns = [
-        "不知道你的真实身份",
-        "不知道你的姓名",
-        "无法确认你的真实身份",
-        "无法确认你的姓名",
-        "我叫 ChatGPT",
-        "我是 ChatGPT",
+function looksLikeGenericFailedMemorySummary(summary: string): boolean {
+    const normalized = summary.toLowerCase();
+    const failureMarkers = [
+        "error",
+        "failed",
+        "failure",
+        "exception",
+        "无法",
+        "不能",
+        "失败",
+        "错误",
+        "异常",
     ];
-    return incorrectIdentityPatterns.some((pattern) => {
-        return summary.includes(pattern);
+    const hasFailureMarker = failureMarkers.some((marker) => {
+        return normalized.includes(marker);
     });
-}
-
-/**
- * looksLikePreferenceMemory：识别用户对名称、称呼或偏好的长期记忆。
- *
- * @param summary 长期记忆摘要。
- * @returns 与偏好或称呼直接相关时返回 true。
- */
-function looksLikePreferenceMemory(summary: string): boolean {
-    const preferencePatterns = [
-        "我更喜欢",
-        "喜欢你叫",
-        "称呼",
-        "自称",
-        "名字",
-        "叫我",
-        "叫你",
-    ];
-    return preferencePatterns.some((pattern) => {
-        return summary.includes(pattern);
-    });
-}
-
-/**
- * looksLikeIdentityMemory：识别用户或助手身份相关的长期记忆。
- *
- * @param summary 长期记忆摘要。
- * @returns 与身份、姓名、自我介绍相关时返回 true。
- */
-function looksLikeIdentityMemory(summary: string): boolean {
-    const identityPatterns = [
-        "我是谁",
-        "你是谁",
-        "你叫什么",
-        "我叫什么",
-        "名字",
-        "姓名",
-        "身份",
-    ];
-    return identityPatterns.some((pattern) => {
-        return summary.includes(pattern);
-    });
-}
-
-/**
- * looksLikeIdentityQuestion：识别当前问题是否在询问身份、姓名或称呼。
- *
- * @param userText 用户本轮输入。
- * @returns 属于身份类问题时返回 true。
- */
-function looksLikeIdentityQuestion(userText: string): boolean {
-    const identityQuestionPatterns = [
-        "我是谁",
-        "你是谁",
-        "你叫什么",
-        "我叫什么",
-        "怎么称呼你",
-        "怎么叫你",
-        "叫什么名字",
-        "名字",
-        "称呼",
-    ];
-    return identityQuestionPatterns.some((pattern) => {
-        return userText.includes(pattern);
-    });
+    if (!hasFailureMarker) {
+        return false;
+    }
+    const alphaNumericCount = Array.from(summary.matchAll(/[\p{L}\p{N}]/gu)).length;
+    return summary.length < 80 || alphaNumericCount < 12;
 }
 
 /**
@@ -1117,6 +1099,88 @@ function dedupeMainAgentMemoryPromptEntries<T extends {
 }
 
 /**
+ * parseAgentMemoryAttachments：解析长期记忆附件来源。
+ *
+ * @param rawAttachments SQLite JSON 字符串或 Mem0 metadata 字段。
+ * @returns 可注入模型上下文的附件来源列表。
+ */
+function parseAgentMemoryAttachments(rawAttachments: unknown): AgentMemoryAttachmentPromptEntry[] {
+    const parsedAttachments = typeof rawAttachments === "string"
+        ? tryParseJsonArray(rawAttachments)
+        : Array.isArray(rawAttachments)
+            ? rawAttachments
+            : [];
+    return parsedAttachments.filter((item) => {
+        return typeof item === "object" && item !== null;
+    }).map((item) => {
+        const record = item as Record<string, unknown>;
+        return {
+            attachmentId: typeof record.attachmentId === "string"
+                ? record.attachmentId
+                : "",
+            fileName: typeof record.fileName === "string"
+                ? record.fileName
+                : "",
+            archivePath: typeof record.archivePath === "string"
+                ? record.archivePath
+                : "",
+        };
+    }).filter((item) => {
+        return item.attachmentId.length > 0
+            && item.fileName.length > 0
+            && item.archivePath.length > 0;
+    });
+}
+
+/**
+ * formatMemoryAttachmentForPrompt：格式化单个附件来源并限制字段长度。
+ *
+ * @param attachment 附件来源。
+ * @returns 可注入长期记忆提示的短文本。
+ */
+function formatMemoryAttachmentForPrompt(attachment: AgentMemoryAttachmentPromptEntry): string {
+    return [
+        limitMemoryPromptField(attachment.fileName, 80),
+        "(",
+        limitMemoryPromptField(attachment.attachmentId, 48),
+        "，",
+        limitMemoryPromptField(attachment.archivePath, 160),
+        ")",
+    ].join("");
+}
+
+/**
+ * limitMemoryPromptField：限制长期记忆提示中的来源字段长度。
+ *
+ * @param value 来源字段原文。
+ * @param maxLength 最大保留字符数。
+ * @returns 限长后的字段文本。
+ */
+function limitMemoryPromptField(value: string, maxLength: number): string {
+    if (value.length <= maxLength) {
+        return value;
+    }
+    return `${value.slice(0, maxLength)}...`;
+}
+
+/**
+ * tryParseJsonArray：解析 JSON 数组字段。
+ *
+ * @param value JSON 字符串。
+ * @returns 数组；解析失败或类型不符时返回空数组。
+ */
+function tryParseJsonArray(value: string): unknown[] {
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed)
+            ? parsed
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
  * buildMainAgentMemoryPrompt：把主智能体长期记忆压缩成模型系统消息。
  *
  * @param memories 主智能体最近记忆摘要。
@@ -1133,7 +1197,15 @@ function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string 
             const source = memory.sourceSessionId && memory.sourceTurnId
                 ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
                 : "来源未绑定";
-            return `${index + 1}. 关键词：${memory.keywords || "无"}；摘要：${memory.summary || "无"}；${source}`;
+            const memoryPathText = memory.sourceMemoryPath
+                ? `；Markdown：${memory.sourceMemoryPath}`
+                : "";
+            const attachmentText = memory.attachments.length > 0
+                ? `；附件来源：${memory.attachments.map((attachment) => {
+                    return formatMemoryAttachmentForPrompt(attachment);
+                }).join("、")}`
+                : "";
+            return `${index + 1}. 关键词：${memory.keywords}；摘要：${memory.summary}；${source}${memoryPathText}${attachmentText}`;
         }),
         "使用这些记忆理解用户偏好和历史上下文，但不要编造未写入记忆的事实。",
     ].join("\n");

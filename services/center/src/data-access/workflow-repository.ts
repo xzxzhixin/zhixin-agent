@@ -172,6 +172,7 @@ export class WorkflowRepository {
         summary: string;
         sourceSessionId: string | null;
         sourceTurnId: string | null;
+        attachmentRefsJson: string;
         memoryPath: string;
         createdAt: string;
     }> {
@@ -182,6 +183,7 @@ export class WorkflowRepository {
                        summary,
                        source_session_id AS sourceSessionId,
                        source_turn_id AS sourceTurnId,
+                       attachment_refs_json AS attachmentRefsJson,
                        memory_path AS memoryPath,
                        created_at AS createdAt
                 FROM memory_index
@@ -198,6 +200,7 @@ export class WorkflowRepository {
             summary: string;
             sourceSessionId: string | null;
             sourceTurnId: string | null;
+            attachmentRefsJson: string;
             memoryPath: string;
             createdAt: string;
         }>;
@@ -217,6 +220,7 @@ export class WorkflowRepository {
         summary: string;
         sourceSessionId: string | null;
         sourceTurnId: string | null;
+        attachmentRefsJson: string;
         memoryPath: string;
         createdAt: string;
     }> {
@@ -232,6 +236,7 @@ export class WorkflowRepository {
                        summary,
                        source_session_id AS sourceSessionId,
                        source_turn_id AS sourceTurnId,
+                       attachment_refs_json AS attachmentRefsJson,
                        memory_path AS memoryPath,
                        created_at AS createdAt
                 FROM memory_index
@@ -254,6 +259,7 @@ export class WorkflowRepository {
             summary: string;
             sourceSessionId: string | null;
             sourceTurnId: string | null;
+            attachmentRefsJson: string;
             memoryPath: string;
             createdAt: string;
         }>;
