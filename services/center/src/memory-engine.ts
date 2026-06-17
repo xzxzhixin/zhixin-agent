@@ -9,6 +9,7 @@ import {
 import {Memory} from "mem0ai/oss";
 
 import type {CenterEventStore} from "./events.js";
+import type {AttachmentMemorySource} from "./domain/AttachmentMemoryService.js";
 import {
     readProviderConfig,
     readSecretValue,
@@ -53,6 +54,11 @@ export interface Mem0MemorySource {
      * sourceMemoryText: 已写入 Markdown 事实源的记忆正文摘要。
      */
     sourceMemoryText: string;
+
+    /**
+     * attachments: 本轮用户消息关联的正式归档附件来源。
+     */
+    attachments?: AttachmentMemorySource[];
 }
 
 /**
@@ -223,6 +229,7 @@ export async function syncTurnMemoryToMem0(
                         sourceSessionId: source.sourceSessionId,
                         sourceTurnId: source.sourceTurnId,
                         sourceMemoryPath: source.sourceMemoryPath,
+                        attachments: source.attachments ?? [],
                     },
                     infer: false,
                 },
@@ -246,6 +253,7 @@ export async function syncTurnMemoryToMem0(
                     sourceSessionId: source.sourceSessionId,
                     sourceTurnId: source.sourceTurnId,
                     sourceMemoryPath: source.sourceMemoryPath,
+                    attachments: source.attachments ?? [],
                 },
             });
             return;
@@ -272,6 +280,7 @@ export async function syncTurnMemoryToMem0(
                     sourceSessionId: source.sourceSessionId,
                     sourceTurnId: source.sourceTurnId,
                     sourceMemoryPath: source.sourceMemoryPath,
+                    attachments: source.attachments ?? [],
                 },
             });
         }
@@ -300,6 +309,7 @@ export async function syncTurnMemoryToMem0(
             sourceSessionId: source.sourceSessionId,
             sourceTurnId: source.sourceTurnId,
             sourceMemoryPath: source.sourceMemoryPath,
+            attachments: source.attachments ?? [],
         },
     });
 }

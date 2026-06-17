@@ -11,6 +11,7 @@ import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
 } from "./turn-graph-domain.js";
+import {AttachmentMemoryService} from "./AttachmentMemoryService.js";
 
 /**
  * commitMainAgentMemoryAfterTurn：正常会话完成后追加主智能体长期记忆。
@@ -35,11 +36,18 @@ export async function commitMainAgentMemoryAfterTurn(
     assistantText: string,
     graphCheckpoint?: TurnGraphCheckpoint,
 ): Promise<void> {
+    const attachmentSources = new AttachmentMemoryService(database).listSourcesByTurn({
+        sessionId: sent.sessionId,
+        turnId: sent.turnId,
+    });
     // 只有可长期复用的稳定事实才进入长期记忆，回归口水、明显错误回复和空泛失败回复都必须跳过。
-    if (!shouldPersistMainAgentMemory(
+    if (
+        attachmentSources.length === 0
+        && !shouldPersistMainAgentMemory(
         userText,
         assistantText,
-    )) {
+        )
+    ) {
         events.append({
             eventType: "memory.write.skipped",
             scopeType: "agent",
@@ -68,7 +76,7 @@ export async function commitMainAgentMemoryAfterTurn(
         assistantText,
         sourceSessionId: sent.sessionId,
         sourceTurnId: sent.turnId,
-        attachmentRefsJson: "[]",
+        attachmentSources,
     };
     const memoryResult = writeAgentMemory(
         database,
@@ -92,8 +100,27 @@ export async function commitMainAgentMemoryAfterTurn(
             sourceSessionId: sent.sessionId,
             sourceTurnId: sent.turnId,
             relativePath: memoryResult.relativePath,
+            attachmentSources,
         }, graphCheckpoint),
     });
+    if (attachmentSources.length > 0) {
+        events.append({
+            eventType: "memory.attachment.summary.skipped",
+            scopeType: "memory",
+            scopeId: sent.turnId,
+            sessionId: sent.sessionId,
+            turnId: sent.turnId,
+            taskId: sent.taskId,
+            agentId: memoryInput.agentId,
+            status: "completed",
+            title: "附件摘要跳过",
+            summary: "本轮已保存附件来源，真实附件解析和摘要追加不在当前任务实现。",
+            payload: withOptionalGraphCheckpoint({
+                reason: "ATTACHMENT_SUMMARY_NOT_IMPLEMENTED",
+                attachmentSources,
+            }, graphCheckpoint),
+        });
+    }
     await syncTurnMemoryToMem0(
         events,
         centerDirectory,
@@ -104,6 +131,7 @@ export async function commitMainAgentMemoryAfterTurn(
             sourceTurnId: sent.turnId,
             sourceMemoryPath: memoryResult.relativePath,
             sourceMemoryText: memoryInput.summary,
+            attachments: attachmentSources,
         },
     );
 }

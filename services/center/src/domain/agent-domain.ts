@@ -9,6 +9,7 @@ import type {MemoryQueueState} from "../types.js";
 import {writeFileSyncUtf8, writeFileSyncUtf8IfMissing, writeJsonFile} from "../helpers.js";
 import {AgentRepository} from "../data-access/agent-repository.js";
 import {formatCenterLocalDateTime} from "../time.js";
+import type {AttachmentMemorySource} from "./AttachmentMemoryService.js";
 
 // AGENT_DYNAMIC_CAPABILITY_BOUNDARY: 兼容旧 agents_index 字段；真实可用能力由当前会话窗口动态决定，不再由前端编辑。
 const AGENT_DYNAMIC_CAPABILITY_BOUNDARY = "可用能力由当前会话、项目上下文、全局扩展和执行模式动态决定。";
@@ -39,6 +40,8 @@ export interface MemoryWriteInput {
     sourceTurnId?: string | null;
     /** attachmentRefsJson: 正式附件结构化引用 JSON 字符串。 */
     attachmentRefsJson?: string;
+    /** attachmentSources: 本轮用户消息已归档附件来源。 */
+    attachmentSources?: AttachmentMemorySource[];
 }
 
 export function ensureMainAgent(
@@ -569,6 +572,10 @@ export function writeAgentMemory(
     const relativePath = `memory/agents/${input.agentId}/${year}/${month}/${day}.md`;
     const filePath = join(centerDirectory, relativePath);
     const memoryTimeTitle = formatMemoryTimeTitle(now);
+    const attachmentSources = input.attachmentSources ?? [];
+    const attachmentRefsJson = attachmentSources.length > 0
+        ? JSON.stringify(attachmentSources)
+        : input.attachmentRefsJson ?? "[]";
     mkdirSync(dirname(filePath), {
         recursive: true,
     });
@@ -595,6 +602,10 @@ export function writeAgentMemory(
         "",
         input.assistantText,
         "",
+        "## 附件来源",
+        "",
+        renderAttachmentMemorySources(attachmentSources),
+        "",
     ].join("\n"), "utf-8");
     const memoryIndexId = randomUUID();
     new AgentRepository(database).insertMemoryIndex({
@@ -604,7 +615,7 @@ export function writeAgentMemory(
         summary: input.summary,
         sourceSessionId: input.sourceSessionId ?? null,
         sourceTurnId: input.sourceTurnId ?? null,
-        attachmentRefsJson: input.attachmentRefsJson ?? "[]",
+        attachmentRefsJson,
         memoryPath: relativePath,
         createdAt: nowText,
     });
@@ -624,6 +635,7 @@ export function writeAgentMemory(
             memoryIndexId,
             sourceSessionId: input.sourceSessionId ?? null,
             sourceTurnId: input.sourceTurnId ?? null,
+            attachmentSources,
         },
     });
     leaveMemoryQueue(queueState);
@@ -631,6 +643,30 @@ export function writeAgentMemory(
     return {
         relativePath,
     };
+}
+
+/**
+ * renderAttachmentMemorySources：渲染长期记忆中的附件来源小节。
+ *
+ * @param attachmentSources 本轮正式附件来源列表。
+ * @returns Markdown 列表；没有附件时写入固定无来源说明。
+ */
+function renderAttachmentMemorySources(attachmentSources: AttachmentMemorySource[]): string {
+    if (attachmentSources.length === 0) {
+        return "无";
+    }
+
+    return attachmentSources.map((source) => {
+        return [
+            `- 附件名：${source.fileName}`,
+            `  - ID：${source.attachmentId}`,
+            `  - 类型：${source.mimeType}`,
+            `  - 路径：${source.archivePath}`,
+            `  - 来源会话：${source.sessionId}`,
+            `  - 来源轮次：${source.turnId}`,
+            `  - 来源消息：${source.messageId}`,
+        ].join("\n");
+    }).join("\n");
 }
 
 /**
