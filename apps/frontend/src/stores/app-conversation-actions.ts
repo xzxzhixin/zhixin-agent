@@ -23,6 +23,11 @@ import type {
     SessionDetailResult,
 } from "@zhixin/shared";
 
+import {
+    TurnStateReconciler,
+    type TurnStateSnapshot,
+} from "./TurnStateReconciler";
+
 /**
  * TaskUpdatedPayload：中心服务 task.updated 事件和专项 WebSocket 包的载荷。
  *
@@ -55,13 +60,6 @@ function isTerminalExecutionStatus(status: string | undefined): boolean {
         || status === "failed"
         || status === "cancelled";
 }
-
-// RUNNING_TURN_RECOVERY_INTERVAL_MS：运行中轮次快照恢复间隔，保持轻量轮询且能及时刷新最终消息。
-const RUNNING_TURN_RECOVERY_INTERVAL_MS = 1500;
-// RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS：连续约 10 分钟无事件、任务或步骤活动时，停止当前页面本地观察并输出诊断日志。
-const RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS = 400;
-// RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS：极端保护预算；活动持续推进时通常不会触发，避免异常页面永久高频轮询。
-const RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS = 172800;
 
 /**
  * isCompletedTaskUpdate：判断任务更新是否表示当前任务完成。
@@ -648,26 +646,16 @@ export function createConversationActions() {
             sessionId: string,
             turnId: string,
         ): void {
-            this.stopRunningTurnSnapshotRecovery();
-            this.runningTurnSnapshotRecovery.sessionId = sessionId;
-            this.runningTurnSnapshotRecovery.turnId = turnId;
-            this.runningTurnSnapshotRecovery.attempts = 0;
-            this.runningTurnSnapshotRecovery.lastActivityAt = resolveTurnSnapshotActivityAt(
+            const lastActivityAt = resolveTurnSnapshotActivityAt(
                 this.sessionDetail,
                 this.events,
                 turnId,
             );
-            this.runningTurnSnapshotRecovery.idleAttempts = 0;
-            this.runningTurnSnapshotRecovery.processStartedAt = this.centerHealth?.processStartedAt ?? null;
-            console.info("[frontend:turn-recovery] started", JSON.stringify({
+            this.ensureTurnStateReconciler().start(
                 sessionId,
                 turnId,
-                lastActivityAt: this.runningTurnSnapshotRecovery.lastActivityAt,
-                idleAttemptsLimit: RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS,
-                hardMaxAttempts: RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS,
-                intervalMs: RUNNING_TURN_RECOVERY_INTERVAL_MS,
-            }));
-            this.scheduleRunningTurnSnapshotRecovery();
+                lastActivityAt,
+            );
         },
 
         /**
@@ -676,8 +664,9 @@ export function createConversationActions() {
          * @returns 没有返回值。
          */
         stopRunningTurnSnapshotRecovery(): void {
-            if (this.runningTurnSnapshotRecovery.recoveryTimer !== null) {
-                window.clearTimeout(this.runningTurnSnapshotRecovery.recoveryTimer);
+            if (this.turnStateReconciler) {
+                this.turnStateReconciler.stop();
+                return;
             }
             this.runningTurnSnapshotRecovery.recoveryTimer = null;
             this.runningTurnSnapshotRecovery.sessionId = null;
@@ -689,109 +678,73 @@ export function createConversationActions() {
         },
 
         /**
-         * scheduleRunningTurnSnapshotRecovery：按活动续租策略短间隔拉取当前会话数据库快照。
+         * scheduleRunningTurnSnapshotRecovery：兼容旧调用的轮次状态收敛调度入口。
          *
-         * 关键逻辑：只要中心服务快照中的事件、任务或步骤时间继续推进，就刷新最近活动时间；
-         * 只有连续多次没有任何活动推进时，才停止当前页面本地观察并保留控制台诊断。
+         * 关键逻辑：实际调度已迁移到 TurnStateReconciler；旧入口只保证已有目标可以继续由状态机托管。
          *
          * @returns 没有返回值。
          */
         scheduleRunningTurnSnapshotRecovery(): void {
-            const recovery = this.runningTurnSnapshotRecovery;
-            if (!recovery.sessionId || !recovery.turnId) {
+            if (!this.runningTurnSnapshotRecovery.sessionId || !this.runningTurnSnapshotRecovery.turnId) {
                 return;
             }
-            if (recovery.attempts >= RUNNING_TURN_RECOVERY_HARD_MAX_ATTEMPTS) {
-                console.warn("[frontend:turn-recovery] stopped by hard budget", JSON.stringify({
-                    sessionId: recovery.sessionId,
-                    turnId: recovery.turnId,
-                    attempts: recovery.attempts,
-                    lastActivityAt: recovery.lastActivityAt,
-                }));
-                this.stopRunningTurnSnapshotRecovery();
-                return;
+            this.ensureTurnStateReconciler().start(
+                this.runningTurnSnapshotRecovery.sessionId,
+                this.runningTurnSnapshotRecovery.turnId,
+                this.runningTurnSnapshotRecovery.lastActivityAt,
+            );
+        },
+
+        /**
+         * ensureTurnStateReconciler：创建或复用运行中轮次状态收敛器。
+         *
+         * @returns 状态收敛器实例。
+         */
+        ensureTurnStateReconciler(): TurnStateReconciler {
+            if (this.turnStateReconciler) {
+                return this.turnStateReconciler as TurnStateReconciler;
             }
-            if (recovery.idleAttempts >= RUNNING_TURN_RECOVERY_IDLE_ATTEMPTS) {
-                console.warn("[frontend:turn-recovery] stopped by idle budget", JSON.stringify({
-                    sessionId: recovery.sessionId,
-                    turnId: recovery.turnId,
-                    attempts: recovery.attempts,
-                    idleAttempts: recovery.idleAttempts,
-                    lastActivityAt: recovery.lastActivityAt,
-                }));
-                this.stopRunningTurnSnapshotRecovery();
-                return;
-            }
-            recovery.recoveryTimer = window.setTimeout(async () => {
-                const currentSessionId = this.runningTurnSnapshotRecovery.sessionId;
-                const currentTurnId = this.runningTurnSnapshotRecovery.turnId;
-                if (!currentSessionId || !currentTurnId || currentSessionId !== this.activeSessionId) {
-                    this.stopRunningTurnSnapshotRecovery();
-                    return;
-                }
-                this.runningTurnSnapshotRecovery.attempts += 1;
-                try {
-                    // 运行中轮次最终事实在中心服务数据库；短轮询只把已完成快照恢复到当前 UI。
+            const reconciler = new TurnStateReconciler({
+                getActiveSessionId: () => {
+                    return this.activeSessionId;
+                },
+                requestTurnState: async (sessionId) => {
+                    return this.requestActiveTurnState(sessionId);
+                },
+                loadActiveSessionSnapshot: async () => {
                     await this.loadActiveSessionSnapshot();
-                    console.info("[frontend:turn-recovery] snapshot loaded", JSON.stringify({
-                        sessionId: currentSessionId,
-                        turnId: currentTurnId,
-                        attempts: this.runningTurnSnapshotRecovery.attempts,
-                    }));
-                    const activityAt = resolveTurnSnapshotActivityAt(
-                        this.sessionDetail,
-                        this.events,
-                        currentTurnId,
-                    );
-                    if (activityAt && activityAt !== this.runningTurnSnapshotRecovery.lastActivityAt) {
-                        this.runningTurnSnapshotRecovery.lastActivityAt = activityAt;
-                        this.runningTurnSnapshotRecovery.idleAttempts = 0;
-                        console.info("[frontend:turn-recovery] activity renewed", JSON.stringify({
-                            sessionId: currentSessionId,
-                            turnId: currentTurnId,
-                            attempts: this.runningTurnSnapshotRecovery.attempts,
-                            lastActivityAt: activityAt,
-                        }));
-                    } else {
-                        this.runningTurnSnapshotRecovery.idleAttempts += 1;
-                    }
-                } catch (error) {
-                    console.warn("[frontend:turn-recovery] snapshot failed", JSON.stringify({
-                        sessionId: currentSessionId,
-                        turnId: currentTurnId,
-                        attempts: this.runningTurnSnapshotRecovery.attempts,
-                        errorMessage: error instanceof Error
-                            ? error.message
-                            : "UNKNOWN_SNAPSHOT_RECOVERY_ERROR",
-                    }));
-                    // WebSocket 请求可能与重连竞态冲突；下一轮继续尝试，避免单次失败让 UI 永久卡住。
-                }
-                const stillRunning = this.sessionDetail?.turns.some((turn) => {
-                    return turn.turnId === currentTurnId
-                        && isRecoverableTurnRunning(
-                            turn,
-                            {
-                                processStartedAt: this.runningTurnSnapshotRecovery.processStartedAt,
-                                activityAt: resolveTurnSnapshotActivityAt(
-                                    this.sessionDetail,
-                                    this.events,
-                                    currentTurnId,
-                                ),
-                            },
-                        );
-                }) ?? false;
-                if (!stillRunning) {
-                    console.info("[frontend:turn-recovery] completed", JSON.stringify({
-                        sessionId: currentSessionId,
-                        turnId: currentTurnId,
-                        attempts: this.runningTurnSnapshotRecovery.attempts,
-                        lastActivityAt: this.runningTurnSnapshotRecovery.lastActivityAt,
-                    }));
-                    this.stopRunningTurnSnapshotRecovery();
-                    return;
-                }
-                this.scheduleRunningTurnSnapshotRecovery();
-            }, RUNNING_TURN_RECOVERY_INTERVAL_MS);
+                },
+                updateRecoveryState: (state) => {
+                    this.runningTurnSnapshotRecovery.recoveryTimer = state.recoveryTimer;
+                    this.runningTurnSnapshotRecovery.sessionId = state.sessionId;
+                    this.runningTurnSnapshotRecovery.turnId = state.turnId;
+                    this.runningTurnSnapshotRecovery.attempts = state.attempts;
+                    this.runningTurnSnapshotRecovery.lastActivityAt = state.lastActivityAt;
+                    this.runningTurnSnapshotRecovery.idleAttempts = state.idleAttempts;
+                    this.runningTurnSnapshotRecovery.processStartedAt = state.processStartedAt;
+                },
+                logInfo: (message, payload) => {
+                    console.info(message, JSON.stringify(payload));
+                },
+                logWarn: (message, payload) => {
+                    console.warn(message, JSON.stringify(payload));
+                },
+            });
+            // markRaw: 状态收敛器持有浏览器定时器和方法闭包，不能被 Vue 深度代理。
+            this.turnStateReconciler = markRaw(reconciler);
+            return reconciler;
+        },
+
+        /**
+         * requestActiveTurnState：读取当前会话最新轮次轻量状态。
+         *
+         * @param sessionId 会话 ID。
+         * @returns 中心服务返回的轻量轮次状态。
+         */
+        async requestActiveTurnState(sessionId: string): Promise<TurnStateSnapshot> {
+            return this.requireRealtimeRequest<TurnStateSnapshot>("session.turn.state", {
+                sessionId,
+            });
         },
 
         /**
@@ -1040,6 +993,12 @@ export function createConversationActions() {
                             return;
                         }
                         this.replaceRealtimeEvent(event);
+                        this.turnStateReconciler?.markRealtimeActivity(
+                            event.sessionId,
+                            event.turnId,
+                            event.occurredAt,
+                            event.sequence,
+                        );
                         if (shouldRefreshComposerContextUsage(event)) {
                             void this.updateComposerContextUsageFromExecution();
                         }
@@ -1055,6 +1014,19 @@ export function createConversationActions() {
                         if (event.eventType === "turn.updated"
                             && isCompletedEvent(event)) {
                             // 轮次完成状态来自事件载荷；读取 payload 能避免 UI 因字段位置不一致停在执行中。
+                            void this.turnStateReconciler?.markTerminal(
+                                event.sessionId,
+                                event.turnId,
+                            );
+                            void this.loadActiveSessionSnapshot();
+                        }
+                        if (event.eventType === "turn.state.changed"
+                            && isCompletedEvent(event)) {
+                            // 轻量轮次状态事件是状态收敛器的统一终态信号，优先让状态机关闭本地轮询。
+                            void this.turnStateReconciler?.markTerminal(
+                                event.sessionId,
+                                event.turnId,
+                            );
                             void this.loadActiveSessionSnapshot();
                         }
                         if (event.eventType === "task.updated"
@@ -1075,6 +1047,10 @@ export function createConversationActions() {
                                 activeTaskIds,
                             )) {
                             // 专项 task.updated 包不进入 event.appended 分支，必须单独刷新快照才能恢复最终回复和任务终态。
+                            void this.turnStateReconciler?.markTerminal(
+                                this.activeSessionId,
+                                this.runningTurnSnapshotRecovery.turnId,
+                            );
                             void this.loadActiveSessionSnapshot();
                         }
                     }

@@ -362,6 +362,33 @@ export class SessionRepository {
     }
 
     /**
+     * findLatestTurnForSession：读取会话最新轮次。
+     *
+     * @param sessionId 会话 ID。
+     * @returns 最新轮次；没有轮次时返回 null。
+     */
+    findLatestTurnForSession(sessionId: string): ConversationTurn | null {
+        const row = this.database.connection()
+            .prepare(`
+                SELECT id              AS turnId,
+                       session_id      AS sessionId,
+                       turn_number     AS turnNumber,
+                       user_message_id AS userMessageId,
+                       status,
+                       started_at      AS startedAt,
+                       ended_at        AS endedAt,
+                       duration_ms     AS durationMs
+                FROM conversation_turns
+                WHERE session_id = ?
+                ORDER BY turn_number DESC
+                LIMIT 1
+            `)
+            .get(sessionId) as ConversationTurn | undefined;
+
+        return row ?? null;
+    }
+
+    /**
      * listTasks：查询会话任务。
      *
      * @param sessionId 会话 ID。
@@ -383,6 +410,33 @@ export class SessionRepository {
                 ORDER BY created_at ASC
             `)
             .all(sessionId) as TaskRecord[];
+    }
+
+    /**
+     * findLatestTaskForTurn：读取轮次最新任务。
+     *
+     * @param turnId 轮次 ID。
+     * @returns 最新任务；没有任务时返回 null。
+     */
+    findLatestTaskForTurn(turnId: string): TaskRecord | null {
+        const row = this.database.connection()
+            .prepare(`
+                SELECT id         AS taskId,
+                       turn_id    AS turnId,
+                       session_id AS sessionId,
+                       agent_id   AS agentId,
+                       status,
+                       title,
+                       created_at AS createdAt,
+                       updated_at AS updatedAt
+                FROM tasks
+                WHERE turn_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+            `)
+            .get(turnId) as TaskRecord | undefined;
+
+        return row ?? null;
     }
 
     /**
@@ -1321,6 +1375,58 @@ export class SessionRepository {
             payload: JSON.parse(row.payloadJson),
             traceId: row.traceId,
         }));
+    }
+
+    /**
+     * findLatestEventForTurn：读取轮次最新事件。
+     *
+     * @param turnId 轮次 ID。
+     * @returns 最新事件；没有事件时返回 null。
+     */
+    findLatestEventForTurn(turnId: string): EventRecord | null {
+        const row = this.database.connection()
+            .prepare(`
+                SELECT id           AS eventId,
+                       event_type   AS eventType,
+                       turn_id      AS turnId,
+                       task_id      AS taskId,
+                       sequence,
+                       occurred_at  AS occurredAt,
+                       summary,
+                       payload_json AS payloadJson,
+                       trace_id     AS traceId
+                FROM events
+                WHERE turn_id = ?
+                ORDER BY sequence DESC
+                LIMIT 1
+            `)
+            .get(turnId) as {
+            eventId: string;
+            eventType: string;
+            turnId: string | null;
+            taskId: string | null;
+            sequence: number;
+            occurredAt: string;
+            summary: string;
+            payloadJson: string;
+            traceId: string;
+        } | undefined;
+
+        if (!row) {
+            return null;
+        }
+
+        return {
+            eventId: row.eventId,
+            eventType: row.eventType,
+            turnId: row.turnId,
+            taskId: row.taskId,
+            sequence: row.sequence,
+            occurredAt: row.occurredAt,
+            summary: row.summary,
+            payload: JSON.parse(row.payloadJson),
+            traceId: row.traceId,
+        };
     }
 
     /**

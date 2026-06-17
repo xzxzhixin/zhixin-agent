@@ -103,6 +103,7 @@ import type {
     CenterHealthState,
     RunningTurnSnapshotRecoveryState,
     QueuedComposerMessage,
+    TurnStateReconcilerRuntime,
 } from "./app-types";
 
 /**
@@ -349,6 +350,14 @@ export const useAppStore = defineStore("app", {
             idleAttempts: 0,
             processStartedAt: null,
         } as RunningTurnSnapshotRecoveryState,
+
+        /**
+         * turnStateReconciler: 运行中轮次状态收敛器实例。
+         *
+         * 来源：对话页运行中轮次恢复逻辑。
+         * 默认值：未启动轮次恢复时为空，避免空闲页面创建定时器。
+         */
+        turnStateReconciler: null as TurnStateReconcilerRuntime | null,
 
         /**
          * centerHealth: 当前中心服务健康信息。

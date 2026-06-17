@@ -16,7 +16,8 @@
     "build:desktop": "pnpm build:desktop-shell",
     "build:web": "pnpm build:frontend",
     "check:web-dist-boundary": "node scripts/check-web-dist-boundary.mjs",
-    "check:desktop-dev-startup": "node scripts/check-desktop-dev-startup.mjs"
+    "check:desktop-dev-startup": "node scripts/check-desktop-dev-startup.mjs",
+    "check:turn-state-reconciler": "node scripts/check-turn-state-reconciler-regression.mjs"
   },
   "devDependencies": {
     "@zhixin/shared": "workspace:*",

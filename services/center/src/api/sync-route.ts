@@ -27,6 +27,7 @@ import {
     deleteSession,
     findProject,
     findSession,
+    getActiveTurnState,
     listProjects,
     listSessions,
     listEvents,
@@ -268,6 +269,34 @@ function handleRealtimeRequest(input: {
                 payload: buildSessionSnapshot(
                     input.database,
                     input.envelope.payload,
+                ),
+            });
+            return;
+        }
+        if (input.envelope.type === "session.turn.state") {
+            const payload = input.envelope.payload as {
+                /** sessionId: 当前会话 ID。 */
+                sessionId?: string;
+            };
+            const sessionId = payload.sessionId ?? "";
+            if (!findSession(
+                input.database,
+                sessionId,
+            )) {
+                sendRealtimeError(
+                    input.socket,
+                    input.envelope.requestId,
+                    "SESSION_NOT_FOUND",
+                    "未找到要读取轮次状态的会话。",
+                );
+                return;
+            }
+            sendSocketEnvelope(input.socket, {
+                type: "session.turn.state",
+                requestId: input.envelope.requestId,
+                payload: getActiveTurnState(
+                    input.database,
+                    sessionId,
                 ),
             });
             return;

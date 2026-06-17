@@ -653,6 +653,41 @@ export interface RunningTurnSnapshotRecoveryState {
 }
 
 /**
+ * TurnStateReconcilerRuntime：运行中轮次状态收敛器最小运行接口。
+ *
+ * 来源：`TurnStateReconciler` class。
+ * 含义：让 Pinia state 可以保存被 markRaw 处理的运行期对象，同时避免 app-types 与具体实现互相耦合。
+ * 默认值：无运行中收敛器时为 null。
+ */
+export interface TurnStateReconcilerRuntime {
+    /** isTracking: 判断是否正在跟踪指定轮次。 */
+    isTracking: (
+        sessionId: string,
+        turnId: string,
+    ) => boolean;
+    /** start: 启动轮次状态收敛。 */
+    start: (
+        sessionId: string,
+        turnId: string,
+        lastActivityAt: string | null,
+    ) => void;
+    /** stop: 停止轮次状态收敛。 */
+    stop: () => void;
+    /** markRealtimeActivity: 标记中心服务实时事件活动。 */
+    markRealtimeActivity: (
+        sessionId: string | null,
+        turnId: string | null,
+        occurredAt: string | null,
+        sequence: number,
+    ) => void;
+    /** markTerminal: 标记终态事件并触发快照刷新。 */
+    markTerminal: (
+        sessionId: string | null,
+        turnId: string | null,
+    ) => Promise<void>;
+}
+
+/**
  * CenterHealthState：前端缓存的中心服务健康信息。
  *
  * 来源：`GET /api/health`。

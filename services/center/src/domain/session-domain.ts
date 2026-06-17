@@ -29,6 +29,33 @@ import {
 } from "./turn-graph-domain.js";
 import {formatCenterLocalDateTime} from "../time.js";
 
+/**
+ * ActiveTurnState：当前会话最新轮次的轻量状态事实。
+ *
+ * 来源：中心服务会话、轮次、任务和事件表。
+ * 含义：给前端运行中状态收敛器使用，避免为判断终态反复拉取完整会话快照。
+ */
+export interface ActiveTurnState {
+    /** sessionId: 当前会话 ID。 */
+    sessionId: string;
+    /** turnId: 最新轮次 ID；会话还没有轮次时为 null。 */
+    turnId: string | null;
+    /** taskId: 最新轮次关联任务 ID；没有任务时为 null。 */
+    taskId: string | null;
+    /** status: 最新轮次状态；无轮次时为 idle。 */
+    status: "idle" | "queued" | "running" | "waiting_user" | "completed" | "failed" | "cancelled";
+    /** endedAt: 最新轮次结束时间；未结束或无轮次时为 null。 */
+    endedAt: string | null;
+    /** durationMs: 最新轮次耗时；未结束或无轮次时为 null。 */
+    durationMs: number | null;
+    /** lastSequence: 最新轮次最后事件序号；没有事件时为 0。 */
+    lastSequence: number;
+    /** lastActivityAt: 最新任务、事件或轮次开始时间中的最近活动时间；无轮次时为 null。 */
+    lastActivityAt: string | null;
+    /** serverNow: 中心服务本机时间，用于前端诊断和节流，不作为业务时间回写。 */
+    serverNow: string;
+}
+
 export function upsertSyncClient(
     database: CenterDatabase,
     input: {
@@ -130,6 +157,107 @@ export function listTurns(database: CenterDatabase, sessionId: string): Conversa
  */
 export function listTasks(database: CenterDatabase, sessionId: string): TaskRecord[] {
     return new SessionRepository(database).listTasks(sessionId);
+}
+
+/**
+ * getActiveTurnState：读取当前会话最新轮次的轻量状态。
+ *
+ * @param database 中心服务数据库。
+ * @param sessionId 会话 ID。
+ * @returns 最新轮次状态；会话不存在或没有轮次时返回 idle 状态。
+ */
+export function getActiveTurnState(database: CenterDatabase, sessionId: string): ActiveTurnState {
+    const repository = new SessionRepository(database);
+    const turn = repository.findLatestTurnForSession(sessionId);
+    if (!turn) {
+        return {
+            sessionId,
+            turnId: null,
+            taskId: null,
+            status: "idle",
+            endedAt: null,
+            durationMs: null,
+            lastSequence: 0,
+            lastActivityAt: null,
+            serverNow: formatCenterLocalDateTime(),
+        };
+    }
+
+    const task = repository.findLatestTaskForTurn(turn.turnId);
+    const event = repository.findLatestEventForTurn(turn.turnId);
+    return {
+        sessionId,
+        turnId: turn.turnId,
+        taskId: task?.taskId ?? null,
+        status: normalizeTurnStateStatus(turn.status),
+        endedAt: turn.endedAt,
+        durationMs: turn.durationMs,
+        lastSequence: event?.sequence ?? 0,
+        lastActivityAt: resolveActiveTurnLastActivityAt(
+            turn,
+            task,
+            event,
+        ),
+        serverNow: formatCenterLocalDateTime(),
+    };
+}
+
+/**
+ * normalizeTurnStateStatus：把数据库轮次状态归一为前端收敛器协议状态。
+ *
+ * @param status 数据库保存的轮次状态。
+ * @returns 轻量状态协议允许的状态值。
+ */
+function normalizeTurnStateStatus(status: string): ActiveTurnState["status"] {
+    if (status === "queued"
+        || status === "running"
+        || status === "waiting_user"
+        || status === "completed"
+        || status === "failed"
+        || status === "cancelled") {
+        return status;
+    }
+    return "idle";
+}
+
+/**
+ * resolveActiveTurnLastActivityAt：计算轮次轻量状态的最后活动时间。
+ *
+ * @param turn 最新轮次。
+ * @param task 最新任务；没有任务时为 null。
+ * @param event 最新事件；没有事件时为 null。
+ * @returns 轮次范围内可用于前端判断是否仍在推进的最新时间。
+ */
+function resolveActiveTurnLastActivityAt(
+    turn: ConversationTurn,
+    task: TaskRecord | null,
+    event: {
+        /** occurredAt: 最新事件发生时间。 */
+        occurredAt: string;
+    } | null,
+): string | null {
+    const candidates = [
+        turn.startedAt,
+        turn.endedAt,
+        task?.updatedAt ?? null,
+        event?.occurredAt ?? null,
+    ].filter((value): value is string => {
+        return typeof value === "string" && value.length > 0;
+    });
+    if (candidates.length === 0) {
+        return null;
+    }
+    return candidates.reduce((latest, current) => {
+        const latestTime = new Date(latest).getTime();
+        const currentTime = new Date(current).getTime();
+        if (Number.isNaN(currentTime)) {
+            return latest;
+        }
+        if (Number.isNaN(latestTime) || currentTime > latestTime) {
+            return current;
+        }
+        return latest;
+    });
 }
 
 /**
@@ -649,7 +777,7 @@ export function updateTurnStatus(
         preferredTaskId,
     );
 
-    events.append({
+    const turnUpdatedEvent = events.append({
         eventType: "turn.updated",
         scopeType: "turn",
         scopeId: turnId,
@@ -664,6 +792,26 @@ export function updateTurnStatus(
             status,
             endedAt,
             durationMs,
+        },
+    });
+    events.append({
+        eventType: "turn.state.changed",
+        scopeType: "turn",
+        scopeId: turnId,
+        sessionId: turn.sessionId,
+        turnId,
+        taskId: preferredTaskId ?? null,
+        status,
+        title: "轮次轻量状态更新",
+        summary: `轮次轻量状态更新为 ${status}`,
+        payload: {
+            sessionId: turn.sessionId,
+            turnId,
+            taskId: preferredTaskId ?? null,
+            status,
+            endedAt,
+            durationMs,
+            lastSequence: turnUpdatedEvent.sequence + 1,
         },
     });
 
