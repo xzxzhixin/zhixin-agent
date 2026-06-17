@@ -147,6 +147,20 @@ const commands = [
     [
       "exec",
       "tsx",
+      "scripts/check-memory-attachment-archive.ts",
+    ],
+  ],
+  [
+    "node",
+    [
+      "scripts/check-memory-recall-cross-window.mjs",
+    ],
+  ],
+  [
+    "pnpm",
+    [
+      "exec",
+      "tsx",
       "scripts/check-desktop-shell-config.ts",
     ],
   ],
