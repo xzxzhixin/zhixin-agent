@@ -1186,7 +1186,7 @@ function tryParseJsonArray(value: string): unknown[] {
  * @param memories 主智能体最近记忆摘要。
  * @returns 系统消息正文；没有记忆时返回 null。
  */
-function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string | null {
+export function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string | null {
     if (memories.length === 0) {
         return null;
     }

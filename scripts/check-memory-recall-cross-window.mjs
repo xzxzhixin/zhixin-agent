@@ -38,6 +38,7 @@ function assert(condition, message) {
 
 const runtime = readText("services/center/src/model-gateway-runtime.ts");
 const workflowRepository = readText("services/center/src/data-access/workflow-repository.ts");
+const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
 
 assert(
     runtime.includes("searchSemanticMemories"),
@@ -82,6 +83,10 @@ assert(
 assert(
     runtime.includes("buildGenericMemorySearchTerms"),
     "召回必须使用通用检索词构造。",
+);
+assert(
+    deepAgentsAgent.includes("listMainAgentMemoryPromptEntries") && deepAgentsAgent.includes("buildMainAgentMemoryPrompt"),
+    "Deep Agents 路径必须注入主智能体长期记忆提示。",
 );
 
 const requiredGenericTerms = [

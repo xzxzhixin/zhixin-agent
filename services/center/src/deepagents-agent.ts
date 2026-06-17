@@ -20,7 +20,9 @@ import {
 import {commitMainAgentMemoryAfterTurn} from "./domain/session-turn-effects.js";
 import {handleWorkerMessage, startWorkerTask} from "./domain/workflow-domain.js";
 import {
+    buildMainAgentMemoryPrompt,
     createLangChainChatModel,
+    listMainAgentMemoryPromptEntries,
     type ProviderModelGatewayResult,
 } from "./model-gateway-runtime.js";
 import {formatCenterLocalDateTime} from "./time.js";
@@ -178,6 +180,10 @@ async function cleanupDeepAgentsTurnResources(
  */
 async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
     const tools = await createDeepAgentsStructuredToolFactory(context).buildTools();
+    const mainAgentMemoryPrompt = buildMainAgentMemoryPrompt(await listMainAgentMemoryPromptEntries(
+        context.input.database,
+        context.input.userText,
+    ));
     context.input.events.append({
         eventType: "tool.available.snapshot",
         scopeType: "tool",
@@ -205,7 +211,12 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
     return createDeepAgent({
         model: createLangChainChatModel(context.runtime),
         tools,
-        systemPrompt: `你是通用型智能助手，长任务要拆解成小任务执行。`,
+        systemPrompt: [
+            "你是通用型智能助手，长任务要拆解成小任务执行。",
+            mainAgentMemoryPrompt,
+        ].filter((promptPart) => {
+            return typeof promptPart === "string" && promptPart.length > 0;
+        }).join("\n\n"),
         middleware: [
             new CenterToolChoiceMiddleware(context).create(),
         ],
