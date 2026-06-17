@@ -142,6 +142,28 @@ export function isTurnRuntimeAbortError(error: unknown): boolean {
 }
 
 /**
+ * isTurnRuntimeAbortLikeError：判断异常是否应按当前轮次取消处理。
+ *
+ * @param error 待判断异常。
+ * @param signal 当前轮次运行时中止信号。
+ * @returns 已确认是取消或取消后的第三方残留异常时返回 true。
+ */
+export function isTurnRuntimeAbortLikeError(
+    error: unknown,
+    signal?: AbortSignal,
+): boolean {
+    if (isTurnRuntimeAbortError(error)) {
+        return true;
+    }
+    if (!signal?.aborted) {
+        return false;
+    }
+    // Deep Agents/LangGraph 在取消后可能把 AbortSignal.reason 包装成普通 Error 抛出；
+    // 只要当前轮次信号已取消，收集器边界内的普通 Error 都属于取消残留，不应再写失败终态。
+    return error instanceof Error;
+}
+
+/**
  * isTurnRuntimeAbortReason：判断值是否是跨第三方边界传播的轮次取消原因。
  *
  * @param value 待判断值。

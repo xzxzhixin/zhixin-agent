@@ -706,6 +706,34 @@ export function createConversationActions() {
         },
 
         /**
+         * forceTerminalTurnRecovery：收到当前会话终态事件后强制收敛运行态。
+         *
+         * 关键逻辑：桌面端或其他被动端可能没有 tracking 当前 turn；
+         * 此时仍必须以中心服务终态事件为准，清理“当前轮次已耗时”和“停止”按钮并刷新快照。
+         *
+         * @param sessionId 终态事件所属会话 ID。
+         * @param turnId 终态事件所属轮次 ID。
+         * @returns 没有返回值。
+         */
+        async forceTerminalTurnRecovery(
+            sessionId: string | null,
+            turnId: string | null,
+        ): Promise<void> {
+            if (!sessionId || !turnId || sessionId !== this.activeSessionId) {
+                return;
+            }
+            if (this.turnStateReconciler) {
+                await this.turnStateReconciler.forceTerminal(
+                    sessionId,
+                    turnId,
+                );
+                return;
+            }
+            this.stopRunningTurnSnapshotRecovery();
+            await this.loadActiveSessionSnapshot();
+        },
+
+        /**
          * scheduleRunningTurnSnapshotRecovery：兼容旧调用的轮次状态收敛调度入口。
          *
          * 关键逻辑：实际调度已迁移到 TurnStateReconciler；旧入口只保证已有目标可以继续由状态机托管。
@@ -1041,26 +1069,27 @@ export function createConversationActions() {
                         }
                         if (event.eventType === "turn.updated"
                             && isCompletedEvent(event)) {
-                            // 轮次完成状态来自事件载荷；读取 payload 能避免 UI 因字段位置不一致停在执行中。
-                            void this.turnStateReconciler?.markTerminal(
+                            // 轮次完成状态来自事件载荷；被动端即使未 tracking 当前轮次，也必须强制收敛运行态。
+                            void this.forceTerminalTurnRecovery(
                                 event.sessionId,
                                 event.turnId,
                             );
-                            void this.loadActiveSessionSnapshot();
                         }
                         if (event.eventType === "turn.state.changed"
                             && isCompletedEvent(event)) {
-                            // 轻量轮次状态事件是状态收敛器的统一终态信号，优先让状态机关闭本地轮询。
-                            void this.turnStateReconciler?.markTerminal(
+                            // 轻量轮次状态事件是状态收敛器的统一终态信号，优先按中心服务事实清理本地运行态。
+                            void this.forceTerminalTurnRecovery(
                                 event.sessionId,
                                 event.turnId,
                             );
-                            void this.loadActiveSessionSnapshot();
                         }
                         if (event.eventType === "task.updated"
                             && isCompletedEvent(event)) {
-                            // 轮次或任务完成时也刷新快照，避免完成事件晚于消息事件或消息事件被漏收时 UI 仍停在执行中。
-                            void this.loadActiveSessionSnapshot();
+                            // 任务终态事件也可能先于轮次终态到达；有明确 turnId 时先清理本地运行态。
+                            void this.forceTerminalTurnRecovery(
+                                event.sessionId,
+                                event.turnId,
+                            );
                         }
                     }
                     if (message.type === "task.updated") {
@@ -1075,11 +1104,10 @@ export function createConversationActions() {
                                 activeTaskIds,
                             )) {
                             // 专项 task.updated 包不进入 event.appended 分支，必须单独刷新快照才能恢复最终回复和任务终态。
-                            void this.turnStateReconciler?.markTerminal(
+                            void this.forceTerminalTurnRecovery(
                                 this.activeSessionId,
                                 this.runningTurnSnapshotRecovery.turnId,
                             );
-                            void this.loadActiveSessionSnapshot();
                         }
                     }
                     if (message.type === "agent.state.changed") {

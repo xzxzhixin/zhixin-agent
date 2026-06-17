@@ -17,7 +17,7 @@ import {
     updateTurnStatus,
 } from "./domain/session-domain.js";
 import {
-    isTurnRuntimeAbortError,
+    isTurnRuntimeAbortLikeError,
     registerRunningTurnRuntime,
     throwIfTurnRuntimeAborted,
     unregisterRunningTurnRuntime,
@@ -113,7 +113,10 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         });
         await supervisor.run();
     } catch (error) {
-        if (isTurnRuntimeAbortError(error)) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            runtimeInput.runtimeSignal,
+        )) {
             return;
         }
         await failDeepAgentTurn(
@@ -221,7 +224,10 @@ async function runSingleDeepAgentCandidate(
             finalModelResult,
         );
     } catch (error) {
-        if (isTurnRuntimeAbortError(error)) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            input.runtimeSignal,
+        )) {
             await consumeDeepAgentCancellation(
                 input,
                 [
@@ -282,7 +288,10 @@ async function resolveDeepAgentOutputWhenActive(
     try {
         return await run.output as DeepAgentOutputState;
     } catch (error) {
-        if (input.runtimeSignal?.aborted) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            input.runtimeSignal,
+        )) {
             return null;
         }
         throw error;
@@ -460,7 +469,10 @@ async function collectDeepAgentMessages(
             }
         }
     } catch (error) {
-        if (input.runtimeSignal?.aborted) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            input.runtimeSignal,
+        )) {
             throwIfTurnRuntimeAborted(input.runtimeSignal);
         }
         throw error;
@@ -503,7 +515,10 @@ async function collectDeepAgentToolCalls(
             );
         }
     } catch (error) {
-        if (context.runtimeSignal?.aborted) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            context.runtimeSignal,
+        )) {
             throwIfTurnRuntimeAborted(context.runtimeSignal);
         }
         throw error;
@@ -631,7 +646,10 @@ function consumeToolCallValueWhenCancelled(
     valuePromise: Promise<unknown>,
 ): void {
     valuePromise.catch((error: unknown) => {
-        if (context.runtimeSignal?.aborted || isTurnRuntimeAbortError(error)) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            context.runtimeSignal,
+        )) {
             return;
         }
         // 普通工具失败由主收集链路记录；这里仅提前消费取消期异步拒绝，避免进程级未处理异常。
@@ -652,7 +670,10 @@ async function resolveToolCallValueWhenActive<T>(
     try {
         return await valuePromise;
     } catch (error) {
-        if (context.runtimeSignal?.aborted) {
+        if (isTurnRuntimeAbortLikeError(
+            error,
+            context.runtimeSignal,
+        )) {
             throwIfTurnRuntimeAborted(context.runtimeSignal);
         }
         throw error;

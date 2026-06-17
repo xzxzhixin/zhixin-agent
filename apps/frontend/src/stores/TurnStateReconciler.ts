@@ -242,6 +242,31 @@ export class TurnStateReconciler {
     }
 
     /**
+     * forceTerminal：不依赖当前 tracking 状态，按中心服务终态事件强制清理本地运行态。
+     *
+     * @param sessionId 事件所属会话 ID。
+     * @param turnId 事件所属轮次 ID。
+     * @returns 没有返回值。
+     */
+    async forceTerminal(
+        sessionId: string | null,
+        turnId: string | null,
+    ): Promise<void> {
+        if (!sessionId || !turnId || this.options.getActiveSessionId() !== sessionId) {
+            return;
+        }
+        await this.options.loadActiveSessionSnapshot();
+        this.options.logInfo("[frontend:turn-state-reconciler] terminal event forced", {
+            sessionId,
+            turnId,
+            trackedSessionId: this.sessionId,
+            trackedTurnId: this.turnId,
+            attempts: this.attempts,
+        });
+        this.stop();
+    }
+
+    /**
      * schedule：按指定间隔安排下一次轻量状态查询。
      *
      * @param intervalMs 下一次查询间隔。
