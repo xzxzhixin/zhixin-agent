@@ -5,6 +5,11 @@ import type {ToolCallStream} from "@langchain/langgraph";
 import {createDeepAgent, type DeepAgentRunStream} from "deepagents";
 
 import {CenterToolChoiceMiddleware} from "./AgentMiddleware/index.js";
+import {
+    type AgentRunCandidate,
+    type AgentSupervisorBudget,
+    DeepAgentTurnSupervisor,
+} from "./agent-runtime/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
     recordModelUsageAfterTurn,
@@ -76,35 +81,106 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
         ...input,
         runtimeSignal: runtimeController.signal,
     };
-    let context: DeepAgentsToolExecutionContext | null = null;
-    let run: CenterDeepAgentRunStream | null = null;
-    let messageCollector: Promise<string> | null = null;
-    let toolCollector: Promise<ProviderModelGatewayResult> | null = null;
-    let outputCollector: Promise<DeepAgentOutputState | null> | null = null;
     try {
         startWorkerTask(
             runtimeInput.database,
             runtimeInput.events,
             runtimeInput.sent.taskId,
         );
+        const supervisor = new DeepAgentTurnSupervisor({
+            input: runtimeInput,
+            budget: createDefaultSupervisorBudget(),
+            runCandidate: async (request) => {
+                return runSingleDeepAgentCandidate(
+                    runtimeInput,
+                    request.attemptIndex,
+                    request.internalPrompt,
+                );
+            },
+            finalize: async (candidate) => {
+                await finalizeDeepAgentTurn(
+                    runtimeInput,
+                    candidate.visibleText,
+                    candidate.modelResult,
+                );
+            },
+            fail: async (_candidate, decision) => {
+                await failDeepAgentTurn(
+                    runtimeInput,
+                    new Error(decision.reason),
+                );
+            },
+        });
+        await supervisor.run();
+    } catch (error) {
+        if (isTurnRuntimeAbortError(error)) {
+            return;
+        }
+        await failDeepAgentTurn(
+            runtimeInput,
+            error,
+        );
+    } finally {
+        unregisterRunningTurnRuntime(
+            input.sent.turnId,
+            runtimeController,
+        );
+    }
+}
 
-        context = await createDeepAgentsToolExecutionContext(runtimeInput);
-        throwIfTurnRuntimeAborted(runtimeController.signal);
+/**
+ * createDefaultSupervisorBudget：创建当前轮次监督循环默认预算。
+ *
+ * @returns 监督循环预算。
+ */
+function createDefaultSupervisorBudget(): AgentSupervisorBudget {
+    return {
+        maxSupervisorAttempts: 4,
+        protocolRetryBudget: 2,
+        noProgressRetryBudget: 2,
+        toolFailureRetryBudget: 1,
+    };
+}
+
+/**
+ * runSingleDeepAgentCandidate：执行一次 Deep Agents graph 并返回候选终态。
+ *
+ * @param input 当前轮次运行输入。
+ * @param attemptIndex 监督循环尝试序号。
+ * @param internalPrompt 内部续跑提示，不写入用户可见消息。
+ * @returns Deep Agents 单次运行候选结果。
+ */
+async function runSingleDeepAgentCandidate(
+    input: DeepAgentsAgentRunInput,
+    attemptIndex: number,
+    internalPrompt: string | null,
+): Promise<AgentRunCandidate> {
+    let context: DeepAgentsToolExecutionContext | null = null;
+    let messageCollector: Promise<string> | null = null;
+    let toolCollector: Promise<ProviderModelGatewayResult> | null = null;
+    let outputCollector: Promise<DeepAgentOutputState | null> | null = null;
+    try {
+        const startedAfterSequence = readLatestTurnEventSequence(input);
+        context = await createDeepAgentsToolExecutionContext(input);
+        throwIfTurnRuntimeAborted(input.runtimeSignal);
         appendToolVisibilityEvents(
-            runtimeInput.events,
-            runtimeInput.sent.sessionId,
-            runtimeInput.sent.taskId,
-            runtimeInput.sent.turnId,
+            input.events,
+            input.sent.sessionId,
+            input.sent.taskId,
+            input.sent.turnId,
         );
 
         const deepAgent = await createCenterDeepAgent(context);
-        throwIfTurnRuntimeAborted(runtimeController.signal);
-        run = await deepAgent.streamEvents(
+        throwIfTurnRuntimeAborted(input.runtimeSignal);
+        const run = await deepAgent.streamEvents(
             {
                 messages: [
                     {
                         role: "user",
-                        content: input.userText,
+                        content: buildDeepAgentUserContent(
+                            input.userText,
+                            internalPrompt,
+                        ),
                     },
                 ],
             },
@@ -115,9 +191,9 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             },
         ) as CenterDeepAgentRunStream;
 
-        messageCollector = collectDeepAgentMessages(runtimeInput, run);
+        messageCollector = collectDeepAgentMessages(input, run);
         toolCollector = collectDeepAgentToolCalls(context, run);
-        outputCollector = resolveDeepAgentOutputWhenActive(runtimeInput, run);
+        outputCollector = resolveDeepAgentOutputWhenActive(input, run);
 
         const [
             streamedAssistantText,
@@ -129,62 +205,67 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             outputCollector,
         ]);
 
-        throwIfTurnRuntimeAborted(runtimeController.signal);
+        throwIfTurnRuntimeAborted(input.runtimeSignal);
         const assistantText = resolveFinalAssistantText(
             output ?? {},
             streamedAssistantText,
         );
-        throwIfTurnRuntimeAborted(runtimeController.signal);
-        if (isIncompleteToolIntentText(
+        throwIfTurnRuntimeAborted(input.runtimeSignal);
+        return buildAgentRunCandidate(
+            input,
+            context,
+            attemptIndex,
+            startedAfterSequence,
             assistantText,
             streamedAssistantText,
-            finalModelResult,
-        ) && !hasTurnToolExecutionEvents(
-            runtimeInput,
-        )) {
-            await failIncompleteToolIntentTurn(
-                runtimeInput,
-                assistantText || streamedAssistantText,
-            );
-            return;
-        }
-
-        await finalizeDeepAgentTurn(
-            runtimeInput,
-            assistantText,
             finalModelResult,
         );
     } catch (error) {
         if (isTurnRuntimeAbortError(error)) {
             await consumeDeepAgentCancellation(
-                runtimeInput,
+                input,
                 [
                     messageCollector,
                     toolCollector,
                     outputCollector,
                 ],
             );
-            return;
+        } else {
+            detachDeepAgentCollectors([
+                messageCollector,
+                toolCollector,
+                outputCollector,
+            ]);
         }
-        detachDeepAgentCollectors([
-            messageCollector,
-            toolCollector,
-            outputCollector,
-        ]);
-        await failDeepAgentTurn(
-            runtimeInput,
-            error,
-        );
+        throw error;
     } finally {
         await cleanupDeepAgentsTurnResources(
-            runtimeInput,
+            input,
             context,
         );
-        unregisterRunningTurnRuntime(
-            input.sent.turnId,
-            runtimeController,
-        );
     }
+}
+
+/**
+ * buildDeepAgentUserContent：拼接用户输入和内部续跑提示。
+ *
+ * @param userText 用户原始输入。
+ * @param internalPrompt 中心服务内部续跑提示。
+ * @returns 本次 Deep Agents 输入正文。
+ */
+function buildDeepAgentUserContent(
+    userText: string,
+    internalPrompt: string | null,
+): string {
+    if (!internalPrompt) {
+        return userText;
+    }
+    return [
+        userText,
+        "",
+        "中心服务内部续跑提示：",
+        internalPrompt,
+    ].join("\n");
 }
 
 /**
@@ -638,6 +719,84 @@ function readDeepAgentMessageType(message: DeepAgentOutputMessage): string {
 }
 
 /**
+ * buildAgentRunCandidate：组装 Deep Agents 单次运行候选结果。
+ *
+ * @param input 当前轮次运行输入。
+ * @param context 当前工具执行上下文。
+ * @param attemptIndex 监督循环尝试序号。
+ * @param assistantText 候选助手文本。
+ * @param streamedAssistantText 流式累计文本。
+ * @param modelResult 模型运行结果。
+ * @returns 单次运行候选结果。
+ */
+function buildAgentRunCandidate(
+    input: DeepAgentsAgentRunInput,
+    context: DeepAgentsToolExecutionContext,
+    attemptIndex: number,
+    startedAfterSequence: number,
+    assistantText: string,
+    streamedAssistantText: string,
+    modelResult: ProviderModelGatewayResult | null,
+): AgentRunCandidate {
+    const task = new SessionRepository(input.database).findTask(input.sent.taskId);
+    return {
+        attemptIndex,
+        visibleText: assistantText || streamedAssistantText.trim(),
+        streamedText: streamedAssistantText,
+        modelResult,
+        lastModelMessageDiagnostics: context.lastModelMessageDiagnostics,
+        hasStructuredToolCall: hasStructuredToolCall(context),
+        hasToolExecutionEvents: hasTurnToolExecutionEvents(input),
+        hasRecentToolResult: hasTurnEventType(
+            input,
+            "model.tool.result.appended",
+            startedAfterSequence,
+        ),
+        hasPendingTaskState: task?.status === "running" || task?.status === "queued",
+        hasToolFailureEvents: hasTurnToolFailureEvents(
+            input,
+            startedAfterSequence,
+        ),
+        cancelled: Boolean(input.runtimeSignal?.aborted),
+        budget: createDefaultSupervisorBudget(),
+        protocolRetryCount: 0,
+        noProgressRetryCount: 0,
+        toolFailureRetryCount: 0,
+    };
+}
+
+/**
+ * readLatestTurnEventSequence：读取当前轮次已有事件最大序号。
+ *
+ * @param input 当前轮次运行输入。
+ * @returns 当前轮次最新事件序号；没有事件时返回 0。
+ */
+function readLatestTurnEventSequence(input: DeepAgentsAgentRunInput): number {
+    const row = input.database.connection().prepare(`
+        SELECT COALESCE(MAX(sequence), 0) AS sequence
+        FROM events
+        WHERE turn_id = ?
+    `).get(input.sent.turnId) as {
+        /** sequence: 当前轮次最大事件序号。 */
+        sequence: number;
+    };
+    return row.sequence;
+}
+
+/**
+ * hasStructuredToolCall：判断最后模型诊断是否包含结构化工具调用。
+ *
+ * @param context 当前工具执行上下文。
+ * @returns 存在结构化工具调用时返回 true。
+ */
+function hasStructuredToolCall(context: DeepAgentsToolExecutionContext): boolean {
+    const toolCalls = context.lastModelMessageDiagnostics?.toolCalls ?? [];
+    return toolCalls.some((toolCall) => {
+        return typeof toolCall.name === "string" && toolCall.name.length > 0;
+    });
+}
+
+/**
  * hasTurnToolExecutionEvents：判断当前轮次是否已经出现真实工具执行或回填事件。
  *
  * @param input 当前轮次运行输入。
@@ -660,6 +819,63 @@ function hasTurnToolExecutionEvents(input: DeepAgentsAgentRunInput): boolean {
           )
         LIMIT 1
     `).get(input.sent.turnId);
+    return Boolean(row);
+}
+
+/**
+ * hasTurnToolFailureEvents：判断当前轮次是否出现工具失败事件。
+ *
+ * @param input 当前轮次运行输入。
+ * @returns 存在工具失败事件时返回 true。
+ */
+function hasTurnToolFailureEvents(
+    input: DeepAgentsAgentRunInput,
+    startedAfterSequence: number,
+): boolean {
+    const row = input.database.connection().prepare(`
+        SELECT 1
+        FROM events
+        WHERE turn_id = ?
+          AND sequence > ?
+          AND event_type IN (
+              'tool.plan.failed',
+              'tool.mcp.failed',
+              'tool.call.failed',
+              'model.tool.repeated_failure_blocked',
+              'model.tool_call.name_missing'
+          )
+        LIMIT 1
+    `).get(
+        input.sent.turnId,
+        startedAfterSequence,
+    );
+    return Boolean(row);
+}
+
+/**
+ * hasTurnEventType：判断当前轮次是否存在指定事件类型。
+ *
+ * @param input 当前轮次运行输入。
+ * @param eventType 事件类型。
+ * @returns 存在时返回 true。
+ */
+function hasTurnEventType(
+    input: DeepAgentsAgentRunInput,
+    eventType: string,
+    startedAfterSequence = 0,
+): boolean {
+    const row = input.database.connection().prepare(`
+        SELECT 1
+        FROM events
+        WHERE turn_id = ?
+          AND event_type = ?
+          AND sequence > ?
+        LIMIT 1
+    `).get(
+        input.sent.turnId,
+        eventType,
+        startedAfterSequence,
+    );
     return Boolean(row);
 }
 
@@ -691,85 +907,6 @@ function extractDeepAgentMessageText(content: unknown): string {
     }).filter((text) => {
         return text.length > 0;
     }).join("");
-}
-
-/**
- * isIncompleteToolIntentText：识别模型表达继续执行但没有返回结构化工具调用的半截回复。
- *
- * @param assistantText 模型本次最终文本。
- * @param streamedAssistantText 模型流式阶段已经发出的可见文本。
- * @param modelResult 模型结构化工具调用结果。
- * @returns 命中半截执行意图时返回 true。
- */
-function isIncompleteToolIntentText(
-    assistantText: string,
-    streamedAssistantText: string,
-    modelResult: ProviderModelGatewayResult | null,
-): boolean {
-    const normalizedText = (assistantText || streamedAssistantText).trim();
-    if ((modelResult?.toolCalls.length ?? 0) > 0) {
-        return false;
-    }
-    if (normalizedText.length === 0) {
-        return true;
-    }
-    // intentPatterns: 只判断模型文本是否自称要继续执行，不读取用户提示词，也不匹配具体工具名。
-    const intentPatterns = [
-        /我先看/u,
-        /再重点过滤/u,
-        /继续(查询|执行|调用|检查|打开|读取)/u,
-        /改用.+(工具|命令|MCP)/u,
-        /准备(调用|执行|查询|检查|打开|读取)/u,
-        /下一步.+(调用|执行|查询|检查|打开|读取)/u,
-    ];
-    const hasIntent = intentPatterns.some((pattern) => {
-        return pattern.test(normalizedText);
-    });
-    const hasFinalAnswerSignal = /结论|总结|推荐|如下|分别是|已经完成|结果是|我看到|我发现/u.test(normalizedText);
-    return hasIntent && !hasFinalAnswerSignal;
-}
-
-/**
- * failIncompleteToolIntentTurn：把半截工具意图收尾为失败，避免错误固化助手回复。
- *
- * @param input 当前轮次运行输入。
- * @param assistantText 模型返回的半截文本。
- * @returns 没有返回值。
- */
-async function failIncompleteToolIntentTurn(
-    input: DeepAgentsAgentRunInput,
-    assistantText: string,
-): Promise<void> {
-    const currentTurn = new SessionRepository(input.database).findTurn(input.sent.turnId);
-    if (!currentTurn || currentTurn.endedAt !== null || currentTurn.status === "cancelled") {
-        return;
-    }
-    const failureReason = "MODEL_INCOMPLETE_TOOL_INTENT";
-    input.events.append({
-        eventType: "message.turn.incomplete",
-        scopeType: "turn",
-        scopeId: input.sent.turnId,
-        sessionId: input.sent.sessionId,
-        turnId: input.sent.turnId,
-        taskId: input.sent.taskId,
-        status: "failed",
-        title: "模型返回了未完成执行意图",
-        summary: "模型表达了继续调用工具的意图，但没有返回结构化工具调用，本轮已失败收尾。",
-        payload: {
-            failureReason,
-            assistantTextPreview: assistantText.slice(
-                0,
-                240,
-            ),
-        },
-    });
-    updateTurnStatus(
-        input.database,
-        input.events,
-        input.sent.turnId,
-        "failed",
-        input.sent.taskId,
-    );
 }
 
 /**

@@ -7,7 +7,7 @@ import {
 } from "./CenterAgentMiddleware.js";
 
 /** ModelMessageDiagnostics：模型最后一条 AIMessage 的诊断快照。 */
-interface ModelMessageDiagnostics {
+export interface ModelMessageDiagnostics {
     /** contentText：模型自然语言正文或非文本内容摘要。 */
     contentText: string;
     /** rawModelMessage：LangChain AIMessage 原始诊断摘要，用于定位供应商响应到工具调用之间的转换丢失。 */
@@ -92,6 +92,7 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
                     return;
                 }
                 this.lastModelMessageDiagnostics = buildModelMessageDiagnostics(lastMessage);
+                this.context.lastModelMessageDiagnostics = this.lastModelMessageDiagnostics;
                 this.context.input.events.append({
                     eventType: "model.tool_calls.received",
                     scopeType: "model",

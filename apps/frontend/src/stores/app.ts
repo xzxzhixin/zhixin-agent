@@ -1300,11 +1300,7 @@ export const useAppStore = defineStore("app", {
             this.sessionDetail = snapshot.detail;
             this.activeConversationAgentId = "main";
             this.applyPersistedTokenUsage(snapshot.detail.tokenUsage);
-            this.events = [
-                ...snapshot.events,
-            ].sort((left: EventRecord, right: EventRecord) => {
-                return left.sequence - right.sequence;
-            });
+            this.mergeSnapshotEvents(snapshot.events);
             if (this.sessionDetail.session.sessionType === "project") {
                 await this.loadProjectCapabilitySources();
             }

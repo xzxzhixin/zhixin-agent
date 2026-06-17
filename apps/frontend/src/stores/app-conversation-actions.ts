@@ -338,6 +338,34 @@ export function createConversationActions() {
         },
 
         /**
+         * mergeSnapshotEvents：合并快照事件和已收到的实时事件。
+         *
+         * @param snapshotEvents 中心服务快照或 replay 返回的事件列表。
+         * @returns 没有返回值。
+         */
+        mergeSnapshotEvents(snapshotEvents: EventRecord[]): void {
+            const eventById = new Map<string, EventRecord>();
+            for (const event of this.events as EventRecord[]) {
+                eventById.set(
+                    event.eventId,
+                    event,
+                );
+            }
+            for (const event of snapshotEvents) {
+                const currentEvent = eventById.get(event.eventId);
+                if (!currentEvent || event.sequence >= currentEvent.sequence) {
+                    eventById.set(
+                        event.eventId,
+                        event,
+                    );
+                }
+            }
+            this.events = Array.from(eventById.values()).sort((left: EventRecord, right: EventRecord) => {
+                return left.sequence - right.sequence;
+            });
+        },
+
+        /**
          * sendDraft：发送当前输入框文本。
          *
          * @returns 发送完成后没有返回值。
@@ -761,7 +789,7 @@ export function createConversationActions() {
                 turnId: null,
                 afterSequence: 0,
             });
-            this.events = result.events;
+            this.mergeSnapshotEvents(result.events);
         },
 
         /**

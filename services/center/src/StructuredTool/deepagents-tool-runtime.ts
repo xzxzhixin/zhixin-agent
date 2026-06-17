@@ -13,6 +13,7 @@ import type {
     SendMessageResponse,
     SubAgentRuntimeRecord,
 } from "../types.js";
+import type {ModelMessageDiagnostics} from "../AgentMiddleware/CenterToolChoiceMiddleware.js";
 
 /**
  * DeepAgentsAgentRunInput：直接驱动 Deep Agents 原生 agent 的输入。
@@ -52,6 +53,8 @@ export interface DeepAgentsToolExecutionContext {
     subAgents: Map<string, SubAgentRuntimeRecord>;
     /** toolFailureCounts: 轮次内工具失败指纹计数，用于阻断同一错误无限重试。 */
     toolFailureCounts: Map<string, number>;
+    /** lastModelMessageDiagnostics: 最近一次模型返回诊断，来源于 CenterToolChoiceMiddleware，仅用于监督层判断。 */
+    lastModelMessageDiagnostics: ModelMessageDiagnostics | null;
     /** runtimeSignal: 当前轮次运行期取消信号，供工具执行边界检查用户停止。 */
     runtimeSignal?: AbortSignal;
     /** cleanupCallbacks: 当前轮次结束时需要释放的外部连接资源。 */
@@ -95,6 +98,7 @@ export async function createDeepAgentsToolExecutionContext(
         ),
         subAgents: new Map<string, SubAgentRuntimeRecord>(),
         toolFailureCounts: new Map<string, number>(),
+        lastModelMessageDiagnostics: null,
         runtimeSignal: input.runtimeSignal,
         cleanupCallbacks: [],
     };
