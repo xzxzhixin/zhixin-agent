@@ -106,6 +106,14 @@ async function startFakeModelServer(): Promise<{
     "  response.writeHead(200, { 'content-type': 'application/json' });",
     "  response.end(JSON.stringify(payload));",
     "}",
+    "function writeSse(response, chunks) {",
+    "  response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });",
+    "  for (const chunk of chunks) {",
+    "    response.write(`data: ${JSON.stringify(chunk)}\\n\\n`);",
+    "  }",
+    "  response.write('data: [DONE]\\n\\n');",
+    "  response.end();",
+    "}",
     "const server = createServer(async (request, response) => {",
     "  if (request.url === '/__requests') {",
     "    writeJson(response, { requests });",
@@ -128,14 +136,14 @@ async function startFakeModelServer(): Promise<{
     "      response.end(JSON.stringify({ error: { message: 'Expected two tool results for Node.js and Python version checks.' } }));",
     "      return;",
     "    }",
-    "    writeJson(response, { choices: [{ message: { role: 'assistant', content: '已根据 Node.js 和 Python 工具结果完成最终回复。' } }], usage: { prompt_tokens: 7, completion_tokens: 9, total_tokens: 16 } });",
+    "    writeSse(response, [{ id: 'fake-tool-loop-final', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: 'fake-tool-model', choices: [{ index: 0, delta: { role: 'assistant', content: '已根据 Node.js 和 Python 工具结果完成最终回复。' }, finish_reason: null }] }, { id: 'fake-tool-loop-final', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: 'fake-tool-model', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }]);",
     "    return;",
     "  }",
     "  const tools = Array.isArray(body.tools) ? body.tools : [];",
-    "  const firstTool = tools[0] && typeof tools[0] === 'object' ? tools[0] : {};",
-    "  const firstFunction = firstTool.function && typeof firstTool.function === 'object' ? firstTool.function : {};",
-    "  const toolName = typeof firstFunction.name === 'string' ? firstFunction.name : '';",
-    "  writeJson(response, { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'tool-call-node-version', type: 'function', function: { name: toolName, arguments: JSON.stringify({ executablePath: process.execPath, args: ['-v'], inputSummary: '由模型请求读取 Node.js 版本。' }) } }, { id: 'tool-call-python-version', type: 'function', function: { name: toolName, arguments: JSON.stringify({ executablePath: process.execPath, args: ['-v'], inputSummary: '由模型请求读取 Python 版本。' }) } }] } }], usage: { prompt_tokens: 5, completion_tokens: 4, total_tokens: 9 } });",
+    "  const commandTool = tools.find((tool) => tool && typeof tool === 'object' && tool.function && tool.function.name === 'builtin_command_run') || {};",
+    "  const commandFunction = commandTool.function && typeof commandTool.function === 'object' ? commandTool.function : {};",
+    "  const toolName = typeof commandFunction.name === 'string' ? commandFunction.name : '';",
+    "  writeSse(response, [{ id: 'fake-tool-loop-tools', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: 'fake-tool-model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'tool-call-node-version', type: 'function', function: { name: toolName, arguments: JSON.stringify({ executablePath: process.execPath, args: ['-v'], inputSummary: '由模型请求读取 Node.js 版本。' }) } }, { index: 1, id: 'tool-call-python-version', type: 'function', function: { name: toolName, arguments: JSON.stringify({ executablePath: process.execPath, args: ['-v'], inputSummary: '由模型请求读取 Python 版本。' }) } }] }, finish_reason: null }] }, { id: 'fake-tool-loop-tools', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: 'fake-tool-model', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }]);",
     "});",
     "server.listen(0, '127.0.0.1', () => {",
     "  const address = server.address();",
@@ -429,7 +437,24 @@ async function main(): Promise<void> {
     const toolEventTypes = toolTurn.events.map((event) => {
       return event.eventType;
     });
-    assert(toolRequests.length >= 2, "模型工具调用没有形成二次模型请求");
+    assert(
+      toolRequests.length >= 2,
+      `模型工具调用没有形成二次模型请求，请求摘要：${JSON.stringify({
+        requestCount: toolRequests.length,
+        firstRequestToolNames: Array.isArray(toolRequests[0]?.tools)
+          ? (toolRequests[0]?.tools as Array<{
+            function?: {
+              name?: unknown;
+            };
+          }>).map((tool) => {
+            return tool.function?.name;
+          })
+          : [],
+        firstRequestToolChoice: toolRequests[0]?.tool_choice,
+        firstRequestStream: toolRequests[0]?.stream,
+        firstRequestModel: toolRequests[0]?.model,
+      })}`,
+    );
     assert(toolEventTypes.includes("model.tool.requested"), "缺少模型工具请求事件");
     assert(toolEventTypes.includes("tool.command.started"), "缺少命令工具开始事件");
     assert(toolEventTypes.includes("tool.command.completed"), "缺少命令工具完成事件");

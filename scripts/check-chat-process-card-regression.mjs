@@ -78,8 +78,10 @@ const commandRuntime = readProjectFile("services/center/src/StructuredTool/comma
 const eventStore = readProjectFile("services/center/src/events.ts");
 // logger: 中心服务控制台日志实现，必须保持中文原文。
 const logger = readProjectFile("services/center/src/logger.ts");
-// sessionDomain: LangGraph 会话执行器，不能用固定上下文整理事件冒充真实思考。
-const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
+// centerStructuredToolBase: Deep Agents 结构化工具基类，负责统一模型工具调用 ID。
+const centerStructuredToolBase = readProjectFile("services/center/src/StructuredTool/CenterStructuredToolBase.ts");
+// deepAgentsAgent: Deep Agents 原生入口，负责真实工具计划事件。
+const deepAgentsAgent = readProjectFile("services/center/src/deepagents-agent.ts");
 
 assertIncludes(
   helpers,
@@ -115,6 +117,21 @@ assertIncludes(
   helpers,
   "event.eventType === \"tool.plan.created\"",
   "工具计划事件必须能按 toolCallId 回到对应工具过程卡片内部。",
+);
+assertIncludes(
+  centerStructuredToolBase,
+  "resolveRuntimeToolCallId",
+  "StructuredTool 基类必须优先继承 Deep Agents/LangChain 传入的工具调用 ID。",
+);
+assertIncludes(
+  centerStructuredToolBase,
+  "parentConfig",
+  "StructuredTool 基类必须读取 LangChain 父级运行配置中的原始工具调用 ID。",
+);
+assertIncludes(
+  centerStructuredToolBase,
+  "randomUUID()",
+  "StructuredTool 基类只允许在没有运行时工具调用 ID 时生成兼容 ID。",
 );
 assertIncludes(
   panel,
@@ -202,14 +219,19 @@ assertNotIncludes(
   "中心服务控制台日志不能继续使用 ASCII 转义流。",
 );
 assertNotIncludes(
-  sessionDomain,
+  deepAgentsAgent,
   "appendThinkingEvents(",
-  "LangGraph 上下文整理节点不能继续写固定 thinking 事件冒充模型真实思考。",
+  "Deep Agents 原生入口不能写固定 thinking 事件冒充模型真实思考。",
 );
 assertIncludes(
-  sessionDomain,
-  "for (const toolPlanItem of state.toolPlanItems)",
-  "工具计划事件必须使用独立计划摘要按每个 toolCallId 分别写入，避免模型回填后清空临时 toolResults 导致计划丢失。",
+  deepAgentsAgent,
+  "recordToolCallLifecycle",
+  "工具计划事件必须来自 Deep Agents 工具调用流，避免旧执行图临时状态导致计划丢失。",
+);
+assertIncludes(
+  deepAgentsAgent,
+  "scopeId: toolCall.callId",
+  "工具计划事件必须用 Deep Agents 工具调用 ID 分组，避免多个工具计划混入同一过程卡片。",
 );
 
 if (failures.length > 0) {

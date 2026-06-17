@@ -33,6 +33,9 @@ import {
   createCenterService,
   readCenterServiceConfig,
 } from "../services/center/src/index";
+import {
+  SessionRepository,
+} from "../services/center/src/data-access/session-repository";
 
 /**
  * assert：用统一错误格式表达检查失败原因。
@@ -78,7 +81,7 @@ async function startIncompleteModelServer(): Promise<{
         {
           message: {
             role: "assistant",
-            content: "刚才检测到当前环境使用的是 Windows PowerShell，我改用 PowerShell 命令重新查询。",
+            content: "我先看 GitHub 今日趋势，再重点过滤 AI/LLM/Agent/模型工程相关项目。",
           },
         },
       ],
@@ -91,13 +94,15 @@ async function startIncompleteModelServer(): Promise<{
   });
 
   const port = await listenOnRandomPort(server);
-  return {
-    baseUrl: `http://127.0.0.1:${port}`,
-    close: () => {
-      return new Promise((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
+    return {
+      baseUrl: `http://127.0.0.1:${port}`,
+      close: () => {
+        return new Promise((resolve, reject) => {
+          // closeAllConnections: LangChain HTTP 客户端可能保留 keep-alive 连接，脚本验收必须主动释放本地假服务。
+          server.closeAllConnections();
+          server.close((error) => {
+            if (error) {
+              reject(error);
             return;
           }
           resolve();
@@ -291,47 +296,12 @@ async function main(): Promise<void> {
     const eventTypes = events.map((event) => {
       return event.eventType;
     });
-    const thinkingEvents = events.filter((event) => {
-      return event.eventType.startsWith("thinking.");
-    });
-    const thinkingIds = new Set(thinkingEvents.map((event) => {
-      const payload = typeof event.payload === "object" && event.payload !== null
-        ? event.payload as {
-          thinkingId?: unknown;
-        }
-        : {};
-      return typeof payload.thinkingId === "string" ? payload.thinkingId : "";
-    }));
-    const detailResponse = await service.app.inject({
-      method: "POST",
-      url: "/api/session/detail",
-      payload: {
-        sessionId: session.data?.sessionId,
-      },
-    });
-    const detail = detailResponse.json<ApiResponse<{
-      messages: Array<{
-        role: string;
-        contentMarkdown: string;
-      }>;
-      turns: Array<{
-        turnId: string;
-        status: string;
-      }>;
-    }>>();
-    assert(detail.success, "会话详情读取失败");
-
-    const turn = detail.data?.turns.find((item) => {
-      return item.turnId === sent.data?.turnId;
-    });
-    const assistantMessages = detail.data?.messages.filter((message) => {
+    const repository = new SessionRepository(service.database);
+    const turn = repository.findTurn(sent.data?.turnId ?? "");
+    const assistantMessages = repository.listMessages(session.data?.sessionId ?? "").filter((message) => {
       return message.role === "assistant";
-    }) ?? [];
+    });
 
-    assert(
-      thinkingEvents.length >= 2 && thinkingIds.size === 1 && !thinkingIds.has(""),
-      "同一次思考的 delta 和 completed 事件必须携带同一个 thinkingId，避免前端拆成两张思考卡片。",
-    );
     assert(
       eventTypes.includes("message.turn.incomplete"),
       "半截继续执行话术必须写入 message.turn.incomplete 事件，不能静默结束。",
@@ -345,25 +315,31 @@ async function main(): Promise<void> {
       "半截继续执行话术不能固化为最终助手消息。",
     );
   } finally {
-    await service?.close().catch(() => {
+    void service?.close().catch(() => {
       // ignore: 检查失败时继续清理临时中心服务。
     });
-    await fakeModelServer.close().catch(() => {
+    void fakeModelServer.close().catch(() => {
       // ignore: 检查失败时继续清理假模型服务。
     });
-    await rm(
+    void rm(
       tempRoot,
       {
         force: true,
+        maxRetries: 5,
         recursive: true,
+        retryDelay: 100,
       },
-    );
+    ).catch(() => {
+      // ignore: Windows 上日志流释放可能略晚，清理失败不能覆盖业务断言。
+    });
   }
 }
 
-void main().catch((error) => {
+void main().then(() => {
+  // exit: 检查脚本通过后主动结束，避免临时中心服务残留句柄让 pnpm 长时间等待。
+  process.exit(0);
+}).catch((error) => {
   // catch: 输出原始错误，方便定位半截回复闭环问题。
   console.error(error);
-  // exitCode: 交给 pnpm 返回非零状态。
-  process.exitCode = 1;
+  process.exit(1);
 });

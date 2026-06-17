@@ -43,12 +43,25 @@ type CenterDeepAgentRunStream = DeepAgentRunStream<
 
 type DeepAgentOutputState = {
     /** messages: Deep Agents 最终状态中的消息列表。 */
-    messages?: Array<{
+    messages?: DeepAgentOutputMessage[];
+};
+
+type DeepAgentOutputMessage = {
         /** role: 消息角色。 */
         role?: string;
         /** content: 消息正文。 */
         content?: unknown;
-    }>;
+        /** _getType: LangChain BaseMessage 内部消息类型读取函数。 */
+        _getType?: () => string;
+        /** getType: 部分 LangChain 消息对象暴露的消息类型读取函数。 */
+        getType?: () => string;
+};
+
+type DeepAgentMessageContentPart = {
+    /** type: Deep Agents 消息内容块类型。 */
+    type?: unknown;
+    /** text: 文本内容块正文。 */
+    text?: unknown;
 };
 
 /**
@@ -122,6 +135,19 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             streamedAssistantText,
         );
         throwIfTurnRuntimeAborted(runtimeController.signal);
+        if (isIncompleteToolIntentText(
+            assistantText,
+            streamedAssistantText,
+            finalModelResult,
+        ) && !hasTurnToolExecutionEvents(
+            runtimeInput,
+        )) {
+            await failIncompleteToolIntentTurn(
+                runtimeInput,
+                assistantText || streamedAssistantText,
+            );
+            return;
+        }
 
         await finalizeDeepAgentTurn(
             runtimeInput,
@@ -561,22 +587,189 @@ async function resolveToolCallValueWhenActive<T>(
  */
 function resolveFinalAssistantText(
     output: {
-        messages?: Array<{
-            role?: string;
-            content?: unknown;
-        }>;
+        messages?: DeepAgentOutputMessage[];
     },
     fallbackText: string,
 ): string {
     const assistantMessages = Array.isArray(output.messages)
         ? output.messages.filter((message) => {
-            return message.role === "assistant" && typeof message.content === "string";
+            return isDeepAgentAssistantMessage(message);
         })
         : [];
     const finalAssistantText = assistantMessages.length > 0
-        ? String(assistantMessages[assistantMessages.length - 1]?.content ?? "")
+        ? extractDeepAgentMessageText(assistantMessages[assistantMessages.length - 1]?.content)
         : fallbackText;
     return finalAssistantText.trim();
+}
+
+/**
+ * isDeepAgentAssistantMessage：判断 Deep Agents 最终状态里的消息是否为助手消息。
+ *
+ * @param message Deep Agents 或 LangChain 返回的消息对象。
+ * @returns 是助手消息时返回 true。
+ */
+function isDeepAgentAssistantMessage(message: DeepAgentOutputMessage): boolean {
+    if (message.role === "assistant") {
+        return true;
+    }
+    return readDeepAgentMessageType(message) === "ai";
+}
+
+/**
+ * readDeepAgentMessageType：兼容读取 LangChain BaseMessage 的运行时类型。
+ *
+ * @param message Deep Agents 或 LangChain 返回的消息对象。
+ * @returns 消息类型字符串；无法读取时返回空字符串。
+ */
+function readDeepAgentMessageType(message: DeepAgentOutputMessage): string {
+    for (const readType of [
+        message._getType,
+        message.getType,
+    ]) {
+        if (typeof readType !== "function") {
+            continue;
+        }
+        const messageType = readType.call(message);
+        if (typeof messageType === "string" && messageType.length > 0) {
+            return messageType;
+        }
+    }
+    return "";
+}
+
+/**
+ * hasTurnToolExecutionEvents：判断当前轮次是否已经出现真实工具执行或回填事件。
+ *
+ * @param input 当前轮次运行输入。
+ * @returns 已存在工具请求、工具完成或工具结果回填时返回 true。
+ */
+function hasTurnToolExecutionEvents(input: DeepAgentsAgentRunInput): boolean {
+    const row = input.database.connection().prepare(`
+        SELECT 1
+        FROM events
+        WHERE turn_id = ?
+          AND event_type IN (
+              'model.tool.requested',
+              'model.tool.result.appended',
+              'tool.command.started',
+              'tool.command.completed',
+              'tool.mcp.started',
+              'tool.mcp.completed',
+              'tool.plan.created',
+              'tool.plan.completed'
+          )
+        LIMIT 1
+    `).get(input.sent.turnId);
+    return Boolean(row);
+}
+
+/**
+ * extractDeepAgentMessageText：提取 Deep Agents 最终消息中的可见文本。
+ *
+ * @param content Deep Agents 消息 content，可能是字符串或 OpenAI 风格内容块数组。
+ * @returns 拼接后的文本。
+ */
+function extractDeepAgentMessageText(content: unknown): string {
+    if (typeof content === "string") {
+        return content;
+    }
+    if (!Array.isArray(content)) {
+        return "";
+    }
+    return content.map((part) => {
+        if (typeof part === "string") {
+            return part;
+        }
+        if (typeof part !== "object" || part === null) {
+            return "";
+        }
+        const contentPart = part as DeepAgentMessageContentPart;
+        if (contentPart.type === "text" && typeof contentPart.text === "string") {
+            return contentPart.text;
+        }
+        return "";
+    }).filter((text) => {
+        return text.length > 0;
+    }).join("");
+}
+
+/**
+ * isIncompleteToolIntentText：识别模型表达继续执行但没有返回结构化工具调用的半截回复。
+ *
+ * @param assistantText 模型本次最终文本。
+ * @param streamedAssistantText 模型流式阶段已经发出的可见文本。
+ * @param modelResult 模型结构化工具调用结果。
+ * @returns 命中半截执行意图时返回 true。
+ */
+function isIncompleteToolIntentText(
+    assistantText: string,
+    streamedAssistantText: string,
+    modelResult: ProviderModelGatewayResult | null,
+): boolean {
+    const normalizedText = (assistantText || streamedAssistantText).trim();
+    if ((modelResult?.toolCalls.length ?? 0) > 0) {
+        return false;
+    }
+    if (normalizedText.length === 0) {
+        return true;
+    }
+    // intentPatterns: 只判断模型文本是否自称要继续执行，不读取用户提示词，也不匹配具体工具名。
+    const intentPatterns = [
+        /我先看/u,
+        /再重点过滤/u,
+        /继续(查询|执行|调用|检查|打开|读取)/u,
+        /改用.+(工具|命令|MCP)/u,
+        /准备(调用|执行|查询|检查|打开|读取)/u,
+        /下一步.+(调用|执行|查询|检查|打开|读取)/u,
+    ];
+    const hasIntent = intentPatterns.some((pattern) => {
+        return pattern.test(normalizedText);
+    });
+    const hasFinalAnswerSignal = /结论|总结|推荐|如下|分别是|已经完成|结果是|我看到|我发现/u.test(normalizedText);
+    return hasIntent && !hasFinalAnswerSignal;
+}
+
+/**
+ * failIncompleteToolIntentTurn：把半截工具意图收尾为失败，避免错误固化助手回复。
+ *
+ * @param input 当前轮次运行输入。
+ * @param assistantText 模型返回的半截文本。
+ * @returns 没有返回值。
+ */
+async function failIncompleteToolIntentTurn(
+    input: DeepAgentsAgentRunInput,
+    assistantText: string,
+): Promise<void> {
+    const currentTurn = new SessionRepository(input.database).findTurn(input.sent.turnId);
+    if (!currentTurn || currentTurn.endedAt !== null || currentTurn.status === "cancelled") {
+        return;
+    }
+    const failureReason = "MODEL_INCOMPLETE_TOOL_INTENT";
+    input.events.append({
+        eventType: "message.turn.incomplete",
+        scopeType: "turn",
+        scopeId: input.sent.turnId,
+        sessionId: input.sent.sessionId,
+        turnId: input.sent.turnId,
+        taskId: input.sent.taskId,
+        status: "failed",
+        title: "模型返回了未完成执行意图",
+        summary: "模型表达了继续调用工具的意图，但没有返回结构化工具调用，本轮已失败收尾。",
+        payload: {
+            failureReason,
+            assistantTextPreview: assistantText.slice(
+                0,
+                240,
+            ),
+        },
+    });
+    updateTurnStatus(
+        input.database,
+        input.events,
+        input.sent.turnId,
+        "failed",
+        input.sent.taskId,
+    );
 }
 
 /**

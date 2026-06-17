@@ -2,9 +2,11 @@ import {randomUUID} from "node:crypto";
 
 import {
     StructuredTool,
+    type CallbackManagerForToolRun,
     type ToolInputSchemaBase,
     type ToolInputSchemaOutputType,
 } from "@langchain/core/tools";
+import type {RunnableConfig} from "@langchain/core/runnables";
 
 import type {
     DeepAgentsToolExecutionContext,
@@ -54,13 +56,21 @@ export abstract class CenterStructuredToolBase<
      * _call：统一包装模型请求与结果回填事件。
      *
      * @param arg 工具参数。
+     * @param runManager LangChain 工具运行管理器。
+     * @param parentConfig LangChain 传入的父级运行配置，包含原始模型工具调用 ID。
      * @returns 返回给模型的结果文本。
      */
     protected override async _call(
         arg: ToolInputSchemaOutputType<SchemaT>,
+        runManager?: CallbackManagerForToolRun,
+        parentConfig?: RunnableConfig,
     ): Promise<string> {
         throwIfTurnRuntimeAborted(this.context.runtimeSignal);
-        const toolCallId = randomUUID();
+        const runtimeToolCallId = resolveRuntimeToolCallId(
+            runManager,
+            parentConfig,
+        );
+        const toolCallId = runtimeToolCallId || randomUUID();
         this.context.input.events.append({
             eventType: "model.tool.requested",
             scopeType: "tool",
@@ -178,6 +188,61 @@ export abstract class CenterStructuredToolBase<
         arg: ToolInputSchemaOutputType<SchemaT>,
         toolCallId: string,
     ): Promise<DeepAgentsToolExecutionResult>;
+}
+
+/**
+ * resolveRuntimeToolCallId：优先继承 Deep Agents/LangChain 的原始工具调用 ID。
+ *
+ * @param runManager LangChain 工具运行管理器。
+ * @param parentConfig LangChain 父级运行配置。
+ * @returns 原始模型工具调用 ID；不存在时返回空字符串。
+ */
+function resolveRuntimeToolCallId(
+    runManager: CallbackManagerForToolRun | undefined,
+    parentConfig: RunnableConfig | undefined,
+): string {
+    return readNestedString(
+        parentConfig,
+        [
+            "toolCall",
+            "id",
+        ],
+    ) || readNestedString(
+        parentConfig,
+        [
+            "metadata",
+            "toolCallId",
+        ],
+    ) || readNestedString(
+        runManager,
+        [
+            "toolCall",
+            "id",
+        ],
+    );
+}
+
+/**
+ * readNestedString：按路径读取嵌套字符串字段。
+ *
+ * @param value 待读取对象。
+ * @param path 字段路径。
+ * @returns 字段存在且为非空字符串时返回字段值。
+ */
+function readNestedString(
+    value: unknown,
+    path: string[],
+): string {
+    let currentValue = value;
+    for (const key of path) {
+        if (typeof currentValue !== "object" || currentValue === null) {
+            return "";
+        }
+        currentValue = (currentValue as Record<string, unknown>)[key];
+    }
+    return typeof currentValue === "string" && currentValue.length > 0
+        ? currentValue
+        : "";
 }
 
 /**

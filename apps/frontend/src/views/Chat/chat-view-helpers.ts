@@ -1099,16 +1099,24 @@ function resolveProcessTerminalText(
         ].join("\n");
     }
 
-    const textParts = sortedEvents.map((event) => {
+    const toolExecutionTextParts = sortedEvents.map((event) => {
+        if (event.eventType === "model.tool.result.appended") {
+            return "";
+        }
         return resolveProcessLogText(event);
     }).filter((text) => {
         return text.trim().length > 0;
     });
-    const deduplicatedParts = deduplicateProcessTextParts(textParts);
-    if (deduplicatedParts.length > 0) {
-        return deduplicatedParts.join("\n");
+    const deduplicatedToolParts = deduplicateProcessTextParts(toolExecutionTextParts);
+    if (deduplicatedToolParts.length > 0) {
+        return deduplicatedToolParts.join("\n");
     }
-    return "";
+    const fallbackTextParts = sortedEvents.map((event) => {
+        return resolveProcessLogText(event);
+    }).filter((text) => {
+        return text.trim().length > 0;
+    });
+    return deduplicateProcessTextParts(fallbackTextParts).join("\n");
 }
 
 /**
@@ -1118,15 +1126,26 @@ function resolveProcessTerminalText(
  * @returns 去重后的正文片段。
  */
 function deduplicateProcessTextParts(parts: string[]): string[] {
-    const seen = new Set<string>();
-    return parts.filter((part) => {
+    const deduplicatedParts: string[] = [];
+    for (const part of parts) {
         const normalizedPart = part.trim();
-        if (normalizedPart.length === 0 || seen.has(normalizedPart)) {
-            return false;
+        if (normalizedPart.length === 0) {
+            continue;
         }
-        seen.add(normalizedPart);
-        return true;
-    });
+        const existingIndex = deduplicatedParts.findIndex((existingPart) => {
+            return existingPart === normalizedPart
+                || existingPart.includes(normalizedPart)
+                || normalizedPart.includes(existingPart);
+        });
+        if (existingIndex === -1) {
+            deduplicatedParts.push(normalizedPart);
+            continue;
+        }
+        if (normalizedPart.length > deduplicatedParts[existingIndex].length) {
+            deduplicatedParts[existingIndex] = normalizedPart;
+        }
+    }
+    return deduplicatedParts;
 }
 
 /**
@@ -1481,6 +1500,7 @@ export function createMessageTimelineNodes(messages: ConversationMessage[]): Mes
  * @param messages 当前会话消息列表。
  * @param thinkingRows 已按轮次合并的思考过程。
  * @param processRows 已按任务聚合的工具和模型过程。
+ * @param events 当前会话事件数组，用于派生模型临时正文和流式助手消息。
  * @returns 用户消息、过程和助手回复组成的稳定展示序列。
  */
 export function createConversationRenderRows(
@@ -1568,6 +1588,7 @@ export function createConversationRenderRows(
  *
  * @param messages 当前会话固化消息。
  * @param events 当前会话事件数组。
+ * @param modelInterimRowsByTurn 已归入模型中间正文的事件索引。
  * @returns 仅包含尚未固化助手消息的临时助手行。
  */
 function createStreamingAssistantRows(
@@ -1785,8 +1806,12 @@ function groupRowsByTurn<T extends { turnId: string | null; rowId: string }>(row
  * @param turnId 当前消息所属轮次。
  * @param thinkingRowsByTurn 思考过程索引。
  * @param processRowsByTurn 工具过程索引。
+ * @param modelInterimRowsByTurn 模型中间正文索引。
+ * @param streamingAssistantRowsByTurn 流式助手消息索引。
  * @param consumedThinkingRowIds 已消费思考行 ID。
  * @param consumedProcessRowIds 已消费过程行 ID。
+ * @param consumedModelInterimRowIds 已消费模型中间正文行 ID。
+ * @param consumedStreamingAssistantRowIds 已消费流式助手消息行 ID。
  * @returns 没有返回值。
  */
 function appendTurnProcessRows(
@@ -1896,8 +1921,12 @@ function appendTurnProcessRows(
  * @param rows 目标渲染行。
  * @param thinkingRows 所有思考过程行。
  * @param processRows 所有工具过程行。
+ * @param modelInterimRowsByTurn 模型中间正文索引。
+ * @param streamingAssistantRowsByTurn 流式助手消息索引。
  * @param consumedThinkingRowIds 已消费思考行 ID。
  * @param consumedProcessRowIds 已消费过程行 ID。
+ * @param consumedModelInterimRowIds 已消费模型中间正文行 ID。
+ * @param consumedStreamingAssistantRowIds 已消费流式助手消息行 ID。
  * @returns 没有返回值。
  */
 function appendUnconsumedProcessRows(

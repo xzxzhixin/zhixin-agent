@@ -2,6 +2,7 @@ import type {StructuredToolInterface} from "@langchain/core/tools";
 
 import type {DeepAgentsToolExecutionContext} from "./deepagents-tool-runtime.js";
 import {createMcpAdapterClient} from "./mcp-adapter-config.js";
+import {readAllMcpServerConfigs} from "./mcp-tool-specs.js";
 import {McpToolWrapperStructuredTool} from "./McpToolWrapperStructuredTool.js";
 
 /**
@@ -13,6 +14,13 @@ import {McpToolWrapperStructuredTool} from "./McpToolWrapperStructuredTool.js";
 export async function buildMcpToolsForDeepAgents(
     context: DeepAgentsToolExecutionContext,
 ): Promise<StructuredToolInterface[]> {
+    const serverConfigs = readAllMcpServerConfigs(
+        context.centerDirectory,
+        context.projectId,
+    );
+    if (serverConfigs.length === 0) {
+        return [];
+    }
     const mcpClient = createMcpAdapterClient(
         context.centerDirectory,
         context.projectId,
