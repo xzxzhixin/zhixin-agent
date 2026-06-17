@@ -6,7 +6,7 @@
  * 参数：无。
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
@@ -117,6 +117,35 @@ async function main(): Promise<void> {
     })).json<ApiResponse<{ messageId: string }>>();
     assert(message.success, "附件消息发送失败");
 
+    const outsideFilePath = join(tempRoot, "outside-file");
+    await writeFile(
+      outsideFilePath,
+      "outside-file-content",
+      "utf-8",
+    );
+    const maliciousCommitted = (await service.app.inject({
+      method: "POST",
+      url: "/api/session/attachment/commit",
+      payload: {
+        sessionId: session.data?.sessionId,
+        messageId: message.data?.messageId,
+        temporaryAttachmentId: "malicious-temporary",
+        temporaryRelativePath: "../outside-file",
+        fileName: "outside-file.txt",
+        mimeType: "text/plain",
+        sizeBytes: 20,
+      },
+    })).json<ApiResponse<{
+      attachmentId: string;
+      relativePath: string;
+      archivePath: string;
+    }>>();
+    assert(
+      !maliciousCommitted.success,
+      "穿越中心目录的临时附件路径必须被拒绝",
+    );
+    await stat(outsideFilePath);
+
     const temporary = (await service.app.inject({
       method: "POST",
       url: "/api/file/temp/create",
@@ -127,7 +156,6 @@ async function main(): Promise<void> {
       },
     })).json<ApiResponse<{
       temporaryAttachmentId: string;
-      storageFileName: string;
       relativePath: string;
     }>>();
     assert(temporary.success, "临时附件创建失败");
@@ -139,6 +167,27 @@ async function main(): Promise<void> {
     );
     await stat(join(centerDirectory, temporaryRelativePath));
 
+    const missingTemporaryPath = (await service.app.inject({
+      method: "POST",
+      url: "/api/session/attachment/commit",
+      payload: {
+        sessionId: session.data?.sessionId,
+        messageId: message.data?.messageId,
+        temporaryAttachmentId,
+        fileName: "missing-path.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+      },
+    })).json<ApiResponse<{
+      attachmentId: string;
+      relativePath: string;
+      archivePath: string;
+    }>>();
+    assert(
+      !missingTemporaryPath.success,
+      "缺少 temporaryRelativePath 时必须拒绝提交附件",
+    );
+
     const committed = (await service.app.inject({
       method: "POST",
       url: "/api/session/attachment/commit",
@@ -147,7 +196,6 @@ async function main(): Promise<void> {
         messageId: message.data?.messageId,
         temporaryAttachmentId,
         temporaryRelativePath,
-        storageFileName: temporary.data?.storageFileName,
         fileName: "check.png",
         mimeType: "image/png",
         sizeBytes: 10,

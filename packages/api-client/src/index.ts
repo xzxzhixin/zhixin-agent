@@ -290,11 +290,6 @@ export interface TemporaryAttachmentResult {
   temporaryAttachmentId: string;
 
   /**
-   * storageFileName: 临时草稿目录内的存储文件名，用于旧调用推导临时路径。
-   */
-  storageFileName: string;
-
-  /**
    * relativePath: 临时附件相对中心目录路径，位于 temp/{temporaryAttachmentId}/。
    */
   relativePath: string;
@@ -965,7 +960,6 @@ export class CenterApiClient {
     messageId: string;
     temporaryAttachmentId: string;
     temporaryRelativePath: string;
-    storageFileName?: string;
     fileName: string;
     mimeType: string;
     sizeBytes: number;

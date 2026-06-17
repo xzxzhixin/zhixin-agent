@@ -1355,8 +1355,6 @@ function commitAttachmentFromRealtime(
         temporaryAttachmentId?: string;
         /** temporaryRelativePath: 临时附件相对中心目录路径，来源于 attachment.temporary.create 返回值。 */
         temporaryRelativePath?: string;
-        /** storageFileName: 临时附件草稿目录内的存储文件名。 */
-        storageFileName?: string;
         /** fileName: 原始文件名。 */
         fileName?: string;
         /** mimeType: MIME 类型。 */

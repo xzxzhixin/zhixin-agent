@@ -182,12 +182,11 @@ export function createTemporaryAttachment(
     sizeBytes: number,
 ): {
     temporaryAttachmentId: string;
-    storageFileName: string;
     relativePath: string;
 } {
     const temporaryAttachmentId = randomUUID();
-    const storageFileName = "attachment-placeholder.json";
-    const relativePath = `temp/${temporaryAttachmentId}/${storageFileName}`;
+    const placeholderFileName = "attachment-placeholder.json";
+    const relativePath = `temp/${temporaryAttachmentId}/${placeholderFileName}`;
     const filePath = join(centerDirectory, relativePath);
     mkdirSync(dirname(filePath), {
         recursive: true,
@@ -203,7 +202,6 @@ export function createTemporaryAttachment(
     }), "utf-8");
     return {
         temporaryAttachmentId,
-        storageFileName,
         relativePath,
     };
 }
@@ -226,7 +224,6 @@ export function commitAttachment(
         messageId?: string;
         temporaryAttachmentId?: string;
         temporaryRelativePath?: string;
-        storageFileName?: string;
         fileName?: string;
         mimeType?: string;
         sizeBytes?: number;
@@ -238,17 +235,20 @@ export function commitAttachment(
 } {
     const attachmentId = randomUUID();
     const archiveService = new AttachmentArchiveService(centerDirectory);
-    const temporaryRelativePath = resolveTemporaryAttachmentPath(input);
+    const temporaryAttachmentId = requireTemporaryAttachmentId(input.temporaryAttachmentId);
+    const temporaryRelativePath = requireTemporaryRelativePath(input.temporaryRelativePath);
+    const fileName = requireAttachmentFileName(input.fileName);
     const archived = archiveService.moveTemporaryToArchive(
+        temporaryAttachmentId,
         temporaryRelativePath,
         attachmentId,
-        input.fileName ?? attachmentId,
+        fileName,
     );
     createDataAccess(database).usage.insertAttachment({
         attachmentId,
         sessionId: input.sessionId,
         messageId: input.messageId,
-        fileName: input.fileName,
+        fileName,
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
         relativePath: archived.archivePath,
@@ -262,10 +262,10 @@ export function commitAttachment(
         taskId: null,
         status: "completed",
         title: "附件转正",
-        summary: input.fileName ?? attachmentId,
+        summary: fileName,
         payload: {
             attachmentId,
-            temporaryAttachmentId: input.temporaryAttachmentId,
+            temporaryAttachmentId,
             archivePath: archived.archivePath,
         },
     });
@@ -278,24 +278,40 @@ export function commitAttachment(
 }
 
 /**
- * resolveTemporaryAttachmentPath：解析临时附件相对路径。
+ * requireTemporaryAttachmentId：校验临时附件 ID 必须由调用方明确提交。
  *
- * @param input 附件提交参数。
- * @returns 临时附件相对中心目录路径。
+ * @param temporaryAttachmentId 临时附件 ID。
+ * @returns 已校验的临时附件 ID。
  */
-function resolveTemporaryAttachmentPath(input: {
-    /** temporaryAttachmentId: 临时附件 ID。 */
-    temporaryAttachmentId?: string;
-    /** temporaryRelativePath: 临时附件相对中心目录路径。 */
-    temporaryRelativePath?: string;
-    /** storageFileName: 临时附件目录内的存储文件名。 */
-    storageFileName?: string;
-}): string {
-    if (input.temporaryRelativePath && input.temporaryRelativePath.trim().length > 0) {
-        return input.temporaryRelativePath;
+function requireTemporaryAttachmentId(temporaryAttachmentId: string | undefined): string {
+    if (!temporaryAttachmentId || temporaryAttachmentId.trim().length === 0) {
+        throw new Error("TEMP_ATTACHMENT_ID_REQUIRED");
     }
-    if (!input.temporaryAttachmentId || !input.storageFileName) {
+    return temporaryAttachmentId;
+}
+
+/**
+ * requireTemporaryRelativePath：校验提交协议必须提供单一临时相对路径字段。
+ *
+ * @param temporaryRelativePath 临时附件相对中心目录路径。
+ * @returns 已校验的临时附件相对路径。
+ */
+function requireTemporaryRelativePath(temporaryRelativePath: string | undefined): string {
+    if (!temporaryRelativePath || temporaryRelativePath.trim().length === 0) {
         throw new Error("TEMP_ATTACHMENT_PATH_REQUIRED");
     }
-    return `temp/${input.temporaryAttachmentId}/${input.storageFileName}`;
+    return temporaryRelativePath;
+}
+
+/**
+ * requireAttachmentFileName：校验正式附件必须保留原始文件名。
+ *
+ * @param fileName 客户端提交的原始文件名。
+ * @returns 已校验的原始文件名。
+ */
+function requireAttachmentFileName(fileName: string | undefined): string {
+    if (!fileName || fileName.trim().length === 0) {
+        throw new Error("ATTACHMENT_FILE_NAME_REQUIRED");
+    }
+    return fileName;
 }

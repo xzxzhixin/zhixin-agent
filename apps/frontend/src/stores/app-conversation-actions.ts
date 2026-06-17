@@ -1114,8 +1114,6 @@ export function createConversationActions() {
             const temporary = await this.requireRealtimeRequest<{
                 /** temporaryAttachmentId: 临时附件 ID。 */
                 temporaryAttachmentId: string;
-                /** storageFileName: 临时存储文件名。 */
-                storageFileName: string;
                 /** relativePath: 临时附件相对中心目录路径。 */
                 relativePath: string;
             }>("attachment.temporary.create", {
