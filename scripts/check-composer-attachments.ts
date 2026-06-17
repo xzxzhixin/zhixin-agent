@@ -12,7 +12,13 @@ import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 
 import { CENTER_DATA_DIR_NAME, type ApiResponse } from "@zhixin/shared";
-import { canSendComposerDraft, createEmptyComposerDraft } from "../packages/ui/src/index";
+import {
+  canSendComposerDraft,
+  createEmptyComposerDraft,
+  renderComposerDraftMarkdown,
+  type ComposerAttachmentDraft,
+  type ComposerReferenceDraft,
+} from "../packages/ui/src/index";
 import {
   type CenterService,
   createCenterService,
@@ -48,7 +54,17 @@ async function main(): Promise<void> {
     /requireRealtimeRequest/u,
     /addClipboardImageAttachment/u,
     /temporaryRelativePath/u,
+    /buildComposerMessageMarkdown|renderComposerDraftMarkdown/u,
+    /type:\s*"attachment"/u,
   ], "前端输入框附件动作层");
+  assertFileContains("apps/frontend/src/stores/app.ts", [
+    /parts\.push/u,
+    /type:\s*"reference"/u,
+  ], "前端输入框引用状态层");
+  assertFileContains("packages/ui/src/index.ts", [
+    /ComposerDraftPart/u,
+    /parts:\s*ComposerDraftPart\[\]/u,
+  ], "共享输入框结构化草稿协议");
   assertFileContains("services/center/src/api/sync-route.ts", [
     /attachment\.temporary\.create/u,
     /attachment\.commit/u,
@@ -82,6 +98,74 @@ async function main(): Promise<void> {
   assert(!canSendComposerDraft(draft), "空草稿不应允许发送");
   draft.text = "附件检查";
   assert(canSendComposerDraft(draft), "有文本草稿应允许发送");
+  assert(Array.isArray(draft.parts), "空草稿必须包含 parts 数组");
+
+  const behaviorAttachment: ComposerAttachmentDraft = {
+    temporaryAttachmentId: "temporary-behavior-attachment",
+    temporaryRelativePath: "temp/temporary-behavior-attachment/check.png",
+    fileName: "check.png",
+    mimeType: "image/png",
+    sizeBytes: 10,
+  };
+  const behaviorReference: ComposerReferenceDraft = {
+    type: "file",
+    link: {
+      projectId: "project-check",
+      absolutePath: "D:/project/check.ts",
+      relativePath: "check.ts",
+      startLine: null,
+      endLine: null,
+    },
+    displayName: "check.ts",
+  };
+  draft.attachments.push(behaviorAttachment);
+  draft.references.push(behaviorReference);
+  assert(
+    renderComposerDraftMarkdown(draft) === [
+      "附件检查",
+      `[@check.ts](zhixin-file:${encodeURIComponent(JSON.stringify(behaviorReference.link))})`,
+      "![check.png](temp://temporary-behavior-attachment)",
+    ].join("\n\n"),
+    "parts 为空时必须继续兼容旧文本、引用、附件顺序",
+  );
+  draft.parts.push({
+    type: "attachment",
+    attachment: behaviorAttachment,
+  });
+  draft.parts.push({
+    type: "reference",
+    reference: behaviorReference,
+  });
+  assert(
+    renderComposerDraftMarkdown(draft) === [
+      "附件检查",
+      "![check.png](temp://temporary-behavior-attachment)",
+      `[@check.ts](zhixin-file:${encodeURIComponent(JSON.stringify(behaviorReference.link))})`,
+    ].join("\n\n"),
+    "parts 有内容且没有 text part 时必须保留当前 textarea 文本并按结构化顺序追加片段",
+  );
+  draft.parts = [
+    {
+      type: "attachment",
+      attachment: behaviorAttachment,
+    },
+  ];
+  draft.parts.push({
+    type: "text",
+    text: "中间文本",
+  });
+  draft.parts.push({
+    type: "reference",
+    reference: behaviorReference,
+  });
+  assert(
+    renderComposerDraftMarkdown(draft) === [
+      "![check.png](temp://temporary-behavior-attachment)",
+      "中间文本",
+      `[@check.ts](zhixin-file:${encodeURIComponent(JSON.stringify(behaviorReference.link))})`,
+    ].join("\n\n"),
+    "parts 包含 text part 时必须按结构化输入顺序构造 Markdown",
+  );
 
   const tempRoot = await mkdtemp(join(tmpdir(), "zhixin-composer-"));
   const centerDirectory = join(tempRoot, CENTER_DATA_DIR_NAME);

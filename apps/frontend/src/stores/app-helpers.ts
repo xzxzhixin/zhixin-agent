@@ -8,6 +8,9 @@ import type {
     ComposerDraftModel,
     ComposerReferenceDraft,
 } from "@zhixin/ui";
+import {
+    renderComposerReferenceMarkdown,
+} from "@zhixin/ui";
 import type {
     ConversationSession,
     InternalFileLink,
@@ -692,13 +695,5 @@ export function convertIdePayloadToReference(payload: IdeContextReferencePayload
 }
 
 export function formatReferenceMarkdown(reference: ComposerReferenceDraft): string {
-    if (reference.type === "folder") {
-        return `[@${reference.displayName}](zhixin-folder:${encodeURIComponent(JSON.stringify(reference))})`;
-    }
-
-    if (reference.type === "code") {
-        return `[@${reference.displayName}](zhixin-code:${encodeURIComponent(JSON.stringify(reference))})`;
-    }
-
-    return `[@${reference.displayName}](zhixin-file:${encodeURIComponent(JSON.stringify(reference.link))})`;
+    return renderComposerReferenceMarkdown(reference);
 }

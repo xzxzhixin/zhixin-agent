@@ -111,6 +111,50 @@ export type ComposerReferenceDraft =
     };
 
 /**
+ * 输入框结构化片段。
+ *
+ * 来源：富文本输入框结构化消息事实需求。
+ * 含义：按用户插入顺序保留文本、附件和引用，供发送时构造 Markdown。
+ * 格式：判别联合对象。
+ * 默认值：空草稿使用空数组。
+ * 约束：该顺序只表示发送展示 Markdown，不代表写入长期记忆。
+ */
+export type ComposerDraftPart =
+  | {
+      /**
+       * type: 文本片段。
+       */
+      type: "text";
+
+      /**
+       * text: 用户输入的原始文本。
+       */
+      text: string;
+    }
+  | {
+      /**
+       * type: 附件片段。
+       */
+      type: "attachment";
+
+      /**
+       * attachment: 输入框临时附件草稿。
+       */
+      attachment: ComposerAttachmentDraft;
+    }
+  | {
+      /**
+       * type: 引用片段。
+       */
+      type: "reference";
+
+      /**
+       * reference: 输入框上下文引用草稿。
+       */
+      reference: ComposerReferenceDraft;
+    };
+
+/**
  * 输入框草稿。
  *
  * 来源：统一输入框组件协议。
@@ -139,6 +183,14 @@ export interface ComposerDraftModel {
    * skillNames: 本轮显式选择的 skill 名称。
    */
   skillNames: string[];
+
+  /**
+   * parts: 按插入顺序保存的结构化输入片段。
+   *
+   * 默认值：空数组。
+   * 约束：当前组件仍用标签展示附件和引用；后续 contenteditable 内嵌渲染消费同一协议。
+   */
+  parts: ComposerDraftPart[];
 }
 
 /**
@@ -152,6 +204,7 @@ export function createEmptyComposerDraft(): ComposerDraftModel {
     attachments: [],
     references: [],
     skillNames: [],
+    parts: [],
   };
 }
 
@@ -165,5 +218,88 @@ export function canSendComposerDraft(draft: ComposerDraftModel): boolean {
   return draft.text.trim().length > 0
     || draft.attachments.length > 0
     || draft.references.length > 0
-    || draft.skillNames.length > 0;
+    || draft.skillNames.length > 0
+    || draft.parts.length > 0;
+}
+
+/**
+ * renderComposerReferenceMarkdown：把结构化引用渲染成消息 Markdown。
+ *
+ * @param reference 输入框引用草稿。
+ * @returns 中心服务消息正文使用的 Markdown 链接。
+ */
+export function renderComposerReferenceMarkdown(reference: ComposerReferenceDraft): string {
+  if (reference.type === "folder") {
+    return `[@${reference.displayName}](zhixin-folder:${encodeURIComponent(JSON.stringify(reference))})`;
+  }
+
+  if (reference.type === "code") {
+    return `[@${reference.displayName}](zhixin-code:${encodeURIComponent(JSON.stringify(reference))})`;
+  }
+
+  return `[@${reference.displayName}](zhixin-file:${encodeURIComponent(JSON.stringify(reference.link))})`;
+}
+
+/**
+ * renderComposerAttachmentMarkdown：把临时附件草稿渲染成消息 Markdown。
+ *
+ * @param attachment 输入框附件草稿。
+ * @returns 中心服务消息正文使用的临时附件 Markdown。
+ */
+export function renderComposerAttachmentMarkdown(attachment: ComposerAttachmentDraft): string {
+  return `![${attachment.fileName}](temp://${attachment.temporaryAttachmentId})`;
+}
+
+/**
+ * renderComposerDraftMarkdown：按输入框草稿协议构造发送展示 Markdown。
+ *
+ * 关键逻辑：`parts` 有内容时按结构化片段顺序输出；`parts` 为空时继续兼容旧草稿格式。
+ * 该函数只生成发送展示 Markdown，不代表写入长期记忆。
+ *
+ * @param draft 输入框草稿。
+ * @returns 可发送到中心服务消息接口的 Markdown 正文。
+ */
+export function renderComposerDraftMarkdown(draft: ComposerDraftModel): string {
+  const markdownParts: string[] = [];
+
+  if (draft.parts.length > 0) {
+    const hasTextPart = draft.parts.some((part) => {
+      return part.type === "text";
+    });
+    const legacyText = draft.text.trim();
+    if (!hasTextPart && legacyText.length > 0) {
+      // 当前 textarea 还不是 contenteditable，文本仍来自 draft.text；后续内嵌渲染会直接写入 text part。
+      markdownParts.push(legacyText);
+    }
+    for (const part of draft.parts) {
+      if (part.type === "text") {
+        const text = part.text.trim();
+        if (text.length > 0) {
+          markdownParts.push(text);
+        }
+      }
+      if (part.type === "attachment") {
+        markdownParts.push(renderComposerAttachmentMarkdown(part.attachment));
+      }
+      if (part.type === "reference") {
+        markdownParts.push(renderComposerReferenceMarkdown(part.reference));
+      }
+    }
+    return markdownParts.join("\n\n");
+  }
+
+  const text = draft.text.trim();
+  if (text.length > 0) {
+    markdownParts.push(text);
+  }
+
+  for (const reference of draft.references) {
+    markdownParts.push(renderComposerReferenceMarkdown(reference));
+  }
+
+  for (const attachment of draft.attachments) {
+    markdownParts.push(renderComposerAttachmentMarkdown(attachment));
+  }
+
+  return markdownParts.join("\n\n");
 }

@@ -26,6 +26,7 @@ import {
 } from "@zhixin/api-client";
 import {
     createEmptyComposerDraft,
+    renderComposerDraftMarkdown,
     type ComposerDraftModel,
 } from "@zhixin/ui";
 import type {
@@ -46,7 +47,7 @@ import {
     createMcpDraft, createPluginDraft, createAgentDraft, createProjectCodeSuggestion,
     createProjectFileSuggestion, createProjectFolderSuggestion, createProviderDraft,
     createProxyDraft, createRuntimeDraft, createSkillDraft, createUsageFilters,
-    fallbackProjectsFromSessions, formatReferenceMarkdown,
+    fallbackProjectsFromSessions,
     mergeAgentStatusTree, normalizeOptionalText, parseEnvironmentVariables, readPluginConfig,
     formatJsonText, resolveComposerProjectId,
 } from "./app-helpers";
@@ -1446,6 +1447,10 @@ export const useAppStore = defineStore("app", {
         insertProjectReference(suggestion: ProjectReferenceSuggestion): void {
             this.draft.references.push(suggestion.reference);
             this.draft.text = this.removeActiveAtQuery(this.draft.text);
+            this.draft.parts.push({
+                type: "reference",
+                reference: suggestion.reference,
+            });
             this.showProjectReferencePopover = false;
             this.projectReferenceQuery = "";
         },
@@ -1457,7 +1462,16 @@ export const useAppStore = defineStore("app", {
          * @returns 没有返回值。
          */
         removeReference(index: number): void {
-            this.draft.references.splice(index, 1);
+            const [
+                reference,
+            ] = this.draft.references.splice(index, 1);
+            if (!reference) {
+                return;
+            }
+            this.removeDraftPartByValue(
+                "reference",
+                reference,
+            );
         },
 
         /**
@@ -1467,7 +1481,16 @@ export const useAppStore = defineStore("app", {
          * @returns 没有返回值。
          */
         removeAttachment(index: number): void {
-            this.draft.attachments.splice(index, 1);
+            const [
+                attachment,
+            ] = this.draft.attachments.splice(index, 1);
+            if (!attachment) {
+                return;
+            }
+            this.removeDraftPartByValue(
+                "attachment",
+                attachment,
+            );
         },
 
         /**
@@ -1481,7 +1504,12 @@ export const useAppStore = defineStore("app", {
                 return;
             }
 
-            this.draft.references.push(convertIdePayloadToReference(payload));
+            const reference = convertIdePayloadToReference(payload);
+            this.draft.references.push(reference);
+            this.draft.parts.push({
+                type: "reference",
+                reference,
+            });
         },
 
         /**
@@ -1525,21 +1553,36 @@ export const useAppStore = defineStore("app", {
          * @returns 中心服务当前消息接口接收的 Markdown 文本。
          */
         buildDraftMarkdown(): string {
-            const parts = [
-                this.draft.text.trim(),
-            ].filter((part) => {
-                return part.length > 0;
+            return renderComposerDraftMarkdown(this.draft);
+        },
+
+        /**
+         * removeDraftPartByValue：按标签删除同步移除结构化输入片段。
+         *
+         * 关键逻辑：附件和引用标签仍按旧数组展示；关闭标签时必须同步清理 parts，
+         * 避免发送 Markdown 继续包含用户已经移除的结构化片段。
+         *
+         * @param type 要删除的结构化片段类型。
+         * @param value 标签数组中已删除的附件或引用对象。
+         * @returns 没有返回值。
+         */
+        removeDraftPartByValue(
+            type: "attachment" | "reference",
+            value: ComposerDraftModel["attachments"][number] | ComposerDraftModel["references"][number],
+        ): void {
+            const partIndex = this.draft.parts.findIndex((part) => {
+                if (type === "attachment" && part.type === "attachment") {
+                    return part.attachment === value;
+                }
+                if (type === "reference" && part.type === "reference") {
+                    return part.reference === value;
+                }
+                return false;
             });
-
-            for (const reference of this.draft.references) {
-                parts.push(formatReferenceMarkdown(reference));
+            if (partIndex < 0) {
+                return;
             }
-
-            for (const attachment of this.draft.attachments) {
-                parts.push(`![${attachment.fileName}](temp://${attachment.temporaryAttachmentId})`);
-            }
-
-            return parts.join("\n\n");
+            this.draft.parts.splice(partIndex, 1);
         },
 
         /**

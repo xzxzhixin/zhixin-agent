@@ -12,7 +12,9 @@ import {
 import {
     createEmptyComposerDraft,
     canSendComposerDraft,
+    renderComposerDraftMarkdown,
     type ComposerAttachmentDraft,
+    type ComposerDraftModel,
 } from "@zhixin/ui";
 import type {
     AgentSubConversationDetail,
@@ -1122,12 +1124,17 @@ export function createConversationActions() {
                 sizeBytes: file.size,
                 file,
             });
-            this.draft.attachments.push({
+            const attachment: ComposerAttachmentDraft = {
                 temporaryAttachmentId: temporary.temporaryAttachmentId,
                 temporaryRelativePath: temporary.relativePath,
                 fileName,
                 mimeType: file.type,
                 sizeBytes: file.size,
+            };
+            this.draft.attachments.push(attachment);
+            this.draft.parts.push({
+                type: "attachment",
+                attachment,
             });
         },
 
@@ -1223,6 +1230,16 @@ export function createConversationActions() {
             return labels[status] ?? "未知状态";
         },
     };
+}
+
+/**
+ * buildComposerMessageMarkdown：构造输入框发送消息 Markdown。
+ *
+ * @param draft 输入框草稿。
+ * @returns 中心服务消息接口接收的 Markdown 正文。
+ */
+export function buildComposerMessageMarkdown(draft: ComposerDraftModel): string {
+    return renderComposerDraftMarkdown(draft);
 }
 
 /**
