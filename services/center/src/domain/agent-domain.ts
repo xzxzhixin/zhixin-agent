@@ -20,26 +20,24 @@ const AGENT_DYNAMIC_CAPABILITY_BOUNDARY = "可用能力由当前会话、项目�
  * 来源：正常会话轮次完成、手动记忆写入和执行引擎归纳。
  * 含义：描述要追加到智能体 Markdown 记忆和 SQLite 索引中的一段完整轮次记忆。
  * 格式：agentId、关键词、摘要、原始问答文本和可追踪来源。
- * 默认值：来源会话、轮次和附件引用可为空；正常会话完成时必须传入来源。
- * 约束：记忆只能追加，不能覆盖或插入已有段落。
+ * 默认值：来源会话、轮次和附件来源可为空；SQLite NOT NULL 字段必须由调用方提前校验后传入。
+ * 约束：记忆只能追加，不能覆盖或插入已有段落；附件索引 JSON 只由 attachmentSources 生成。
  */
 export interface MemoryWriteInput {
     /** agentId: 智能体 ID，主智能体固定为 main。 */
-    agentId?: string;
+    agentId: string;
     /** keywords: 关键词文本。 */
-    keywords?: string;
+    keywords: string;
     /** summary: 本轮对话摘要。 */
-    summary?: string;
+    summary: string;
     /** userText: 用户本轮输入原文。 */
-    userText?: string;
+    userText: string;
     /** assistantText: 助手本轮回复原文。 */
-    assistantText?: string;
+    assistantText: string;
     /** sourceSessionId: 来源会话 ID，手动写入时可为空。 */
     sourceSessionId?: string | null;
     /** sourceTurnId: 来源轮次 ID，手动写入时可为空。 */
     sourceTurnId?: string | null;
-    /** attachmentRefsJson: 正式附件结构化引用 JSON 字符串。 */
-    attachmentRefsJson?: string;
     /** attachmentSources: 本轮用户消息已归档附件来源。 */
     attachmentSources?: AttachmentMemorySource[];
 }
@@ -563,7 +561,7 @@ export function writeAgentMemory(
 ): {
     relativePath: string;
 } {
-    const queueState = enterMemoryQueue(memoryQueues, input.agentId ?? "");
+    const queueState = enterMemoryQueue(memoryQueues, input.agentId);
     const now = new Date();
     const nowText = formatCenterLocalDateTime(now);
     const year = String(now.getFullYear());
@@ -572,10 +570,9 @@ export function writeAgentMemory(
     const relativePath = `memory/agents/${input.agentId}/${year}/${month}/${day}.md`;
     const filePath = join(centerDirectory, relativePath);
     const memoryTimeTitle = formatMemoryTimeTitle(now);
+    // attachmentSources: 调用方未传附件时按业务规则写入空数组；SQLite JSON 字段也只从这里生成。
     const attachmentSources = input.attachmentSources ?? [];
-    const attachmentRefsJson = attachmentSources.length > 0
-        ? JSON.stringify(attachmentSources)
-        : input.attachmentRefsJson ?? "[]";
+    const attachmentRefsJson = JSON.stringify(attachmentSources);
     mkdirSync(dirname(filePath), {
         recursive: true,
     });
@@ -622,14 +619,14 @@ export function writeAgentMemory(
     events.append({
         eventType: "memory.write",
         scopeType: "agent",
-        scopeId: input.agentId ?? null,
+        scopeId: input.agentId,
         sessionId: input.sourceSessionId ?? null,
         turnId: input.sourceTurnId ?? null,
         taskId: null,
         agentId: input.agentId,
         status: "completed",
         title: "记忆写入",
-        summary: input.summary ?? "",
+        summary: input.summary,
         payload: {
             relativePath,
             memoryIndexId,
@@ -649,24 +646,18 @@ export function writeAgentMemory(
  * renderAttachmentMemorySources：渲染长期记忆中的附件来源小节。
  *
  * @param attachmentSources 本轮正式附件来源列表。
- * @returns Markdown 列表；没有附件时写入固定无来源说明。
+ * @returns fenced JSON；没有附件时仍写入空数组，避免 Markdown 被附件名或路径破坏。
  */
 function renderAttachmentMemorySources(attachmentSources: AttachmentMemorySource[]): string {
-    if (attachmentSources.length === 0) {
-        return "无";
-    }
-
-    return attachmentSources.map((source) => {
-        return [
-            `- 附件名：${source.fileName}`,
-            `  - ID：${source.attachmentId}`,
-            `  - 类型：${source.mimeType}`,
-            `  - 路径：${source.archivePath}`,
-            `  - 来源会话：${source.sessionId}`,
-            `  - 来源轮次：${source.turnId}`,
-            `  - 来源消息：${source.messageId}`,
-        ].join("\n");
-    }).join("\n");
+    return [
+        "```json",
+        JSON.stringify(
+            attachmentSources,
+            null,
+            2,
+        ),
+        "```",
+    ].join("\n");
 }
 
 /**

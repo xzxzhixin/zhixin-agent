@@ -64,10 +64,47 @@ function main(): void {
         /attachmentSources\?:\s*AttachmentMemorySource\[\]/u,
         "MemoryWriteInput 必须包含 attachmentSources 字段。",
     );
+    assert(
+        !/attachmentRefsJson\?:/u.test(agentDomain),
+        "MemoryWriteInput 不允许继续暴露 attachmentRefsJson 输入字段，附件引用必须由 attachmentSources 单一路径生成。",
+    );
+    assertContains(
+        agentDomain,
+        /const\s+attachmentRefsJson\s*=\s*JSON\.stringify\(\s*attachmentSources\s*\)/u,
+        "attachmentRefsJson 必须只由 attachmentSources 序列化生成。",
+    );
+    assert(
+        !/input\.attachmentRefsJson/u.test(agentDomain),
+        "writeAgentMemory 不允许使用旧 input.attachmentRefsJson 兜底。",
+    );
     assertContains(
         agentDomain,
         /## 附件来源/u,
         "writeAgentMemory 写入 Markdown 时必须包含附件来源小节。",
+    );
+    assertContains(
+        agentDomain,
+        /"```json"/u,
+        "附件来源小节必须使用 fenced JSON，避免附件名或路径破坏 Markdown。",
+    );
+    assertContains(
+        agentDomain,
+        /return\s+\[\s*"```json"[\s\S]*JSON\.stringify\(\s*attachmentSources/u,
+        "renderAttachmentMemorySources 必须输出 attachmentSources 对应的 JSON 数组。",
+    );
+    assertContains(
+        agentDomain,
+        /enterMemoryQueue\(memoryQueues,\s*input\.agentId\)/u,
+        "writeAgentMemory 入队必须直接使用必填 agentId，不能用空字符串兜底。",
+    );
+    assert(
+        !/(请只回复|实时刷新验证|回归验证|数据库恢复|完成事件复测|桌面壳实时刷新验证|不知道你的真实身份|不知道你的姓名|无法确认你的真实身份|无法确认你的姓名|我叫 ChatGPT|我是 ChatGPT)/u.test(sessionTurnEffects),
+        "session-turn-effects 不允许按固定用户提示词、验收词或身份词过滤长期记忆。",
+    );
+    assertContains(
+        sessionTurnEffects,
+        /function\s+looksLikeGenericFailureReply/u,
+        "session-turn-effects 必须使用通用失败回复过滤替代固定身份词过滤。",
     );
     assertContains(
         sessionTurnEffects,

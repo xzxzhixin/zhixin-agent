@@ -595,6 +595,8 @@ export function runTurnEngine(
         summary: "轮次执行编排完成",
         userText,
         assistantText: "执行引擎已完成最小编排闭环。",
+        sourceSessionId: sessionId,
+        sourceTurnId: sent.turnId,
     });
     // usageId: usage-collector 写入一条模型用量原始记录。
     const usage = recordUsage(database, events, {

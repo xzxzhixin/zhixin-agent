@@ -185,57 +185,77 @@ function shouldPersistMainAgentMemory(
     if (isLowSignalAssistantReply(normalizedAssistantText)) {
         return false;
     }
-    if (looksLikeIncorrectIdentityAnswer(normalizedAssistantText)) {
+    if (looksLikeGenericFailureReply(normalizedAssistantText)) {
         return false;
     }
     return true;
 }
 
 /**
- * isLowSignalAssistantReply：判断回复是否只是验收口水、确认词或无长期价值内容。
+ * isLowSignalAssistantReply：判断回复是否缺少可复用长期记忆价值。
  *
  * @param assistantText 助手回复。
- * @returns 缺少长期记忆价值时返回 true。
+ * @returns 回复过短、重复或明显占位时返回 true。
  */
 function isLowSignalAssistantReply(assistantText: string): boolean {
-    if (assistantText.length <= 2) {
+    if (assistantText.length < 4) {
         return true;
     }
-    const lowSignalPatterns = [
-        "请只回复",
-        "收到。",
-        "收到",
-        "实时刷新验证",
-        "回归验证",
-        "数据库恢复",
-        "完成事件复测",
-        "桌面壳实时刷新验证",
-        "运行在",
-        "环境中的 AI 助手",
-        "当前模型是",
+
+    const compactText = assistantText.replace(/\s+/gu, "");
+    const uniqueCharacters = new Set(Array.from(compactText));
+    if (compactText.length >= 4 && uniqueCharacters.size <= 2) {
+        return true;
+    }
+
+    if (/^[\p{P}\p{S}\s]+$/u.test(assistantText)) {
+        return true;
+    }
+
+    // placeholderPatterns: 仅识别通用模板占位符，不匹配具体用户提示词或业务身份词。
+    const placeholderPatterns = [
+        /TODO/iu,
+        /TBD/iu,
+        /N\/A/iu,
+        /FIXME/iu,
+        /placeholder/iu,
+        /<[^>\s]+>/u,
     ];
-    return lowSignalPatterns.some((pattern) => {
-        return assistantText.includes(pattern);
-    });
+    if (placeholderPatterns.some((pattern) => {
+        return pattern.test(assistantText);
+    })) {
+        return true;
+    }
+    return assistantText.includes("{{") && assistantText.includes("}}");
 }
 
 /**
- * looksLikeIncorrectIdentityAnswer：识别不应写入长期记忆的错误身份答复。
+ * looksLikeGenericFailureReply：识别不应写入长期记忆的泛化失败回复。
  *
  * @param assistantText 助手回复。
- * @returns 属于错误身份答复时返回 true。
+ * @returns 失败表达缺少具体可复用事实时返回 true。
  */
-function looksLikeIncorrectIdentityAnswer(assistantText: string): boolean {
-    const incorrectIdentityPatterns = [
-        "不知道你的真实身份",
-        "不知道你的姓名",
-        "无法确认你的真实身份",
-        "无法确认你的姓名",
-        "我叫 ChatGPT",
-        "我是 ChatGPT",
+function looksLikeGenericFailureReply(assistantText: string): boolean {
+    const normalized = assistantText.toLowerCase();
+    const failureMarkers = [
+        "error",
+        "failed",
+        "failure",
+        "exception",
+        "无法",
+        "不能",
+        "失败",
+        "错误",
+        "异常",
     ];
-    return incorrectIdentityPatterns.some((pattern) => {
-        return assistantText.includes(pattern);
+    const hasFailureMarker = failureMarkers.some((marker) => {
+        return normalized.includes(marker);
     });
+    if (!hasFailureMarker) {
+        return false;
+    }
+
+    const alphaNumericCount = Array.from(assistantText.matchAll(/[\p{L}\p{N}]/gu)).length;
+    return assistantText.length < 80 || alphaNumericCount < 12;
 }
 

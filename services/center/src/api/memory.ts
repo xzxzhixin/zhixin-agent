@@ -2,6 +2,7 @@ import {createErrorResponse, createSuccessResponse} from "../helpers.js";
 import {
     readMemoryQueueState,
     writeAgentMemory,
+    type MemoryWriteInput,
 } from "../domain/agent-domain.js";
 import type {CenterApiRouteContext} from "./route-context.js";
 
@@ -36,8 +37,17 @@ export function registerMemoryRoutes(context: CenterApiRouteContext): void {
                     "记忆写入信息不完整。",
                 );
             }
-    
-            return createSuccessResponse(writeAgentMemory(database, events, config.centerDirectory, memoryQueues, body));
+
+            // memoryInput: 兼容路由已经校验 SQLite 必填字段，这里显式收敛为核心写入类型。
+            const memoryInput: MemoryWriteInput = {
+                agentId: body.agentId,
+                keywords: body.keywords,
+                summary: body.summary,
+                userText: body.userText,
+                assistantText: body.assistantText,
+            };
+
+            return createSuccessResponse(writeAgentMemory(database, events, config.centerDirectory, memoryQueues, memoryInput));
         });
 
     app.post("/api/memory/queue-state", async (request) => {
