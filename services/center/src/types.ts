@@ -341,6 +341,9 @@ export const CENTER_DIRECTORY_LAYOUT: readonly CenterDirectoryLayoutItem[] = [
         relativePath: "memory/agents",
     },
     {
+        relativePath: "memory/attachments",
+    },
+    {
         relativePath: "agents",
     },
     {

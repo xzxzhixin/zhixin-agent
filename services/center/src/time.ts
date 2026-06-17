@@ -13,3 +13,25 @@ export function formatCenterLocalDateTime(value: Date = new Date()): string {
     // 本项目所有展示和业务记录时间都以中心服务所在电脑本机时间为准，不能用 UTC ISO 字符串。
     return moment(value).format(CENTER_LOCAL_TIME_FORMAT);
 }
+
+/**
+ * formatLocalDateParts：返回中心服务本机日期目录片段。
+ *
+ * @param value 要格式化的 Date 对象；默认使用当前中心服务进程本机时间。
+ * @returns 年月日目录片段。
+ */
+export function formatLocalDateParts(value: Date = new Date()): {
+    /** year: 四位年份。 */
+    year: string;
+    /** month: 两位月份。 */
+    month: string;
+    /** day: 两位日期。 */
+    day: string;
+} {
+    const localMoment = moment(value);
+    return {
+        year: localMoment.format("YYYY"),
+        month: localMoment.format("MM"),
+        day: localMoment.format("DD"),
+    };
+}

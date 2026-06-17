@@ -234,6 +234,8 @@ export function registerSessionRoutes(context: CenterApiRouteContext): void {
                 sessionId?: string;
                 messageId?: string;
                 temporaryAttachmentId?: string;
+                temporaryRelativePath?: string;
+                storageFileName?: string;
                 fileName?: string;
                 mimeType?: string;
                 sizeBytes?: number;

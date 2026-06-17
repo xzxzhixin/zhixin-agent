@@ -8,6 +8,7 @@ import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
 import {writeJsonFile} from "../helpers.js";
+import {AttachmentArchiveService} from "./AttachmentArchiveService.js";
 
 export interface UsageQueryFilters {
     /**
@@ -166,7 +167,7 @@ export function saveNotificationConfig(
 }
 
 /**
- * createTemporaryAttachment：创建临时附件占位文件。
+ * createTemporaryAttachment：创建临时附件事实占位文件。
  *
  * @param centerDirectory 中心目录。
  * @param fileName 原始文件名。
@@ -185,16 +186,20 @@ export function createTemporaryAttachment(
     relativePath: string;
 } {
     const temporaryAttachmentId = randomUUID();
-    const storageFileName = `${temporaryAttachmentId}.tmp`;
-    const relativePath = `temp/${storageFileName}`;
+    const storageFileName = "attachment-placeholder.json";
+    const relativePath = `temp/${temporaryAttachmentId}/${storageFileName}`;
     const filePath = join(centerDirectory, relativePath);
     mkdirSync(dirname(filePath), {
         recursive: true,
     });
+    // 当前还没有浏览器二进制上传通道，这里只保存临时附件事实占位，
+    // 用于草稿附件转正链路测试；不得把它解释为已经保存了用户原始二进制内容。
     appendFileSync(filePath, JSON.stringify({
+        temporaryAttachmentId,
         fileName,
         mimeType,
         sizeBytes,
+        contentKind: "temporary-attachment-fact-placeholder",
     }), "utf-8");
     return {
         temporaryAttachmentId,
@@ -204,13 +209,13 @@ export function createTemporaryAttachment(
 }
 
 /**
- * commitAttachment：把临时附件转为正式会话附件记录。
+ * commitAttachment：把临时附件移动为正式归档附件并写入会话引用记录。
  *
  * @param database 中心服务数据库。
  * @param events 事件追加器。
  * @param centerDirectory 中心目录。
  * @param input 正式附件参数。
- * @returns 正式附件 ID。
+ * @returns 正式附件 ID 和归档路径。
  */
 export function commitAttachment(
     database: CenterDatabase,
@@ -220,6 +225,8 @@ export function commitAttachment(
         sessionId?: string;
         messageId?: string;
         temporaryAttachmentId?: string;
+        temporaryRelativePath?: string;
+        storageFileName?: string;
         fileName?: string;
         mimeType?: string;
         sizeBytes?: number;
@@ -227,18 +234,16 @@ export function commitAttachment(
 ): {
     attachmentId: string;
     relativePath: string;
+    archivePath: string;
 } {
     const attachmentId = randomUUID();
-    const storageFileName = `${attachmentId}.attachment`;
-    const relativePath = `sessions/attachments/${storageFileName}`;
-    const filePath = join(centerDirectory, relativePath);
-    mkdirSync(dirname(filePath), {
-        recursive: true,
-    });
-    appendFileSync(filePath, JSON.stringify({
-        temporaryAttachmentId: input.temporaryAttachmentId,
-        fileName: input.fileName,
-    }), "utf-8");
+    const archiveService = new AttachmentArchiveService(centerDirectory);
+    const temporaryRelativePath = resolveTemporaryAttachmentPath(input);
+    const archived = archiveService.moveTemporaryToArchive(
+        temporaryRelativePath,
+        attachmentId,
+        input.fileName ?? attachmentId,
+    );
     createDataAccess(database).usage.insertAttachment({
         attachmentId,
         sessionId: input.sessionId,
@@ -246,7 +251,7 @@ export function commitAttachment(
         fileName: input.fileName,
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
-        relativePath,
+        relativePath: archived.archivePath,
     });
     events.append({
         eventType: "attachment.committed",
@@ -261,11 +266,36 @@ export function commitAttachment(
         payload: {
             attachmentId,
             temporaryAttachmentId: input.temporaryAttachmentId,
+            archivePath: archived.archivePath,
         },
     });
 
     return {
         attachmentId,
-        relativePath,
+        relativePath: archived.archivePath,
+        archivePath: archived.archivePath,
     };
+}
+
+/**
+ * resolveTemporaryAttachmentPath：解析临时附件相对路径。
+ *
+ * @param input 附件提交参数。
+ * @returns 临时附件相对中心目录路径。
+ */
+function resolveTemporaryAttachmentPath(input: {
+    /** temporaryAttachmentId: 临时附件 ID。 */
+    temporaryAttachmentId?: string;
+    /** temporaryRelativePath: 临时附件相对中心目录路径。 */
+    temporaryRelativePath?: string;
+    /** storageFileName: 临时附件目录内的存储文件名。 */
+    storageFileName?: string;
+}): string {
+    if (input.temporaryRelativePath && input.temporaryRelativePath.trim().length > 0) {
+        return input.temporaryRelativePath;
+    }
+    if (!input.temporaryAttachmentId || !input.storageFileName) {
+        throw new Error("TEMP_ATTACHMENT_PATH_REQUIRED");
+    }
+    return `temp/${input.temporaryAttachmentId}/${input.storageFileName}`;
 }

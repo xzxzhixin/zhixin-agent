@@ -6,7 +6,7 @@
  * 参数：无。
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
@@ -47,6 +47,7 @@ async function main(): Promise<void> {
     /attachment\.commit/u,
     /requireRealtimeRequest/u,
     /addClipboardImageAttachment/u,
+    /temporaryRelativePath/u,
   ], "前端输入框附件动作层");
   assertFileContains("services/center/src/api/sync-route.ts", [
     /attachment\.temporary\.create/u,
@@ -124,9 +125,19 @@ async function main(): Promise<void> {
         mimeType: "image/png",
         sizeBytes: 10,
       },
-    })).json<ApiResponse<{ temporaryAttachmentId: string; relativePath: string }>>();
+    })).json<ApiResponse<{
+      temporaryAttachmentId: string;
+      storageFileName: string;
+      relativePath: string;
+    }>>();
     assert(temporary.success, "临时附件创建失败");
-    await stat(join(centerDirectory, temporary.data?.relativePath ?? ""));
+    const temporaryAttachmentId = temporary.data?.temporaryAttachmentId ?? "";
+    const temporaryRelativePath = temporary.data?.relativePath ?? "";
+    assert(
+      temporaryRelativePath.includes(`temp/${temporaryAttachmentId}/`),
+      "临时附件必须保存在 temp/{temporaryAttachmentId}/ 草稿目录",
+    );
+    await stat(join(centerDirectory, temporaryRelativePath));
 
     const committed = (await service.app.inject({
       method: "POST",
@@ -134,24 +145,38 @@ async function main(): Promise<void> {
       payload: {
         sessionId: session.data?.sessionId,
         messageId: message.data?.messageId,
-        temporaryAttachmentId: temporary.data?.temporaryAttachmentId,
+        temporaryAttachmentId,
+        temporaryRelativePath,
+        storageFileName: temporary.data?.storageFileName,
         fileName: "check.png",
         mimeType: "image/png",
         sizeBytes: 10,
       },
-    })).json<ApiResponse<{ attachmentId: string; relativePath: string }>>();
+    })).json<ApiResponse<{
+      attachmentId: string;
+      relativePath: string;
+      archivePath: string;
+    }>>();
     assert(committed.success, "正式附件保存失败");
-    await stat(join(centerDirectory, committed.data?.relativePath ?? ""));
+    assert(committed.data?.archivePath !== undefined, "正式附件必须返回 archivePath");
+    assert(
+      committed.data.archivePath.includes("memory/attachments"),
+      "正式附件必须归档到 memory/attachments",
+    );
+    assert(
+      committed.data.relativePath === committed.data.archivePath,
+      "兼容字段 relativePath 必须等于 archivePath",
+    );
+    await stat(join(centerDirectory, committed.data.archivePath));
   } finally {
     await service?.close().catch(() => {});
-    await rm(tempRoot, {
-      force: true,
-      recursive: true,
-    });
   }
+  console.log("check-composer-attachments: ok");
 }
 
-void main().catch((error) => {
+void main().then(() => {
+  process.exit(0);
+}).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

@@ -290,7 +290,12 @@ export interface TemporaryAttachmentResult {
   temporaryAttachmentId: string;
 
   /**
-   * relativePath: 临时附件相对中心目录路径。
+   * storageFileName: 临时草稿目录内的存储文件名，用于旧调用推导临时路径。
+   */
+  storageFileName: string;
+
+  /**
+   * relativePath: 临时附件相对中心目录路径，位于 temp/{temporaryAttachmentId}/。
    */
   relativePath: string;
 }
@@ -299,10 +304,10 @@ export interface TemporaryAttachmentResult {
  * CommittedAttachmentResult：正式附件提交结果。
  *
  * 来源：`POST /api/session/attachment/commit`。
- * 含义：中心服务把临时附件转为正式会话附件后的元数据。
+ * 含义：中心服务把临时附件移动为正式归档附件后的元数据。
  * 格式：JSON 对象。
  * 默认值：无。
- * 约束：只能绑定到已经成功创建的会话消息。
+ * 约束：archivePath 位于 memory/attachments，relativePath 是兼容字段且等同于 archivePath。
  */
 export interface CommittedAttachmentResult {
   /**
@@ -311,9 +316,14 @@ export interface CommittedAttachmentResult {
   attachmentId: string;
 
   /**
-   * relativePath: 正式附件相对中心目录路径。
+   * relativePath: 兼容字段，等同于 archivePath。
    */
   relativePath: string;
+
+  /**
+   * archivePath: 归档附件相对中心目录路径，位于 memory/attachments。
+   */
+  archivePath: string;
 }
 
 /**
@@ -954,6 +964,8 @@ export class CenterApiClient {
     sessionId: string;
     messageId: string;
     temporaryAttachmentId: string;
+    temporaryRelativePath: string;
+    storageFileName?: string;
     fileName: string;
     mimeType: string;
     sizeBytes: number;

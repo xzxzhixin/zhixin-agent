@@ -1126,6 +1126,7 @@ export function createConversationActions() {
             });
             this.draft.attachments.push({
                 temporaryAttachmentId: temporary.temporaryAttachmentId,
+                temporaryRelativePath: temporary.relativePath,
                 fileName,
                 mimeType: file.type,
                 sizeBytes: file.size,
@@ -1149,12 +1150,15 @@ export function createConversationActions() {
                 await this.requireRealtimeRequest<{
                     /** attachmentId: 正式附件 ID。 */
                     attachmentId: string;
-                    /** relativePath: 正式附件相对中心目录路径。 */
+                    /** relativePath: 兼容字段，等同于 archivePath。 */
                     relativePath: string;
+                    /** archivePath: 正式归档附件相对中心目录路径。 */
+                    archivePath: string;
                 }>("attachment.commit", {
                     sessionId,
                     messageId,
                     temporaryAttachmentId: attachment.temporaryAttachmentId,
+                    temporaryRelativePath: attachment.temporaryRelativePath,
                     fileName: attachment.fileName,
                     mimeType: attachment.mimeType,
                     sizeBytes: attachment.sizeBytes,

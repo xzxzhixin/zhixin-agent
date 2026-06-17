@@ -16,6 +16,11 @@ export interface ComposerAttachmentDraft {
   temporaryAttachmentId: string;
 
   /**
+   * temporaryRelativePath: 临时附件相对中心目录路径，发送后用于移动到正式归档目录。
+   */
+  temporaryRelativePath: string;
+
+  /**
    * fileName: 展示给用户的文件名。
    */
   fileName: string;
