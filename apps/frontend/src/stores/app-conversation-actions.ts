@@ -47,18 +47,20 @@ interface TaskUpdatedPayload {
 }
 
 /**
- * isTerminalExecutionStatus：判断轮次或任务是否进入终态。
+ * isTerminalExecutionStatus：判断轮次或任务是否需要收敛执行态。
  *
  * 关键逻辑：前端需要把 completed、failed、cancelled 都视为当前轮次已结束，
- * 否则失败或取消后不会刷新快照，UI 会残留本地 running 状态。
+ * waiting_user 虽然后端不写 endedAt，但也表示工具执行已停下并等待用户补充，
+ * 输入区必须清理“当前轮次已耗时”和“停止”按钮。
  *
  * @param status 中心服务明确返回的状态字段。
- * @returns 命中终态时返回 true。
+ * @returns 命中执行态收敛状态时返回 true。
  */
 function isTerminalExecutionStatus(status: string | undefined): boolean {
     return status === "completed"
         || status === "failed"
-        || status === "cancelled";
+        || status === "cancelled"
+        || status === "waiting_user";
 }
 
 /**
@@ -119,13 +121,13 @@ function isTaskUpdateForActiveSession(
 }
 
 /**
- * isRecoverableTurnRunning：判断轮次是否需要通过快照兜底恢复终态。
+ * isRecoverableTurnRunning：判断轮次是否需要通过快照兜底恢复执行态。
  *
  * 关键逻辑：多端页面不是发送端，可能只收到起始 `session.updated`，后续完成事件如果漏收就会停在执行中；
- * 只对中心服务明确仍未结束的运行态轮次启动短轮询，避免空闲会话产生无意义请求。
+ * 只对中心服务明确仍在排队或执行的轮次启动短轮询，waiting_user 由引导入口承接。
  *
  * @param turn 会话详情中的轮次记录。
- * @returns 轮次仍处于运行、排队或等待用户时返回 true。
+ * @returns 轮次仍处于运行或排队时返回 true。
  */
 function isRecoverableTurnRunning(turn: {
     /** endedAt：中心服务轮次结束时间；null 表示尚未结束。 */
@@ -146,7 +148,6 @@ function isRecoverableTurnRunning(turn: {
     if (
         turn.status !== "queued"
         && turn.status !== "running"
-        && turn.status !== "waiting_user"
     ) {
         return false;
     }
@@ -766,6 +767,20 @@ export function createConversationActions() {
                 },
                 requestTurnState: async (sessionId) => {
                     return this.requestActiveTurnState(sessionId);
+                },
+                getLocalLastSequence: () => {
+                    return this.events.reduce(
+                        (
+                            maxSequence,
+                            event,
+                        ) => {
+                            return Math.max(
+                                maxSequence,
+                                event.sequence,
+                            );
+                        },
+                        0,
+                    );
                 },
                 loadActiveSessionSnapshot: async () => {
                     await this.loadActiveSessionSnapshot();

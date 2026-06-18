@@ -41,11 +41,8 @@ export class DeepAgentTurnSupervisor {
     /** completionGate: 候选终态判断网关。 */
     private readonly completionGate = new AgentCompletionGate();
 
-    /** protocolRetryCount: 普通文本伪工具形态已重试次数。 */
-    private protocolRetryCount = 0;
-
-    /** noProgressRetryCount: 过程文本无进展已续跑次数。 */
-    private noProgressRetryCount = 0;
+    /** continuationRetryCount: 协议形态错误或空最终文本已续跑次数。 */
+    private continuationRetryCount = 0;
 
     /** toolFailureRetryCount: 工具失败替代路径已重试次数。 */
     private toolFailureRetryCount = 0;
@@ -117,8 +114,7 @@ export class DeepAgentTurnSupervisor {
     private attachBudgetCounters(candidate: AgentRunCandidate): AgentRunCandidate {
         return {
             ...candidate,
-            protocolRetryCount: this.protocolRetryCount,
-            noProgressRetryCount: this.noProgressRetryCount,
+            continuationRetryCount: this.continuationRetryCount,
             toolFailureRetryCount: this.toolFailureRetryCount,
         };
     }
@@ -130,15 +126,11 @@ export class DeepAgentTurnSupervisor {
      * @returns 没有返回值。
      */
     private increaseBudgetCounter(decision: AgentCompletionDecision): void {
-        if (decision.reason === "TEXT_TOOL_SHAPE") {
-            this.protocolRetryCount += 1;
-            return;
-        }
         if (decision.reason === "TOOL_FAILURE_RETRY") {
             this.toolFailureRetryCount += 1;
             return;
         }
-        this.noProgressRetryCount += 1;
+        this.continuationRetryCount += 1;
     }
 
     /**
@@ -165,8 +157,7 @@ export class DeepAgentTurnSupervisor {
             payload: {
                 attemptIndex: candidate.attemptIndex,
                 decision,
-                protocolRetryCount: this.protocolRetryCount,
-                noProgressRetryCount: this.noProgressRetryCount,
+                continuationRetryCount: this.continuationRetryCount,
                 toolFailureRetryCount: this.toolFailureRetryCount,
             },
         });
@@ -217,6 +208,6 @@ export class DeepAgentTurnSupervisor {
      * @returns 续跑提示。
      */
     private createDefaultContinuationPrompt(): string {
-        return "上一轮没有形成任务终态。请继续完成用户目标；需要工具时必须使用结构化 tool_calls；如果已有信息足够回答用户目标，请停止继续浏览或重复调用工具，直接给出最终答案。";
+        return "上一轮没有形成可固化结果。需要继续使用工具时，可以先输出一句简短过程说明，但必须同时返回结构化 tool_calls；禁止在普通文本、Markdown、JSON 文本或 text content block 中写 id、name、args 代替 tool_calls。如果已有信息足够回答用户目标，请停止继续调用工具，直接给出完整最终答案。";
     }
 }

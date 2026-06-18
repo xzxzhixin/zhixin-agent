@@ -231,7 +231,7 @@ export function useChatConversation(appStore: {
  *
  * @param turns 当前会话轮次列表。
  * @param tasks 当前会话任务列表。
- * @returns 当前运行轮次任务；没有运行轮次时返回最新一轮任务。
+ * @returns 当前执行轮次任务；没有执行轮次时返回最新一轮任务。
  */
 function resolveCurrentTurnTaskScope(
     turns: ConversationTurn[],
@@ -245,7 +245,6 @@ function resolveCurrentTurnTaskScope(
         if (
             turn.status !== "queued"
             && turn.status !== "running"
-            && turn.status !== "waiting_user"
         ) {
             return false;
         }
@@ -259,7 +258,7 @@ function resolveCurrentTurnTaskScope(
         }
         return turnStartedAtMs >= processStartedAtMs;
     });
-    // latestTurn: 没有运行轮次时只展示最新一轮的编排结果，避免把历史对话次数累计成任务数量。
+    // latestTurn: 没有执行轮次时只展示最新一轮的编排结果，避免把历史对话次数累计成任务数量。
     const latestTurn = latestActiveTurn ?? [...turns].reverse()[0] ?? null;
     const currentTurnId = latestTurn?.turnId ?? null;
     if (!currentTurnId) {

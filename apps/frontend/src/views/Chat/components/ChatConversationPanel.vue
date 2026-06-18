@@ -268,7 +268,7 @@ const editProgressText = computed(() => {
     ? ""
     : ` +${totals.added} -${totals.removed}`;
 });
-// activeRunningTurn: 主对话当前运行轮次。
+// activeRunningTurn: 主对话当前仍在执行的轮次。
 const activeRunningTurn = computed(() => {
   if (isAgentConversation.value) {
     return null;
@@ -280,7 +280,6 @@ const activeRunningTurn = computed(() => {
     if (
       turn.status !== "queued"
       && turn.status !== "running"
-      && turn.status !== "waiting_user"
     ) {
       return false;
     }
@@ -308,7 +307,7 @@ const activeTurnElapsedText = computed(() => {
     ? "本轮处理中"
     : formatDurationMs(Math.max(0, nowTick.value - startedAt));
 });
-// composerPrimaryButtonText: 输入区主按钮只展示发送或停止。
+// composerPrimaryButtonText: 输入区主按钮只在真实执行态展示停止；等待用户时仍允许发送引导。
 const composerPrimaryButtonText = computed(() => {
   return activeRunningTurn.value
     ? "停止"

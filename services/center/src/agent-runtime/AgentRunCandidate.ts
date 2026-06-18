@@ -23,10 +23,8 @@ export interface AgentCompletionDecision {
 export interface AgentSupervisorBudget {
     /** maxSupervisorAttempts: 同一轮次允许启动 Deep Agents 的最大次数。 */
     maxSupervisorAttempts: number;
-    /** protocolRetryBudget: 普通文本伪工具形态的最大重试次数。 */
-    protocolRetryBudget: number;
-    /** noProgressRetryBudget: 连续过程文本但无结构化工具调用的最大续跑次数。 */
-    noProgressRetryBudget: number;
+    /** continuationRetryBudget: 协议形态错误或空最终文本时允许续跑的最大次数。 */
+    continuationRetryBudget: number;
     /** toolFailureRetryBudget: 工具失败后仍允许模型换路径尝试的最大次数。 */
     toolFailureRetryBudget: number;
 }
@@ -57,10 +55,8 @@ export interface AgentRunCandidate {
     cancelled: boolean;
     /** budget: 监督循环预算快照。 */
     budget: AgentSupervisorBudget;
-    /** protocolRetryCount: 已发生普通文本伪工具形态重试次数。 */
-    protocolRetryCount: number;
-    /** noProgressRetryCount: 已发生过程文本无进展续跑次数。 */
-    noProgressRetryCount: number;
+    /** continuationRetryCount: 已发生协议形态错误或空最终文本续跑次数。 */
+    continuationRetryCount: number;
     /** toolFailureRetryCount: 已发生工具失败替代路径重试次数。 */
     toolFailureRetryCount: number;
 }

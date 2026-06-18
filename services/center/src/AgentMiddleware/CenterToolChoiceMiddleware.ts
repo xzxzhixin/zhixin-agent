@@ -52,6 +52,8 @@ export interface ModelMessageDiagnostics {
         /** hasArguments：原始工具调用是否带有参数字符串。 */
         hasArguments: boolean;
     }>;
+    /** hasMalformedTextToolCallBlock：text 内容块夹带工具字段但没有结构化 tool_calls，属于供应商工具协议形态错误。 */
+    hasMalformedTextToolCallBlock: boolean;
 }
 
 /**
@@ -203,7 +205,47 @@ function buildModelMessageDiagnostics(message: AIMessage): ModelMessageDiagnosti
             };
         }) ?? [],
         rawToolCalls: readRawToolCallDiagnostics(message.additional_kwargs),
+        hasMalformedTextToolCallBlock: hasMalformedTextToolCallBlock(message),
     };
+}
+
+/**
+ * hasMalformedTextToolCallBlock：识别 text 内容块夹带工具字段的协议错误。
+ *
+ * @param message LangChain AIMessage。
+ * @returns 没有结构化 tool_calls 且 text block 含 id/name/args 工具字段时返回 true。
+ */
+function hasMalformedTextToolCallBlock(message: AIMessage): boolean {
+    if (message.tool_calls && message.tool_calls.length > 0) {
+        return false;
+    }
+    if (!Array.isArray(message.content)) {
+        return false;
+    }
+    return message.content.some((contentBlock) => {
+        if (typeof contentBlock !== "object" || contentBlock === null) {
+            return false;
+        }
+        const block = contentBlock as {
+            /** type：供应商 content block 类型。 */
+            type?: unknown;
+            /** id：错误夹带的工具调用 ID。 */
+            id?: unknown;
+            /** name：错误夹带的工具名。 */
+            name?: unknown;
+            /** args：错误夹带的工具参数。 */
+            args?: unknown;
+            /** arguments：错误夹带的工具参数。 */
+            arguments?: unknown;
+        };
+        if (block.type !== "text") {
+            return false;
+        }
+        const hasToolName = typeof block.name === "string" && block.name.length > 0;
+        const hasToolArguments = block.args !== undefined || block.arguments !== undefined;
+        const hasToolCallId = typeof block.id === "string" && block.id.length > 0;
+        return hasToolName && hasToolArguments && hasToolCallId;
+    });
 }
 
 /**

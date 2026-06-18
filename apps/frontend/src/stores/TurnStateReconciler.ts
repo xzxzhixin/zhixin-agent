@@ -58,6 +58,8 @@ export interface TurnStateReconcilerOptions {
     getActiveSessionId: () => string | null;
     /** requestTurnState: 请求中心服务轻量轮次状态。 */
     requestTurnState: (sessionId: string) => Promise<TurnStateSnapshot>;
+    /** getLocalLastSequence: 读取当前会话本地已经合并的最大事件序号。 */
+    getLocalLastSequence: () => number;
     /** loadActiveSessionSnapshot: 终态或缺口确认时刷新完整会话快照。 */
     loadActiveSessionSnapshot: () => Promise<void>;
     /** updateRecoveryState: 同步旧恢复状态字段，供现有 UI 和诊断读取。 */
@@ -326,6 +328,25 @@ export class TurnStateReconciler {
                 this.stop();
                 return;
             }
+            if (this.hasEventSequenceGap(state)) {
+                await this.options.loadActiveSessionSnapshot();
+                this.options.logInfo("[frontend:turn-state-reconciler] sequence gap reconciled", {
+                    sessionId,
+                    turnId,
+                    attempts: this.attempts,
+                    localLastSequence: this.options.getLocalLastSequence(),
+                    serverLastSequence: state.lastSequence,
+                });
+                this.applyActivity(
+                    state.lastActivityAt,
+                    state.lastSequence,
+                );
+                this.fastMode = false;
+                this.idleAttempts = 0;
+                this.syncRecoveryState();
+                this.schedule(CONFIRMED_RUNNING_INTERVAL_MS);
+                return;
+            }
             this.updateProgressMode(state);
         } catch (error) {
             this.options.logWarn("[frontend:turn-state-reconciler] state request failed", {
@@ -409,14 +430,26 @@ export class TurnStateReconciler {
      * isTerminalState：判断轻量状态是否已经进入终态。
      *
      * @param state 中心服务轻量轮次状态。
-     * @returns 轮次已完成、失败、取消或转为空闲时返回 true。
+     * @returns 轮次已完成、失败、取消、等待用户或转为空闲时返回 true。
      */
     private isTerminalState(state: TurnStateSnapshot): boolean {
         return state.status === "completed"
             || state.status === "failed"
             || state.status === "cancelled"
+            || state.status === "waiting_user"
             || state.status === "idle"
             || state.endedAt !== null;
+    }
+
+    /**
+     * hasEventSequenceGap：判断本地事件流是否落后于中心服务轻量状态。
+     *
+     * @param state 中心服务轻量轮次状态。
+     * @returns 中心服务最后事件序号大于本地已合并序号时返回 true。
+     */
+    private hasEventSequenceGap(state: TurnStateSnapshot): boolean {
+        const localLastSequence = this.options.getLocalLastSequence();
+        return state.lastSequence > localLastSequence;
     }
 
     /**

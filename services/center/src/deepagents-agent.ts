@@ -139,8 +139,7 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
 function createDefaultSupervisorBudget(): AgentSupervisorBudget {
     return {
         maxSupervisorAttempts: 4,
-        protocolRetryBudget: 2,
-        noProgressRetryBudget: 2,
+        continuationRetryBudget: 2,
         toolFailureRetryBudget: 1,
     };
 }
@@ -422,7 +421,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
         model: createLangChainChatModel(context.runtime),
         tools,
         systemPrompt: [
-            "你是通用型智能助手，长任务要拆解成小任务执行。",
+            "长任务要拆解成小任务执行。",
             mainAgentMemoryPrompt,
         ].filter((promptPart) => {
             return typeof promptPart === "string" && promptPart.length > 0;
@@ -681,10 +680,10 @@ async function resolveToolCallValueWhenActive<T>(
 }
 
 /**
- * resolveFinalAssistantText：从 Deep Agents 输出状态中提取最终助手正文。
+ * resolveFinalAssistantText：按 LangChain ReAct 语义提取最终 AIMessage 正文。
  *
  * @param output Deep Agents 最终输出。
- * @param fallbackText 流式累积正文。
+ * @param fallbackText 流式累积正文；仅在最终状态缺少消息时作为兼容文本。
  * @returns 最终助手文本。
  */
 function resolveFinalAssistantText(
@@ -745,7 +744,7 @@ function readDeepAgentMessageType(message: DeepAgentOutputMessage): string {
  * @param input 当前轮次运行输入。
  * @param context 当前工具执行上下文。
  * @param attemptIndex 监督循环尝试序号。
- * @param assistantText 候选助手文本。
+ * @param assistantText Deep Agents 最终 AIMessage 文本。
  * @param streamedAssistantText 流式累计文本。
  * @param modelResult 模型运行结果。
  * @returns 单次运行候选结果。
@@ -780,8 +779,7 @@ function buildAgentRunCandidate(
         ),
         cancelled: Boolean(input.runtimeSignal?.aborted),
         budget: createDefaultSupervisorBudget(),
-        protocolRetryCount: 0,
-        noProgressRetryCount: 0,
+        continuationRetryCount: 0,
         toolFailureRetryCount: 0,
     };
 }
