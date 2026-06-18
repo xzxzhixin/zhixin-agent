@@ -47,6 +47,12 @@ export class DeepAgentTurnSupervisor {
     /** toolFailureRetryCount: 工具失败替代路径已重试次数。 */
     private toolFailureRetryCount = 0;
 
+    /** supervisorAttemptCount: 当前预算窗口内已启动 Deep Agents 的次数。 */
+    private supervisorAttemptCount = 0;
+
+    /** lastBudgetReason: 最近一次消耗监督预算的原因，用于判断续跑是否已经脱离同类失败。 */
+    private lastBudgetReason: string | null = null;
+
     /**
      * constructor：保存监督循环依赖。
      *
@@ -62,11 +68,13 @@ export class DeepAgentTurnSupervisor {
     public async run(): Promise<void> {
         let internalPrompt: string | null = null;
         let lastCandidate: AgentRunCandidate | null = null;
-        for (let attemptIndex = 1; attemptIndex <= this.options.budget.maxSupervisorAttempts; attemptIndex += 1) {
+        while (this.supervisorAttemptCount < this.options.budget.maxSupervisorAttempts) {
+            this.supervisorAttemptCount += 1;
             const candidate = await this.options.runCandidate({
-                attemptIndex,
+                attemptIndex: this.supervisorAttemptCount,
                 internalPrompt,
             });
+            this.resetBudgetCountersAfterProgress(candidate);
             lastCandidate = this.attachBudgetCounters(candidate);
             const decision = this.completionGate.evaluate(lastCandidate);
             this.recordDecision(
@@ -114,6 +122,7 @@ export class DeepAgentTurnSupervisor {
     private attachBudgetCounters(candidate: AgentRunCandidate): AgentRunCandidate {
         return {
             ...candidate,
+            attemptIndex: this.supervisorAttemptCount,
             continuationRetryCount: this.continuationRetryCount,
             toolFailureRetryCount: this.toolFailureRetryCount,
         };
@@ -126,11 +135,59 @@ export class DeepAgentTurnSupervisor {
      * @returns 没有返回值。
      */
     private increaseBudgetCounter(decision: AgentCompletionDecision): void {
+        // lastBudgetReason: 记录本次预算消耗来源，下一次候选若不再命中同类失败则重置全部预算。
+        this.lastBudgetReason = decision.reason;
         if (decision.reason === "TOOL_FAILURE_RETRY") {
             this.toolFailureRetryCount += 1;
             return;
         }
         this.continuationRetryCount += 1;
+    }
+
+    /**
+     * resetBudgetCountersAfterProgress：候选结果脱离上一类预算失败后重置所有预算计数。
+     *
+     * @param candidate Deep Agents 单次运行候选结果。
+     * @returns 没有返回值。
+     */
+    private resetBudgetCountersAfterProgress(candidate: AgentRunCandidate): void {
+        if (!this.lastBudgetReason) {
+            return;
+        }
+        if (this.isSameBudgetReason(
+            candidate,
+            this.lastBudgetReason,
+        )) {
+            return;
+        }
+        this.continuationRetryCount = 0;
+        this.toolFailureRetryCount = 0;
+        // supervisorAttemptCount: 当前候选已经占用新预算窗口中的一次尝试，因此重置为 1 而不是 0。
+        this.supervisorAttemptCount = 1;
+        this.lastBudgetReason = null;
+    }
+
+    /**
+     * isSameBudgetReason：判断当前候选是否仍然命中上一轮消耗预算的失败类型。
+     *
+     * @param candidate Deep Agents 单次运行候选结果。
+     * @param reason 最近一次消耗预算的原因。
+     * @returns 仍然属于同类失败时返回 true。
+     */
+    private isSameBudgetReason(
+        candidate: AgentRunCandidate,
+        reason: string,
+    ): boolean {
+        if (reason === "TOOL_FAILURE_RETRY") {
+            return candidate.hasToolFailureEvents && candidate.visibleText.length === 0;
+        }
+        if (reason === "MALFORMED_TEXT_TOOL_CALL_BLOCK") {
+            return candidate.lastModelMessageDiagnostics?.hasMalformedTextToolCallBlock === true;
+        }
+        if (reason === "EMPTY_FINAL_TEXT") {
+            return candidate.visibleText.length === 0;
+        }
+        return false;
     }
 
     /**

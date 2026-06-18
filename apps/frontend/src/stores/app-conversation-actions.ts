@@ -330,12 +330,24 @@ export function createConversationActions() {
                 return item.eventId !== event.eventId;
             });
             // 实时事件不能原地 push/sort；新数组引用能让 Vue/Pinia 立即刷新流式回复和过程卡片。
-            this.events = [
+            this.writeMergedEvents([
                 ...retainedEvents,
                 event,
-            ].sort((left: EventRecord, right: EventRecord) => {
+            ]);
+        },
+
+        /**
+         * writeMergedEvents：统一写入事件数组新引用。
+         *
+         * @param events 已合并但未排序的事件列表。
+         * @returns 没有返回值。
+         */
+        writeMergedEvents(events: EventRecord[]): void {
+            const mergedEvents = events.sort((left: EventRecord, right: EventRecord) => {
                 return left.sequence - right.sequence;
             });
+            this.events = mergedEvents;
+            this.eventsRevision += 1;
         },
 
         /**
@@ -361,9 +373,7 @@ export function createConversationActions() {
                     );
                 }
             }
-            this.events = Array.from(eventById.values()).sort((left: EventRecord, right: EventRecord) => {
-                return left.sequence - right.sequence;
-            });
+            this.writeMergedEvents(Array.from(eventById.values()));
         },
 
         /**

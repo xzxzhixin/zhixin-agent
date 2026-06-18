@@ -181,6 +181,11 @@ export const useAppStore = defineStore("app", {
         events: [] as EventRecord[],
 
         /**
+         * eventsRevision: 事件数组写入版本号，用于确保实时事件合并后计算链路立即失效重算。
+         */
+        eventsRevision: 0,
+
+        /**
          * usageRecords: 用量统计原始记录。
          */
         usageRecords: [] as unknown[],

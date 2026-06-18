@@ -130,6 +130,7 @@ export function useChatConversation(appStore: {
         }>;
     } | null;
     events: EventRecord[];
+    eventsRevision: number;
     draft: {
         text: string;
     };
@@ -154,6 +155,8 @@ export function useChatConversation(appStore: {
         return appStore.sessionDetail?.turns ?? [];
     });
     const events = computed(() => {
+        // eventsRevision: 实时事件可能快速替换同一数组语义内容，显式读取版本号保证过程卡片立即重算。
+        void appStore.eventsRevision;
         return appStore.events;
     });
     const activeTasks = computed(() => {

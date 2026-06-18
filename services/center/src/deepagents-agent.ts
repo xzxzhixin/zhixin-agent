@@ -138,9 +138,9 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
  */
 function createDefaultSupervisorBudget(): AgentSupervisorBudget {
     return {
-        maxSupervisorAttempts: 4,
-        continuationRetryBudget: 2,
-        toolFailureRetryBudget: 1,
+        maxSupervisorAttempts: 6,
+        continuationRetryBudget: 6,
+        toolFailureRetryBudget: 6,
     };
 }
 

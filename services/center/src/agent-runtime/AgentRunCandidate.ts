@@ -21,11 +21,11 @@ export interface AgentCompletionDecision {
 
 /** AgentSupervisorBudget：同一轮次内监督循环的安全预算。 */
 export interface AgentSupervisorBudget {
-    /** maxSupervisorAttempts: 同一轮次允许启动 Deep Agents 的最大次数。 */
+    /** maxSupervisorAttempts: 当前预算窗口内允许启动 Deep Agents 的最大次数，默认值为 6。 */
     maxSupervisorAttempts: number;
-    /** continuationRetryBudget: 协议形态错误或空最终文本时允许续跑的最大次数。 */
+    /** continuationRetryBudget: 协议形态错误或空最终文本时允许续跑的最大次数，默认值为 6。 */
     continuationRetryBudget: number;
-    /** toolFailureRetryBudget: 工具失败后仍允许模型换路径尝试的最大次数。 */
+    /** toolFailureRetryBudget: 工具失败后仍允许模型换路径尝试的最大次数，默认值为 6。 */
     toolFailureRetryBudget: number;
 }
 
