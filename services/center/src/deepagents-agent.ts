@@ -4,7 +4,10 @@ import type {StructuredToolInterface} from "@langchain/core/tools";
 import type {ToolCallStream} from "@langchain/langgraph";
 import {createDeepAgent, type DeepAgentRunStream} from "deepagents";
 
-import {CenterToolChoiceMiddleware} from "./AgentMiddleware/index.js";
+import {
+    CenterModelCallLogMiddleware,
+    CenterToolChoiceMiddleware,
+} from "./AgentMiddleware/index.js";
 import {
     type AgentRunCandidate,
     type AgentSupervisorBudget,
@@ -427,6 +430,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
             return typeof promptPart === "string" && promptPart.length > 0;
         }).join("\n\n"),
         middleware: [
+            new CenterModelCallLogMiddleware(context),
             new CenterToolChoiceMiddleware(context),
         ],
     });

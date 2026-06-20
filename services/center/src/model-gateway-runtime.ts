@@ -70,7 +70,7 @@ export interface ProviderModelGatewayResult {
     toolCalls: OpenAiToolCall[];
 }
 
-interface ResolvedProviderModelRuntime {
+export interface ResolvedProviderModelRuntime {
     /** provider: 已启用供应商配置。 */
     provider: NonNullable<ReturnType<typeof readProviderConfigByPriority>>;
     /** centerDirectory: 中心目录绝对路径。 */
@@ -586,7 +586,7 @@ export function createLangChainChatModel(runtime: ResolvedProviderModelRuntime):
  * @param baseUrl 用户在供应商配置中保存的基础地址。
  * @returns 以 /v1 结尾的 OpenAI 兼容接口地址。
  */
-function normalizeOpenAiBaseUrl(baseUrl: string): string {
+export function normalizeOpenAiBaseUrl(baseUrl: string): string {
     // normalizedBaseUrl: 用户可能填写服务根地址，也可能已经填写 /v1；这里统一为 LangChain ChatOpenAI 的 baseURL。
     const normalizedBaseUrl = baseUrl.replace(/\/$/u, "");
     if (normalizedBaseUrl.endsWith("/v1")) {

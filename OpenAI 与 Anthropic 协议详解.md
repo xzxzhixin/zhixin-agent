@@ -21,6 +21,13 @@
 | Anthropic 供应商 | Anthropic Messages / Tool Use | 使用 Anthropic 原生 Messages 工具协议，由 LangChain Anthropic 模型承接 | Anthropic 的工具调用本来就在 `content[]` 的 `tool_use` block 中，协议语义明确。 |
 | OpenAI Responses | 暂不作为 OpenAI 兼容供应商主路径 | 仅在后续单独完成兼容验证后再纳入 | Responses 是 output item / content block 模型，很多兼容网关支持不完整，容易和 Chat Completions 工具循环混淆。 |
 
+### 模型调用日志要求
+
+- 模型调用完成后必须由 `CenterModelCallLogMiddleware` 写入文件日志，记录供应商、模型、协议适配器、协议模式、调用 URL 和模型返回的原始响应字段。
+- 日志协议分类必须以 `protocolPluginId` 和 `protocolMode` 为准：`openai-langchain + chat-completions` 记录为 `openai_chat_completions`，`anthropic-langchain + messages` 记录为 `anthropic_messages_tool_use`，`openai-langchain + responses` 记录为 `openai_responses`。
+- OpenAI Chat Completions 日志 URL 必须指向规范化 `/v1/chat/completions`；OpenAI Responses 日志 URL 必须指向 `/v1/responses`；Anthropic Messages 当前按 LangChain SDK 默认调用记录 `https://api.anthropic.com/v1/messages`，同时保留供应商配置 `baseUrl` 作为对照。
+- 原始响应日志必须保留 LangChain `AIMessage` 中的 `content`、`tool_calls`、`invalid_tool_calls`、`additional_kwargs`、`response_metadata` 和 `usage_metadata`，用于区分 OpenAI 原始 `tool_calls` 与 Anthropic `tool_use` content block。
+
 ### 工具调用判定原则
 
 - OpenAI Chat Completions 只认 `message.tool_calls`。
