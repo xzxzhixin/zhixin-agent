@@ -8,8 +8,30 @@ import {
   spawn,
   spawnSync,
 } from "node:child_process";
+import {
+  existsSync,
+  readFileSync,
+} from "node:fs";
+import {
+  join,
+  resolve,
+} from "node:path";
 // frontendDevUrl: 桌面壳开发期固定连接本机前端服务。
 const frontendDevUrl = "http://127.0.0.1:5173";
+// repoRoot: 开发脚本从仓库根目录执行，中心目录默认位于仓库根目录 center-data。
+const repoRoot = process.cwd();
+// centerDirectory: dev:desktop-shell 对应的开发中心目录，必须和桌面壳开发期默认值一致。
+const centerDirectory = resolve(
+  repoRoot,
+  "center-data",
+);
+// centerPort: dev:desktop-shell 使用的中心服务默认端口。
+const centerPort = 8866;
+// centerStartupLockPath: 中心服务启动锁，用于脚本被停止时兜底清理中心服务。
+const centerStartupLockPath = join(
+  centerDirectory,
+  ".zhixin-center.lock",
+);
 // children: 当前脚本拉起的子进程，退出时统一收尾。
 const children = [];
 // isShuttingDown: 防止多个退出信号重复收尾。
@@ -206,6 +228,7 @@ function shutdown(exitCode = 0) {
     stopProcessTree(child);
   }
 
+  stopReusableCenterService();
   process.exit(exitCode);
 }
 
@@ -239,6 +262,114 @@ function stopProcessTree(child) {
   }
 
   child.kill();
+}
+
+/**
+ * stopReusableCenterService：停止 dev:desktop-shell 关联的中心服务。
+ *
+ * 关键逻辑：开发脚本在 Windows 上会强制结束 Electron 进程树，Electron before-quit 可能无法执行；
+ * 因此脚本退出时必须按中心目录锁文件兜底停止当前开发中心服务。
+ *
+ * @returns 没有返回值。
+ */
+function stopReusableCenterService() {
+  if (!isConfiguredCenterHealthy()) {
+    return;
+  }
+  const centerPid = readCenterStartupLockPid();
+  if (!centerPid) {
+    return;
+  }
+  stopProcessIdTree(centerPid);
+}
+
+/**
+ * isConfiguredCenterHealthy：确认当前端口服务属于本仓库开发中心目录。
+ *
+ * @returns 端口和中心目录都匹配时返回 true。
+ */
+function isConfiguredCenterHealthy() {
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        [
+          "const port=Number(process.argv[1]);",
+          "const expected=require('node:path').resolve(process.argv[2]);",
+          "fetch(`http://127.0.0.1:${port}/api/health`).then(async(r)=>{",
+          "if(!r.ok){process.exit(2);}",
+          "const body=await r.json();",
+          "const actual=require('node:path').resolve(body.data?.centerDirectory || '');",
+          "process.exit(body.success===true && actual===expected ? 0 : 3);",
+          "}).catch(()=>process.exit(4));",
+        ].join(""),
+        String(centerPort),
+        centerDirectory,
+      ],
+      {
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * readCenterStartupLockPid：读取中心服务锁文件中的进程 ID。
+ *
+ * @returns 有效 pid；无效或缺失时返回 null。
+ */
+function readCenterStartupLockPid() {
+  if (!existsSync(centerStartupLockPath)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(centerStartupLockPath, "utf-8"));
+    if (
+      typeof parsed.pid !== "number"
+      || !Number.isInteger(parsed.pid)
+      || parsed.pid <= 0
+    ) {
+      return null;
+    }
+    return parsed.pid;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * stopProcessIdTree：按 pid 停止进程树。
+ *
+ * @param pid 目标进程 ID。
+ * @returns 没有返回值。
+ */
+function stopProcessIdTree(pid) {
+  if (process.platform === "win32") {
+    spawnSync(
+      "taskkill",
+      [
+        "/pid",
+        String(pid),
+        "/t",
+        "/f",
+      ],
+      {
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
+    return;
+  }
+  try {
+    process.kill(pid);
+  } catch {
+    // catch: 中心服务可能已经被 Electron 退出流程关闭，忽略即可。
+  }
 }
 
 process.on("SIGINT", () => {

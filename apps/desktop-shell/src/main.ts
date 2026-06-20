@@ -154,6 +154,10 @@ const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9
 const CENTER_HEALTH_WAIT_TIMEOUT_MS = 30000;
 // CENTER_HEALTH_RETRY_INTERVAL_MS：健康检查轮询间隔，避免硬编码固定 sleep 后仍撞上慢启动。
 const CENTER_HEALTH_RETRY_INTERVAL_MS = 300;
+// CENTER_STOP_WAIT_TIMEOUT_MS：退出时等待中心服务释放端口的最长时间，避免应用退出被残留服务长期阻塞。
+const CENTER_STOP_WAIT_TIMEOUT_MS = 5000;
+// CENTER_STARTUP_LOCK_FILE_NAME：中心服务启动锁文件名，用于复用场景下定位已有中心服务进程。
+const CENTER_STARTUP_LOCK_FILE_NAME = ".zhixin-center.lock";
 // EXTERNAL_LINK_PROTOCOLS: 桌面端主窗口外链交给系统默认处理器，避免主窗口跳出致心工作台。
 const EXTERNAL_LINK_PROTOCOLS = new Set([
   "http:",
@@ -179,6 +183,10 @@ let lastCenterError = "";
 let hasConsolePipeBroken = false;
 // isAppQuitting: 区分用户点击关闭按钮和应用真正退出，避免退出流程被隐藏托盘逻辑拦截。
 let isAppQuitting = false;
+// isQuitCenterCleanupStarted: 真正退出时只允许触发一次中心服务收尾，避免 before-quit 重入。
+let isQuitCenterCleanupStarted = false;
+// isQuitCenterCleanupFinished: 中心服务收尾完成后再次 app.quit 时允许 Electron 继续退出。
+let isQuitCenterCleanupFinished = false;
 // centerLaunchConfig: 当前中心服务启动参数。
 const centerLaunchConfig: CenterLaunchConfig = {
   port: DEFAULT_CENTER_PORT,
@@ -237,6 +245,58 @@ interface DesktopProjectIdentity {
    * latestPath: 当前选择的项目根目录绝对路径。
    */
   latestPath: string;
+}
+
+/**
+ * CenterStartupLockFile：中心服务启动锁文件结构。
+ *
+ * 来源：中心目录 `.zhixin-center.lock`。
+ * 含义：复用已有中心服务时，桌面壳用它定位应随桌面端退出的中心服务进程。
+ * 格式：JSON 对象。
+ * 默认值：无。
+ * 约束：只有健康检查确认中心目录一致后，才允许使用该 pid 做退出清理。
+ */
+interface CenterStartupLockFile {
+  /**
+   * pid: 持有中心目录启动锁的中心服务进程 ID。
+   */
+  pid: number;
+
+  /**
+   * createdAt: 锁创建时间；桌面壳只用于格式校验，不用时间过期判断杀进程。
+   */
+  createdAt: string;
+}
+
+/**
+ * CenterHealthApiResponse：中心服务健康检查响应结构。
+ *
+ * 来源：`GET /api/health`。
+ * 含义：退出清理复用中心服务前校验端口和中心目录是否匹配当前桌面配置。
+ * 格式：中心服务统一成功响应。
+ * 默认值：无。
+ * 约束：只在本机 127.0.0.1 地址读取，不作为业务事实源写入。
+ */
+interface CenterHealthApiResponse {
+  /**
+   * success: 中心服务统一响应成功标记。
+   */
+  success: boolean;
+
+  /**
+   * data: 健康检查载荷。
+   */
+  data?: {
+    /**
+     * port: 中心服务实际监听端口。
+     */
+    port?: number;
+
+    /**
+     * centerDirectory: 中心服务实际使用的中心目录。
+     */
+    centerDirectory?: string;
+  };
 }
 
 /**
@@ -825,8 +885,23 @@ function stopCenterService(): void {
   }
 
   const pid = centerProcess.pid;
+  killCenterProcessTree(pid);
 
-  if (process.platform === "win32" && typeof pid === "number") {
+  centerProcess = null;
+}
+
+/**
+ * killCenterProcessTree：按进程 ID 停止中心服务进程树。
+ *
+ * @param pid 中心服务进程 ID；缺失时跳过。
+ * @returns 没有返回值。
+ */
+function killCenterProcessTree(pid: number | undefined): void {
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+    return;
+  }
+  if (process.platform === "win32") {
+    // taskkill: Windows 中心服务可能由 tsx.CMD 或 Node 子进程树承载，必须按树结束。
     spawnSync(
       "taskkill",
       [
@@ -840,20 +915,120 @@ function stopCenterService(): void {
         windowsHide: true,
       },
     );
+    return;
   } else {
-    centerProcess.kill();
+    try {
+      process.kill(pid);
+    } catch {
+      // catch: 退出清理时目标进程可能已自行结束，忽略即可。
+    }
   }
-
-  centerProcess = null;
 }
 
 /**
- * stopManagedCenterService：停止桌面壳当前管理的中心服务。
+ * readCenterStartupLockFile：读取中心服务启动锁。
+ *
+ * @returns 锁文件有效时返回 pid 和创建时间，否则返回 null。
+ */
+function readCenterStartupLockFile(): CenterStartupLockFile | null {
+  const lockFilePath = join(
+    centerLaunchConfig.centerDirectory,
+    CENTER_STARTUP_LOCK_FILE_NAME,
+  );
+  if (!existsSync(lockFilePath)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(lockFilePath, "utf-8")) as Partial<CenterStartupLockFile>;
+    if (
+      typeof parsed.pid !== "number"
+      || !Number.isInteger(parsed.pid)
+      || parsed.pid <= 0
+      || typeof parsed.createdAt !== "string"
+      || Number.isNaN(Date.parse(parsed.createdAt))
+    ) {
+      return null;
+    }
+    return {
+      pid: parsed.pid,
+      createdAt: parsed.createdAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * readCenterHealth：读取当前端口的中心服务健康信息。
+ *
+ * @returns 健康检查成功时返回响应载荷，否则返回 null。
+ */
+async function readCenterHealth(): Promise<CenterHealthApiResponse["data"] | null> {
+  try {
+    const response = await fetch(resolveCenterHealthUrl(), {
+      method: "GET",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const body = await response.json() as CenterHealthApiResponse;
+    if (body.success !== true || !body.data) {
+      return null;
+    }
+    return body.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * isCurrentConfiguredCenterHealthy：判断当前端口上的中心服务是否匹配桌面配置。
+ *
+ * @returns 端口和中心目录都匹配时返回 true。
+ */
+async function isCurrentConfiguredCenterHealthy(): Promise<boolean> {
+  const health = await readCenterHealth();
+  if (!health) {
+    return false;
+  }
+  return health.port === centerLaunchConfig.port
+    && typeof health.centerDirectory === "string"
+    && resolve(health.centerDirectory) === resolve(centerLaunchConfig.centerDirectory);
+}
+
+/**
+ * waitForCenterStopped：等待中心服务健康检查不可用。
+ *
+ * @returns 中心服务不可访问或超时后返回。
+ */
+async function waitForCenterStopped(): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < CENTER_STOP_WAIT_TIMEOUT_MS) {
+    if (!await isCurrentConfiguredCenterHealthy()) {
+      return;
+    }
+    await delay(CENTER_HEALTH_RETRY_INTERVAL_MS);
+  }
+}
+
+/**
+ * stopManagedCenterService：停止桌面壳当前管理或复用的中心服务。
  *
  * @returns 没有返回值。
  */
-function stopManagedCenterService(): void {
+async function stopManagedCenterService(): Promise<void> {
+  const lockFile = readCenterStartupLockFile();
+  const lockPid = lockFile?.pid;
   stopCenterService();
+  if (
+    lockPid
+    && (!centerProcess || centerProcess.pid !== lockPid)
+    && await isCurrentConfiguredCenterHealthy()
+  ) {
+    // lockPid: 当前桌面壳复用了已有中心服务时没有 child process 句柄，只能按中心目录锁文件定位。
+    killCenterProcessTree(lockPid);
+  }
+  await waitForCenterStopped();
 }
 
 /**
@@ -1133,7 +1308,7 @@ function registerIpc(): void {
     isExternalCenterDirectory: isExternalCenterDirectory(centerLaunchConfig.centerDirectory),
   }));
 
-  ipcMain.handle("zhixin:center-config-update", (_event, payload: {
+  ipcMain.handle("zhixin:center-config-update", async (_event, payload: {
     port?: number;
     centerDirectory?: string;
   }) => {
@@ -1149,9 +1324,9 @@ function registerIpc(): void {
       centerDirectory: nextCenterDirectory,
       closeActionPreference: desktopConfig.closeActionPreference,
     };
+    await stopManagedCenterService();
     applyDesktopConfig(nextConfig);
     persistDesktopConfig(nextConfig);
-    stopManagedCenterService();
     startCenterService();
     if (lastCenterError) {
       applyDesktopConfig(previousConfig);
@@ -1194,18 +1369,18 @@ function registerIpc(): void {
     };
   });
 
-  ipcMain.handle("zhixin:center-stop", () => {
+  ipcMain.handle("zhixin:center-stop", async () => {
     lastCenterError = "";
-    stopManagedCenterService();
+    await stopManagedCenterService();
     return {
       ok: true,
       errorMessage: "",
     };
   });
 
-  ipcMain.handle("zhixin:center-restart", () => {
+  ipcMain.handle("zhixin:center-restart", async () => {
     lastCenterError = "";
-    stopManagedCenterService();
+    await stopManagedCenterService();
     startCenterService();
     return {
       ok: !lastCenterError,
@@ -1279,7 +1454,28 @@ app.on("activate", () => {
   focusMainWindow();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
   isAppQuitting = true;
-  stopCenterService();
+  if (isQuitCenterCleanupFinished) {
+    return;
+  }
+  event.preventDefault();
+  if (isQuitCenterCleanupStarted) {
+    return;
+  }
+  isQuitCenterCleanupStarted = true;
+  void stopManagedCenterService()
+    .catch((error) => {
+      lastCenterError = error instanceof Error
+        ? error.message
+        : "中心服务退出清理失败。";
+      writeDesktopShellLog(
+        "error",
+        lastCenterError,
+      );
+    })
+    .finally(() => {
+      isQuitCenterCleanupFinished = true;
+      app.quit();
+    });
 });
