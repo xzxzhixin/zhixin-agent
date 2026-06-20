@@ -1,10 +1,7 @@
 import {AIMessage} from "@langchain/core/messages";
 
 import type {DeepAgentsToolExecutionContext} from "../StructuredTool/index.js";
-import {
-    CenterAgentMiddleware,
-    type CenterAgentMiddlewareDefinition,
-} from "./CenterAgentMiddleware.js";
+import {CenterAgentMiddleware} from "./CenterAgentMiddleware.js";
 
 /** ModelMessageDiagnostics：模型最后一条 AIMessage 的诊断快照。 */
 export interface ModelMessageDiagnostics {
@@ -64,6 +61,9 @@ export interface ModelMessageDiagnostics {
  * 这里不按参数、提示词或具体工具名做任何恢复，也不强制指定 tool_choice。
  */
 export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
+    /** name：Deep Agents 用于识别和过滤当前中间件的固定名称。 */
+    public override name = "CenterToolChoiceMiddleware";
+
     /** context：当前轮次工具执行上下文，提供事件、任务和会话事实源。 */
     private readonly context: DeepAgentsToolExecutionContext;
 
@@ -81,91 +81,102 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
     }
 
     /**
-     * createDefinition：创建 LangChain 中间件定义。
+     * afterModel：模型返回后记录结构化工具调用诊断。
      *
-     * @returns 项目 CenterAgentMiddleware 基类可创建的中间件定义。
+     * @param state Deep Agents 当前状态，包含消息列表。
      */
-    protected createDefinition(): CenterAgentMiddlewareDefinition {
-        return {
-            name: "CenterToolChoiceMiddleware",
-            afterModel: async (state) => {
-                const lastMessage = state.messages.at(-1);
-                if (!AIMessage.isInstance(lastMessage)) {
-                    return;
-                }
-                this.lastModelMessageDiagnostics = buildModelMessageDiagnostics(lastMessage);
-                this.context.lastModelMessageDiagnostics = this.lastModelMessageDiagnostics;
-                this.context.input.events.append({
-                    eventType: "model.tool_calls.received",
-                    scopeType: "model",
-                    scopeId: this.context.input.sent.taskId,
-                    sessionId: this.context.input.sent.sessionId,
-                    turnId: this.context.input.sent.turnId,
-                    taskId: this.context.input.sent.taskId,
-                    status: "completed",
-                    title: "模型工具调用结果",
-                    summary: lastMessage.tool_calls && lastMessage.tool_calls.length > 0
-                        ? "模型返回了结构化工具调用。"
-                        : "模型未返回结构化工具调用。",
-                    payload: {
-                        // lastModelMessage: 只记录模型输出诊断摘要，不读取用户原文，不把完整工具参数写入事件。
-                        lastModelMessage: this.lastModelMessageDiagnostics,
-                    },
-                });
+    public override afterModel: CenterAgentMiddleware["afterModel"] = async (state) => {
+        const lastMessage = state.messages.at(-1);
+        if (!AIMessage.isInstance(lastMessage)) {
+            return;
+        }
+        this.lastModelMessageDiagnostics = buildModelMessageDiagnostics(lastMessage);
+        this.context.lastModelMessageDiagnostics = this.lastModelMessageDiagnostics;
+        this.context.input.events.append({
+            eventType: "model.tool_calls.received",
+            scopeType: "model",
+            scopeId: this.context.input.sent.taskId,
+            sessionId: this.context.input.sent.sessionId,
+            turnId: this.context.input.sent.turnId,
+            taskId: this.context.input.sent.taskId,
+            status: "completed",
+            title: "模型工具调用结果",
+            summary: lastMessage.tool_calls && lastMessage.tool_calls.length > 0
+                ? "模型返回了结构化工具调用。"
+                : "模型未返回结构化工具调用。",
+            payload: {
+                // lastModelMessage: 只记录模型输出诊断摘要，不读取用户原文，不把完整工具参数写入事件。
+                lastModelMessage: this.lastModelMessageDiagnostics,
             },
-            wrapToolCall: async (request, handler) => {
-                if (isEmptyToolCallName(request.toolCall.name)) {
-                    const argumentKeys = Object.keys(request.toolCall.args ?? {});
-                    const failureReason = `MODEL_TOOL_NAME_MISSING:${argumentKeys.join(",")}`;
-                    this.context.input.events.append({
-                        eventType: "model.tool_call.name_missing",
-                        scopeType: "tool",
-                        scopeId: this.context.input.sent.taskId,
-                        sessionId: this.context.input.sent.sessionId,
-                        turnId: this.context.input.sent.turnId,
-                        taskId: this.context.input.sent.taskId,
-                        status: "failed",
-                        title: "工具名缺失",
-                        summary: "模型返回了空工具名，中心服务按协议错误处理，不恢复工具名。",
-                        payload: {
-                            // toolCallId: 供应商返回的工具调用 ID，用于关联原始模型输出。
-                            toolCallId: request.toolCall.id,
-                            // argumentKeys: 仅记录参数字段名，避免把参数值或用户原文写入诊断事件。
-                            argumentKeys,
-                            // failureReason: 统一错误码，供轮次失败收尾和日志检索使用。
-                            failureReason,
-                            // lastModelMessage: 记录导致空工具名的最后一条模型输出摘要，便于排查供应商回调。
-                            lastModelMessage: this.lastModelMessageDiagnostics,
-                        },
-                    });
-                    throw new Error(failureReason);
-                }
-                return handler(request);
+        });
+    };
+
+    /**
+     * wrapToolCall：执行工具前拦截空工具名协议错误。
+     *
+     * @param request Deep Agents 工具调用请求。
+     * @param handler Deep Agents 原始工具调用处理器。
+     * @returns 原工具结果；空工具名时抛出协议错误。
+     */
+    public override wrapToolCall: CenterAgentMiddleware["wrapToolCall"] = async (request, handler) => {
+        if (isEmptyToolCallName(request.toolCall.name)) {
+            const argumentKeys = Object.keys(request.toolCall.args ?? {});
+            const failureReason = `MODEL_TOOL_NAME_MISSING:${argumentKeys.join(",")}`;
+            this.context.input.events.append({
+                eventType: "model.tool_call.name_missing",
+                scopeType: "tool",
+                scopeId: this.context.input.sent.taskId,
+                sessionId: this.context.input.sent.sessionId,
+                turnId: this.context.input.sent.turnId,
+                taskId: this.context.input.sent.taskId,
+                status: "failed",
+                title: "工具名缺失",
+                summary: "模型返回了空工具名，中心服务按协议错误处理，不恢复工具名。",
+                payload: {
+                    // toolCallId: 供应商返回的工具调用 ID，用于关联原始模型输出。
+                    toolCallId: request.toolCall.id,
+                    // argumentKeys: 仅记录参数字段名，避免把参数值或用户原文写入诊断事件。
+                    argumentKeys,
+                    // failureReason: 统一错误码，供轮次失败收尾和日志检索使用。
+                    failureReason,
+                    // lastModelMessage: 记录导致空工具名的最后一条模型输出摘要，便于排查供应商回调。
+                    lastModelMessage: this.lastModelMessageDiagnostics,
+                },
+            });
+            throw new Error(failureReason);
+        }
+        return handler(request);
+    };
+
+    /**
+     * wrapModelCall：模型调用前记录工具选择策略诊断。
+     *
+     * @param request Deep Agents 模型调用请求。
+     * @param handler Deep Agents 原始模型调用处理器。
+     * @returns 模型调用结果。
+     */
+    public override wrapModelCall: CenterAgentMiddleware["wrapModelCall"] = async (request, handler) => {
+        const hasToolResultMessage = request.messages.some((message) => {
+            return message.getType() === "tool";
+        });
+        this.context.input.events.append({
+            eventType: "model.tool_choice.evaluated",
+            scopeType: "model",
+            scopeId: this.context.input.sent.taskId,
+            sessionId: this.context.input.sent.sessionId,
+            turnId: this.context.input.sent.turnId,
+            taskId: this.context.input.sent.taskId,
+            status: "completed",
+            title: "工具选择策略",
+            summary: "Deep Agents 使用模型自主结构化工具选择。",
+            payload: {
+                // toolNames: 当前请求注入给模型的真实工具名，用于排查模型是否看到了工具。
+                toolNames: request.tools.map((tool) => tool.name),
+                hasToolResultMessage,
             },
-            wrapModelCall: async (request, handler) => {
-                const hasToolResultMessage = request.messages.some((message) => {
-                    return message.getType() === "tool";
-                });
-                this.context.input.events.append({
-                    eventType: "model.tool_choice.evaluated",
-                    scopeType: "model",
-                    scopeId: this.context.input.sent.taskId,
-                    sessionId: this.context.input.sent.sessionId,
-                    turnId: this.context.input.sent.turnId,
-                    taskId: this.context.input.sent.taskId,
-                    status: "completed",
-                    title: "工具选择策略",
-                    summary: "Deep Agents 使用模型自主结构化工具选择。",
-                    payload: {
-                        // toolNames: 当前请求注入给模型的真实工具名，用于排查模型是否看到了工具。
-                        toolNames: request.tools.map((tool) => tool.name),
-                        hasToolResultMessage,
-                    },
-                });
-                return handler(request);
-            },
-        };
-    }
+        });
+        return handler(request);
+    };
 }
 
 /**

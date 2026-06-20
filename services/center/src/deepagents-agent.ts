@@ -427,7 +427,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
             return typeof promptPart === "string" && promptPart.length > 0;
         }).join("\n\n"),
         middleware: [
-            new CenterToolChoiceMiddleware(context).create(),
+            new CenterToolChoiceMiddleware(context),
         ],
     });
 }

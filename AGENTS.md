@@ -99,6 +99,7 @@
 - agent工具开发必须基于 `StructuredTool` 基类开发，允许基于这个继续包装，类名必须是 `StructuredTool` 结尾
 - 所有的执行链路都要有详细的日志，但是所有的流式输出不要加
 - 所有的sql必须写在 `data-access` 里面，按功能分文件
+- 使用 `class` 类的形式组织代码必须使用java那种类重写的方式
 
 ## 测试规范
 - 不编译 TS 源码再启动，直接用 `dev:desktop-shell` 等命令。
