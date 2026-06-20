@@ -137,7 +137,7 @@ export class CenterEventStore {
                         errorMessage,
                     },
                 },
-                "center.event.file_log_failed",
+                "中心事件文件日志写入失败",
             );
         });
         if (this.onAppended) {
@@ -157,7 +157,7 @@ export class CenterEventStore {
                             errorMessage,
                         },
                     },
-                    "center.event.append_listener_failed",
+                    "中心事件追加监听器执行失败",
                 );
             }
         }
@@ -209,7 +209,7 @@ async function writeCenterEventToFile(
     if (!logger) {
         return;
     }
-    await logger.info("center.event", {
+    await logger.info("中心事件", {
         eventType: event.eventType,
         status: event.status,
         scopeType: event.scopeType,
@@ -259,7 +259,7 @@ function writeCenterEventToConsole(event: EventRecord): void {
             {
                 payload: consolePayload,
             },
-            "center.event",
+            "中心事件",
         );
         return;
     }
@@ -267,7 +267,7 @@ function writeCenterEventToConsole(event: EventRecord): void {
         {
             payload: consolePayload,
         },
-        "center.event",
+        "中心事件",
     );
 }
 

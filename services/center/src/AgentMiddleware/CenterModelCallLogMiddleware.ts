@@ -73,7 +73,7 @@ export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
         const lastMessage = state.messages.at(-1);
         if (!AIMessage.isInstance(lastMessage)) {
             await this.logger.info(
-                "model.call.raw_response.skipped",
+                "模型调用原始响应跳过",
                 this.buildBasePayload({
                     skipReason: "LAST_MESSAGE_NOT_AI_MESSAGE",
                     messageType: lastMessage?.constructor.name,
@@ -82,7 +82,7 @@ export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
             return;
         }
         await this.logger.info(
-            "model.call.raw_response.completed",
+            "模型调用原始响应完成",
             this.buildBasePayload({
                 response: buildRawModelResponseLog(lastMessage),
                 diagnostics: {

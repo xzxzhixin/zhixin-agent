@@ -93,7 +93,7 @@ export async function executeCommandTool(
                     inputSummary: truncateConsoleText(request.inputSummary),
                 },
             },
-            "center.command_tool.input_invalid",
+            "命令工具输入无效",
         );
         return resolveCommandToolInputFailure(
             events,
@@ -245,7 +245,7 @@ export async function executeCommandTool(
                         errorMessage: truncateConsoleText(error.message),
                     },
                 },
-                "center.command_tool.spawn_error",
+                "命令工具启动失败",
             );
             appendOutputChunk(error.message);
             resolveCommandToolResult(

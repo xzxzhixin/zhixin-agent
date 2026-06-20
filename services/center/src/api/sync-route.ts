@@ -508,7 +508,7 @@ function handleRealtimeRequest(input: {
                 const errorMessage = error instanceof Error
                     ? error.message
                     : "停止当前轮次失败。";
-                void input.logger.error("center.turn_cancel.failed", {
+                void input.logger.error("轮次取消失败", {
                     requestId: input.envelope.requestId ?? null,
                     errorMessage,
                 }).catch(() => {
@@ -691,7 +691,7 @@ function handleRealtimeRequest(input: {
         const errorMessage = error instanceof Error
             ? error.message
             : "WebSocket 请求处理失败。";
-        void input.logger.error("center.websocket.request_failed", {
+        void input.logger.error("实时请求处理失败", {
             envelopeType: input.envelope.type,
             requestId: input.envelope.requestId ?? null,
             activeClientId: input.activeClientId,
@@ -731,7 +731,7 @@ function scheduleTurnRuntimeCancellation(
                 turnId,
                 reason,
             );
-            void logger.info("center.turn_runtime.cancel_requested", {
+            void logger.info("轮次运行时取消已请求", {
                 turnId,
                 commandCount,
                 runtimeAborted,
@@ -742,7 +742,7 @@ function scheduleTurnRuntimeCancellation(
             const errorMessage = error instanceof Error
                 ? error.message
                 : "运行时取消失败。";
-            void logger.error("center.turn_runtime.cancel_failed", {
+            void logger.error("轮次运行时取消失败", {
                 turnId,
                 errorMessage,
             }).catch(() => {

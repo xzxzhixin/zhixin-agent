@@ -199,7 +199,7 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
                 source: "startup_recovery",
             },
         );
-        await logger.info("center.bootstrap.initialized", {
+        await logger.info("中心服务启动初始化完成", {
             centerDirectory: config.centerDirectory,
             port: config.port,
             processStartedAt,
@@ -223,7 +223,7 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
                     source: "shutdown_recovery",
                 },
             );
-            await logger.info("center.shutdown.finalized_running_turns", {
+            await logger.info("中心服务关闭已收尾运行中轮次", {
                 centerDirectory: config.centerDirectory,
                 processStartedAt,
                 shutdownRecovered,
@@ -297,7 +297,7 @@ export async function createCenterService(config: CenterServiceConfig): Promise<
         const businessErrorCode = error.message === "PROVIDER_NOT_FOUND"
             ? "PROVIDER_NOT_FOUND"
             : null;
-        await logger.error("center.api.error", {
+        await logger.error("中心服务接口错误", {
             traceId,
             message: error.message,
         });

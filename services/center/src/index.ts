@@ -22,7 +22,7 @@ async function runFromCli(): Promise<void> {
     const service = await createCenterService(config);
     const listenResult = await service.listen();
     if (listenResult.reusedExisting) {
-        await logger.info("center.server.reused-existing", {
+        await logger.info("中心服务复用已有实例", {
             port: config.port,
             centerDirectory: config.centerDirectory,
         });
@@ -31,7 +31,7 @@ async function runFromCli(): Promise<void> {
         return;
     }
 
-    await logger.info("center.server.listening", {
+    await logger.info("中心服务监听启动", {
         port: config.port,
     });
 
@@ -57,7 +57,7 @@ async function runFromCli(): Promise<void> {
 function installProcessFatalDiagnostics(logger: CenterLogger): void {
     // uncaughtException: 运行期事件回调中的同步异常必须落日志，便于定位停止按钮等异步链路问题。
     process.on("uncaughtException", (error: Error) => {
-        void logger.error("center.process.uncaught_exception", {
+        void logger.error("中心进程未捕获异常", {
             errorName: error.name,
             errorMessage: error.message,
             errorStack: error.stack ?? null,
@@ -70,7 +70,7 @@ function installProcessFatalDiagnostics(logger: CenterLogger): void {
     // unhandledRejection: 第三方流或工具 Promise 拒绝必须消费成日志，不能让 Node 默认策略退出服务。
     process.on("unhandledRejection", (reason: unknown) => {
         const normalizedReason = normalizeFatalReason(reason);
-        void logger.error("center.process.unhandled_rejection", normalizedReason).catch(() => {
+        void logger.error("中心进程未处理拒绝", normalizedReason).catch(() => {
             // catch: 进程级诊断不能因为日志写入失败再次抛错。
         });
         process.stderr.write(`${normalizedReason.errorStack ?? normalizedReason.errorMessage}\n`);

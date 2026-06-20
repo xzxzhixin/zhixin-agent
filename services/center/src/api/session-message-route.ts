@@ -97,7 +97,7 @@ export function sendSessionMessageThroughCenter(
         session,
         body.contentMarkdown,
     );
-    void logger.info("center.message.user_input", {
+    void logger.info("用户消息输入", {
         sessionId: session.sessionId,
         projectId: session.projectId,
         turnId: sent.turnId,
@@ -266,7 +266,7 @@ async function runCreatedTurnInBackground(
                     errorMessage: truncateConsoleText(message),
                 },
             },
-            "center.turn_background.failed",
+            "后台轮次执行失败",
         );
         try {
             // updateTurnStatus: 后台执行抛错时必须同时更新 turn/task 终态，不能只留失败事件导致前端一直判定为 running。
