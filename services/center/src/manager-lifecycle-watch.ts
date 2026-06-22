@@ -109,17 +109,10 @@ export function installDesktopManagedLifecycleWatch(
 
         isClosing = true;
         clearInterval(timer);
-        void options.logger.info("桌面端管理者进程消失，中心服务自动退出", {
-            managerPid: config.managerPid,
-            checkIntervalMs: config.checkIntervalMs,
-        }).then(() => options.closeService()).catch((error) => {
-            void options.logger.error("桌面端管理者消失后中心服务关闭失败", {
-                errorMessage: error instanceof Error ? error.message : String(error),
-                errorStack: error instanceof Error ? error.stack ?? null : null,
-            }).finally(() => {
-                process.exit(1);
-            });
-        });
+        void closeServiceAfterManagerExit(
+            options,
+            config,
+        );
     }, config.checkIntervalMs);
 
     const handle: DesktopManagedLifecycleWatchHandle = {
@@ -153,6 +146,43 @@ export function registerDesktopManagedLifecycleManager(
     registration: DesktopManagedLifecycleWatchRegistration,
 ): boolean {
     return activeLifecycleWatch?.registerManager(registration) ?? false;
+}
+
+/**
+ * closeServiceAfterManagerExit：管理者进程消失后关闭中心服务。
+ *
+ * 关键逻辑：退出日志只做尽力写入，不能影响 closeService 执行，避免控制台断管时中心服务残留。
+ *
+ * @param options 日志实例和统一关闭函数。
+ * @param config 当前触发关闭的桌面壳管理者配置。
+ * @returns 关闭流程结束后没有返回值；关闭失败时强制以错误码退出。
+ */
+async function closeServiceAfterManagerExit(
+    options: DesktopManagedLifecycleWatchOptions,
+    config: DesktopManagedLifecycleConfig,
+): Promise<void> {
+    try {
+        await options.logger.info("桌面端管理者进程消失，中心服务自动退出", {
+            managerPid: config.managerPid,
+            checkIntervalMs: config.checkIntervalMs,
+        });
+    } catch {
+        // catch: IDEA 强停或父进程管道断开时，控制台日志可能失败；关闭服务不能依赖日志成功。
+    }
+
+    try {
+        await options.closeService();
+    } catch (error) {
+        try {
+            await options.logger.error("桌面端管理者消失后中心服务关闭失败", {
+                errorMessage: error instanceof Error ? error.message : String(error),
+                errorStack: error instanceof Error ? error.stack ?? null : null,
+            });
+        } catch {
+            // catch: 关闭失败后的错误日志同样只做尽力写入，防止二次断管掩盖最终退出。
+        }
+        process.exit(1);
+    }
 }
 
 /**

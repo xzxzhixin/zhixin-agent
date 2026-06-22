@@ -105,8 +105,13 @@ assertIncludes(
 );
 assertIncludes(
   sessionDomain,
-  "await invokeProviderModelGateway",
-  "会话执行链路必须等待异步流式模型网关，不能同步阻塞后再伪造流式事件。",
+  "runDeepAgentsAgentTurn",
+  "会话执行链路必须进入 Deep Agents 原生入口，不能回到旧模型网关入口。",
+);
+assertNotIncludes(
+  sessionDomain + modelGatewayRuntime,
+  "invokeProviderModelGateway",
+  "旧 invokeProviderModelGateway 入口已无真实调用方，不能继续残留。",
 );
 assertNotIncludes(
   sessionDomain + modelGatewayRuntime,

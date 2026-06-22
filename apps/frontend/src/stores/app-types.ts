@@ -652,6 +652,48 @@ export interface RunningTurnSnapshotRecoveryState {
     processStartedAt: string | null;
 }
 
+/** CenterLogLevel：中心服务日志等级协议值，对齐 pino 标准等级。 */
+export type CenterLogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
+
+/** CenterRuntimeEnvironment：中心服务当前运行环境分类。 */
+export type CenterRuntimeEnvironment = "development" | "production";
+
+/**
+ * CenterLogConfigView：中心服务日志配置视图。
+ *
+ * 来源：中心服务系统配置接口。
+ * 含义：展示当前显式配置、生效等级、环境默认等级和保存时间。
+ * 格式：JSON 对象。
+ * 默认值：未加载时为 null。
+ * 约束：configuredLevel 为 null 表示使用环境默认等级。
+ */
+export interface CenterLogConfigView {
+    /** configuredLevel: 用户显式保存的日志等级；null 表示使用环境默认。 */
+    configuredLevel: CenterLogLevel | null;
+    /** effectiveLevel: 当前中心服务进程实际生效的日志等级。 */
+    effectiveLevel: CenterLogLevel;
+    /** environmentDefaultLevel: 当前运行环境的默认日志等级。 */
+    environmentDefaultLevel: CenterLogLevel;
+    /** runtimeEnvironment: 当前中心服务运行环境分类。 */
+    runtimeEnvironment: CenterRuntimeEnvironment;
+    /** updatedAt: 最近一次保存日志配置的中心服务本机时间。 */
+    updatedAt: string | null;
+}
+
+/**
+ * CenterLogConfigDraft：中心服务日志配置表单草稿。
+ *
+ * 来源：中心服务页面日志等级下拉框。
+ * 含义：空字符串代表“默认（环境默认）”，保存时转为 null。
+ * 格式：JSON 对象。
+ * 默认值：configuredLevel 为空字符串。
+ * 约束：只保存用户选择，不自行推断 effectiveLevel。
+ */
+export interface CenterLogConfigDraft {
+    /** configuredLevel: 表单中的日志等级；空字符串表示恢复环境默认。 */
+    configuredLevel: CenterLogLevel | "";
+}
+
 /**
  * TurnStateReconcilerRuntime：运行中轮次状态收敛器最小运行接口。
  *
@@ -725,12 +767,10 @@ export interface ActiveConversationAgentState {
 }
 
 import type {
-    AgentConfigView,
     ProviderCapabilityDeclaration,
     ProviderProxyPolicy,
 } from "@zhixin/api-client";
 import type {
-    ComposerDraftModel,
     ComposerReferenceDraft,
 } from "@zhixin/ui";
 import type {ProjectRecord} from "@zhixin/shared";

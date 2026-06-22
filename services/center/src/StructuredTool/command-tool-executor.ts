@@ -10,7 +10,6 @@ import {
     type TurnGraphCheckpoint,
     withOptionalGraphCheckpoint,
 } from "../domain/turn-graph-domain.js";
-import {centerConsoleLogger} from "../logger.js";
 import {throwIfTurnRuntimeAborted} from "../domain/turn-runtime-cancel-registry.js";
 import {registerRunningCommandForTurn} from "../domain/turn-command-cancel-registry.js";
 
@@ -70,6 +69,7 @@ export interface CommandToolExecutionResult {
  * @param taskId 任务 ID。
  * @param turnId 轮次 ID。
  * @param request 命令请求。
+ * @param graphCheckpoint Deep Agents 图检查点。
  * @returns 命令输出摘要。
  */
 export async function executeCommandTool(
@@ -83,18 +83,6 @@ export async function executeCommandTool(
     const capability = resolveUnifiedToolCapability("builtin.command.run");
     const execution = tryResolveCommandExecution(request);
     if (!execution) {
-        centerConsoleLogger.error(
-            {
-                payload: {
-                    sessionId,
-                    turnId,
-                    taskId,
-                    toolCallId: request.toolCallId ?? null,
-                    inputSummary: truncateConsoleText(request.inputSummary),
-                },
-            },
-            "命令工具输入无效",
-        );
         return resolveCommandToolInputFailure(
             events,
             capability,
@@ -235,18 +223,6 @@ export async function executeCommandTool(
             }
             settled = true;
             cleanupRunningCommandRegistration();
-            centerConsoleLogger.error(
-                {
-                    payload: {
-                        sessionId,
-                        turnId,
-                        taskId,
-                        toolCallId: request.toolCallId ?? null,
-                        errorMessage: truncateConsoleText(error.message),
-                    },
-                },
-                "命令工具启动失败",
-            );
             appendOutputChunk(error.message);
             resolveCommandToolResult(
                 events,
@@ -457,19 +433,6 @@ function createCommandEnvironment(): NodeJS.ProcessEnv {
         // DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION: 保留控制台重定向颜色兼容，不改变业务输出。
         DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION: "1",
     };
-}
-
-/**
- * truncateConsoleText：截断命令工具控制台日志，避免长脚本或长输出刷屏。
- *
- * @param text 原始命令、摘要或输出。
- * @returns 适合开发控制台的一行摘要。
- */
-function truncateConsoleText(text: string): string {
-    const normalizedText = text.replace(/\s+/gu, " ").trim();
-    return normalizedText.length > 240
-        ? `${normalizedText.slice(0, 240)}...`
-        : normalizedText;
 }
 
 /**
@@ -697,6 +660,7 @@ function resolveCommandToolInputFailure(
  * @param chunks 已收集的输出块。
  * @param exitCode 进程退出码；启动失败时为 null。
  * @param resolve Promise 完成回调。
+ * @param graphCheckpoint Deep Agents 图检查点。
  * @returns 没有返回值。
  */
 function resolveCommandToolResult(

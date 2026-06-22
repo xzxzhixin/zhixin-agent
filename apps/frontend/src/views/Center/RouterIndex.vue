@@ -139,6 +139,7 @@ const providerModelSourceText = computed(() => {
  */
 onMounted(() => {
   void appStore.syncDesktopStatus();
+  void appStore.loadCenterLogConfig();
 });
 
 </script>
@@ -197,6 +198,61 @@ onMounted(() => {
             </el-button>
           </div>
         </el-form-item>
+        <el-form-item label="日志等级">
+          <div class="center-directory-row">
+            <el-select
+                v-model="appStore.centerLogConfigDraft.configuredLevel"
+                class="center-log-level-select"
+            >
+              <el-option
+                  label="默认（环境默认）"
+                  value=""
+              />
+              <el-option
+                  label="trace"
+                  value="trace"
+              />
+              <el-option
+                  label="debug"
+                  value="debug"
+              />
+              <el-option
+                  label="info"
+                  value="info"
+              />
+              <el-option
+                  label="warn"
+                  value="warn"
+              />
+              <el-option
+                  label="error"
+                  value="error"
+              />
+              <el-option
+                  label="fatal"
+                  value="fatal"
+              />
+            </el-select>
+            <el-button @click="appStore.saveCenterLogConfig">
+              保存日志配置
+            </el-button>
+          </div>
+        </el-form-item>
+        <p class="panel-muted">
+          当前生效等级：{{ appStore.centerLogConfig?.effectiveLevel ?? "未加载" }}
+        </p>
+        <p class="panel-muted">
+          环境默认等级：{{ appStore.centerLogConfig?.environmentDefaultLevel ?? "未加载" }}
+        </p>
+        <p class="panel-muted">
+          最近保存时间：{{ formatDisplayTime(appStore.centerLogConfig?.updatedAt) }}
+        </p>
+        <el-alert
+            v-if="managementError"
+            type="error"
+            :closable="false"
+            :title="managementError"
+        />
         <el-alert
             v-if="appStore.desktopStatus?.isExternalCenterDirectory"
             type="warning"

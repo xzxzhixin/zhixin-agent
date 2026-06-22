@@ -12,11 +12,9 @@ import {
     type HealthResponse,
     type McpConfigView,
     type PluginConfigView,
-    type ProviderCapabilityDeclaration,
     type ProviderConfigView,
     type ProviderModelListView,
     type ProviderProtocolPluginView,
-    type ProviderProxyPolicy,
     type ProxyConfigView,
     type RuntimeConfigView,
     type SessionDetailResult,
@@ -43,13 +41,12 @@ import {
     type ThemeMode,
 } from "../runtime";
 import {
-    buildProviderModelRefreshDraft, convertIdePayloadToReference, createDefaultAgentStatusTree,
+    convertIdePayloadToReference, createDefaultAgentStatusTree,
     createMcpDraft, createPluginDraft, createAgentDraft, createProjectCodeSuggestion,
     createProjectFileSuggestion, createProjectFolderSuggestion, createProviderDraft,
     createProxyDraft, createRuntimeDraft, createSkillDraft, createUsageFilters,
     fallbackProjectsFromSessions,
-    mergeAgentStatusTree, normalizeOptionalText, parseEnvironmentVariables, readPluginConfig,
-    formatJsonText, resolveComposerProjectId,
+    mergeAgentStatusTree, resolveComposerProjectId,
 } from "./app-helpers";
 import {
     createManagementActions,
@@ -84,6 +81,8 @@ interface SessionDeletedPayload {
 import type {
     AgentStatusTreeNode,
     AgentDraft,
+    CenterLogConfigDraft,
+    CenterLogConfigView,
     ComposerEditFile,
     ComposerSettings,
     DesktopCenterStatus,
@@ -393,6 +392,7 @@ export const useAppStore = defineStore("app", {
          * managementErrors: 管理页最近一次可见错误。
          */
         managementErrors: {
+            center: "",
             providers: "",
             proxies: "",
             runtimes: "",
@@ -401,7 +401,7 @@ export const useAppStore = defineStore("app", {
             mcp: "",
             skills: "",
             agents: "",
-        } as Record<"providers" | "proxies" | "runtimes" | "usage" | "plugins" | "mcp" | "skills" | "agents", string>,
+        } as Record<"center" | "providers" | "proxies" | "runtimes" | "usage" | "plugins" | "mcp" | "skills" | "agents", string>,
 
         /**
          * webSocketClient: 运行期 WebSocket 客户端实例。
@@ -420,6 +420,24 @@ export const useAppStore = defineStore("app", {
             port: 8866,
             centerDirectory: "",
         },
+
+        /**
+         * centerLogConfig: 中心服务日志配置状态。
+         *
+         * 来源：中心服务日志配置接口。
+         * 默认值：null，表示尚未加载。
+         */
+        centerLogConfig: null as CenterLogConfigView | null,
+
+        /**
+         * centerLogConfigDraft: 中心服务日志配置表单草稿。
+         *
+         * 来源：中心服务页面日志等级下拉框。
+         * 默认值：空字符串，表示使用环境默认等级。
+         */
+        centerLogConfigDraft: {
+            configuredLevel: "",
+        } as CenterLogConfigDraft,
 
         /**
          * restartRequired: 最近一次中心服务配置保存后的重启状态。

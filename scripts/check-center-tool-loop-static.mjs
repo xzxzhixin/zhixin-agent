@@ -63,10 +63,6 @@ assertIncludes(sharedTypes, "UnifiedToolRiskLevel", "共享协议缺少工具风
 assertIncludes(sharedTypes, "UnifiedToolInputSchema", "共享协议缺少工具输入 schema");
 assertIncludes(toolRuntime, "inputSchema", "工具运行时缺少结构化输入 schema");
 assertIncludes(toolRuntime, "listAvailableModelToolSpecs", "工具运行时缺少模型工具定义转换函数");
-assertIncludes(modelGateway, "const tools = await listAvailableModelToolSpecsForCenter", "模型网关必须读取中心服务工具定义");
-assertIncludes(modelGateway, "buildOpenAiChatPayload", "模型网关必须把工具定义传入 OpenAI Chat payload");
-assertIncludes(modelGateway, "tool_calls", "模型网关缺少 OpenAI tool_calls 解析");
-assertIncludes(modelGateway, "tool_call_id", "模型网关缺少 OpenAI tool_call_id 回填");
 assertIncludes(deepAgentsAgent, "createDeepAgent({", "Deep Agents 原生入口缺少 createDeepAgent 调用");
 assertIncludes(deepAgentsAgent, "model: createLangChainChatModel(", "Deep Agents 原生入口必须直接注入 LangChain model");
 assertIncludes(deepAgentsAgent, "run.toolCalls", "Deep Agents 原生入口必须消费工具调用流");
@@ -80,5 +76,7 @@ assertNotIncludes(toolRuntime, "normalized.includes(\"node\")", "工具运行时
 assertNotIncludes(toolRuntime, "normalized.includes(\"python\")", "工具运行时仍通过 python 文本硬编码触发工具");
 assertNotIncludes(toolRuntime, "planUnifiedToolCallForUserText", "工具运行时不能继续保留按用户文本猜测工具调用的旧入口");
 assertNotIncludes(deepAgentsAgent, "buildUnifiedToolCallIntentFromModelCall", "Deep Agents 原生入口不能再依赖旧工具意图转换器");
-assertNotIncludes(deepAgentsAgent, "continueProviderModelGatewayWithToolResults", "Deep Agents 原生入口不能再回到旧模型工具回填循环");
+assertNotIncludes(deepAgentsAgent + modelGateway, "invokeProviderModelGateway", "中心服务不能再保留旧模型网关入口");
+assertNotIncludes(deepAgentsAgent + modelGateway, "continueProviderModelGatewayWithToolResults", "中心服务不能再保留旧模型工具回填循环");
+assertNotIncludes(modelGateway, "buildOpenAiChatPayload", "旧 OpenAI payload 拼装入口已被 Deep Agents 原生消息链路替代");
 

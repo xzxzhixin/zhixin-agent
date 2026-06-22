@@ -563,8 +563,8 @@ assertIncludes(
 );
 assertIncludes(
   modelGateway,
-  "ChatOpenAI",
-  "模型网关必须出现 ChatOpenAI 初始化路径。",
+  "OpenAiCompatibleChatModel",
+  "模型网关必须通过 OpenAI 兼容 ChatModel 包装创建模型。",
 );
 assertIncludes(
   modelGateway,
@@ -577,14 +577,14 @@ assertNotIncludes(
   "LangChain ChatModel 不能只是实例化后丢弃，必须承载真实模型调用。",
 );
 assertIncludes(
-  modelGateway,
-  "invokeLangChainChatModel",
-  "模型网关必须通过 LangChain 执行真实模型调用。",
+  deepAgentsAgent,
+  "model: createLangChainChatModel(",
+  "Deep Agents 原生入口必须直接注入 LangChain ChatModel。",
 );
 assertIncludes(
-  modelGateway,
-  "bindTools",
-  "模型工具定义必须通过 LangChain bindTools 注入。",
+  deepAgentsAgent,
+  "createDeepAgent({",
+  "模型工具定义必须交给 Deep Agents 原生 agent 装配。",
 );
 for (const legacyProtocol of [
   "ModelProtocolPluginDescriptor",

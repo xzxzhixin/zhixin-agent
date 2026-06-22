@@ -1,127 +1,75 @@
 import {
     createWriteStream,
-    readdirSync,
     mkdirSync,
+    readdirSync,
     statSync,
 } from "node:fs";
 import {join} from "node:path";
 import {Writable} from "node:stream";
-import pino, {type Logger} from "pino";
 
+import pino, {
+    type Logger,
+    type LoggerOptions,
+    type StreamEntry,
+} from "pino";
+
+import {
+    type CenterLogLevel,
+    readCenterLogConfig,
+} from "./system-config.js";
 import {formatCenterLocalDateTime} from "./time.js";
 
-/** CENTER_LOG_MESSAGE_KEY：中心服务日志消息字段名。 */
+/** CENTER_LOG_MESSAGE_KEY：中心服务日志事件字段名。 */
 const CENTER_LOG_MESSAGE_KEY = "event";
 
 /** CENTER_LOG_MAX_BYTES：单个中心服务日志文件最大字节数，来源于项目计划要求，固定 1MB。 */
 const CENTER_LOG_MAX_BYTES = 1024 * 1024;
 
+/** CENTER_LOG_DEPTH_LIMIT：日志脱敏递归深度上限，避免异常对象导致日志序列化过深。 */
+const CENTER_LOG_DEPTH_LIMIT = 8;
+
+/** CENTER_LOG_STREAM_LEVEL：pino 多流最低接收等级，实际过滤由 logger.level 动态控制。 */
+const CENTER_LOG_STREAM_LEVEL: CenterLogLevel = "trace";
+
+/** CONSOLE_PIPE_BROKEN_ERROR_CODE：Node 在 stdout 管道断开时抛出的错误码。 */
+const CONSOLE_PIPE_BROKEN_ERROR_CODE = "EPIPE";
+
 /**
- * CenterLogPayload：中心服务控制台日志结构。
+ * CenterLogger：中心服务统一 pino 日志管线。
  *
- * 来源：中心服务日志调用点。
- * 含义：约束控制台过滤中间态时读取的结构字段。
- * 格式：pino 日志对象中的 payload 字段。
- * 默认值：无。
- * 约束：字段只用于日志展示，不作为业务事实源。
- */
-interface CenterLogPayload {
-    /** status: 事件或过程状态；running 属于中间态，控制台不输出。 */
-    status?: unknown;
-
-    /** eventType: 中心服务事件类型，用于识别中间态过程事件。 */
-    eventType?: unknown;
-}
-
-/**
- * CenterLogLine：中心服务日志调用对象。
- *
- * 来源：centerConsoleLogger 调用点。
- * 含义：统一读取 payload，避免调用点散落控制台编码和过滤逻辑。
- * 格式：pino 对象日志。
- * 默认值：无。
- * 约束：payload 不应包含敏感明文。
- */
-interface CenterLogLine {
-    /** payload: 结构化日志载荷。 */
-    payload?: CenterLogPayload;
-}
-
-/**
- * CenterFileLogPayload：中心服务文件日志结构。
- *
- * 来源：CenterLogger 调用点。
- * 含义：识别是否属于不应固化到文件的流式中间态。
- * 格式：结构化日志 payload 对象。
- * 默认值：无。
- * 约束：只做日志过滤判断，不作为业务事实源。
- */
-interface CenterFileLogPayload {
-    /** eventType: 固定日志事件名或中心事件类型。 */
-    eventType?: unknown;
-
-    /** status: 当前日志对应状态；running 常见于流式过程。 */
-    status?: unknown;
-}
-
-/**
- * CenterConsoleLogger：中心服务开发控制台日志门面。
- *
- * 来源：pino 第三方日志包。
- * 含义：过滤运行中中间态，并保持 UTF-8 原文输出，确保中文在开发控制台正确显示。
- * 格式：info/error 方法兼容现有调用点。
- * 默认值：输出到 stdout。
- * 约束：文件日志仍保留 UTF-8 原文，控制台只做开发排查摘要。
- */
-interface CenterConsoleLogger {
-    /**
-     * info：输出信息级控制台日志。
-     *
-     * @param line 结构化日志对象。
-     * @param event 固定日志事件名。
-     * @returns 没有返回值。
-     */
-    info: (line: CenterLogLine, event: string) => void;
-
-    /**
-     * error：输出错误级控制台日志。
-     *
-     * @param line 结构化日志对象。
-     * @param event 固定日志事件名。
-     * @returns 没有返回值。
-     */
-    error: (line: CenterLogLine, event: string) => void;
-}
-
-/**
- * CenterLogger：中心服务文件日志。
+ * 用途：同一条日志通过 pino 同步写入控制台和中心目录 logs 文件。
+ * 关键逻辑：日志等级动态读取中心配置文件，流式输出只受等级控制，不再被管线硬过滤。
  */
 export class CenterLogger {
-    /** logStream: 按大小轮转的日志写入流，来源于中心目录 logs 子目录。 */
-    private readonly logStream: RotatingCenterLogStream;
-
-    /** logger: pino 文件日志实例。 */
+    /** logger: pino 日志实例，负责 JSON 序列化、等级判断和多流写入。 */
     private readonly logger: Logger;
 
+    /** centerDirectory: 中心目录绝对路径，用于动态读取日志等级配置。 */
+    private readonly centerDirectory: string;
+
     /**
-     * constructor：绑定日志目录并创建按 1MB 轮转的文件日志。
+     * constructor：绑定日志目录并创建 pino 多流日志。
      *
      * @param centerDirectory 中心目录绝对路径。
      */
     constructor(centerDirectory: string) {
-        this.logStream = new RotatingCenterLogStream(join(
-            centerDirectory,
-            "logs",
-        ));
-        this.logger = pino(
-            {
-                base: null,
-                messageKey: CENTER_LOG_MESSAGE_KEY,
-                timestamp: () => {
-                    return `,"occurredAt":"${formatCenterLocalDateTime()}"`;
-                },
-            },
-            this.logStream,
+        this.centerDirectory = centerDirectory;
+        this.logger = createPinoLogger(centerDirectory);
+        this.syncDynamicLevel();
+    }
+
+    /**
+     * debug：写入调试级日志。
+     *
+     * @param event 固定事件名，便于后续按文本排查。
+     * @param payload 结构化日志载荷，写入前统一脱敏。
+     * @returns 日志写入完成后没有返回值。
+     */
+    async debug(event: string, payload: Record<string, unknown>): Promise<void> {
+        this.write(
+            "debug",
+            event,
+            payload,
         );
     }
 
@@ -129,12 +77,27 @@ export class CenterLogger {
      * info：写入信息级日志。
      *
      * @param event 固定事件名，便于后续按文本排查。
-     * @param payload 结构化日志载荷，不能包含敏感明文。
+     * @param payload 结构化日志载荷，写入前统一脱敏。
      * @returns 日志写入完成后没有返回值。
      */
     async info(event: string, payload: Record<string, unknown>): Promise<void> {
-        await this.write(
+        this.write(
             "info",
+            event,
+            payload,
+        );
+    }
+
+    /**
+     * warn：写入警告级日志。
+     *
+     * @param event 固定事件名，便于后续按文本排查。
+     * @param payload 结构化日志载荷，写入前统一脱敏。
+     * @returns 日志写入完成后没有返回值。
+     */
+    async warn(event: string, payload: Record<string, unknown>): Promise<void> {
+        this.write(
+            "warn",
             event,
             payload,
         );
@@ -144,11 +107,11 @@ export class CenterLogger {
      * error：写入错误级日志。
      *
      * @param event 固定事件名，便于追踪错误来源。
-     * @param payload 结构化错误载荷，不能包含敏感明文。
+     * @param payload 结构化错误载荷，写入前统一脱敏。
      * @returns 日志写入完成后没有返回值。
      */
     async error(event: string, payload: Record<string, unknown>): Promise<void> {
-        await this.write(
+        this.write(
             "error",
             event,
             payload,
@@ -156,28 +119,41 @@ export class CenterLogger {
     }
 
     /**
-     * write：追加一行 JSON 日志。
+     * write：通过 pino 追加一行 JSON 日志。
      *
      * @param level 日志级别。
      * @param event 固定事件名。
      * @param payload 结构化载荷。
-     * @returns 写入完成后没有返回值。
+     * @returns 没有返回值。
      */
-    private async write(
-        level: "info" | "error",
+    private write(
+        level: CenterLogLevel,
         event: string,
         payload: Record<string, unknown>,
-    ): Promise<void> {
-        if (shouldSkipFileLog(event, payload)) {
-            return;
-        }
-        // pinoLogger: 统一使用第三方日志包写 JSON 行，避免手写 JSON 和本机时间格式分叉。
+    ): void {
+        this.syncDynamicLevel();
         this.logger[level](
             {
-                payload,
+                payload: sanitizeLogValue(
+                    payload,
+                    0,
+                    new WeakSet<object>(),
+                ),
             },
             event,
         );
+    }
+
+    /**
+     * syncDynamicLevel：把配置文件中的最新等级同步到 pino 实例。
+     *
+     * @returns 没有返回值。
+     */
+    private syncDynamicLevel(): void {
+        const effectiveLevel = readCenterLogConfig(this.centerDirectory).effectiveLevel;
+        if (this.logger.level !== effectiveLevel) {
+            this.logger.level = effectiveLevel;
+        }
     }
 }
 
@@ -223,7 +199,7 @@ class RotatingCenterLogStream extends Writable {
      * _write：写入 pino JSON 行，超过 1MB 前切换到新文件。
      *
      * @param chunk pino 输出的 UTF-8 字节。
-     * @param _encoding Node 写入编码，pino 已传入字符串或 Buffer。
+     * @param _encoding Node 写入编码。
      * @param callback 写入完成回调。
      * @returns 没有返回值。
      */
@@ -361,114 +337,234 @@ class RotatingCenterLogStream extends Writable {
     }
 }
 
-/**
- * Utf8ConsoleStream：把 pino 控制台日志按 UTF-8 原文写入 stdout。
+// safeConsoleLogStream：pino 控制台输出安全流，断管后只丢弃控制台输出，不影响文件日志。
+const safeConsoleLogStream = createSafeConsoleLogStream();
+
+/** 
+ * createPinoLogger：创建中心服务统一 pino logger。
+ *
+ * @param centerDirectory 中心目录绝对路径。
+ * @returns pino logger 实例。
  */
-class Utf8ConsoleStream extends Writable {
-    /**
-     * _write：保持 pino 输出原文写入 stdout。
-     *
-     * @param chunk pino 输出内容。
-     * @param _encoding Node 写入编码。
-     * @param callback 写入完成回调。
-     * @returns 没有返回值。
-     */
-    override _write(
-        chunk: Buffer | string,
-        _encoding: BufferEncoding,
-        callback: (error?: Error | null) => void,
-    ): void {
-        process.stdout.write(
-            chunk,
-            callback,
-        );
-    }
+function createPinoLogger(centerDirectory: string): Logger {
+    const streams: StreamEntry[] = [
+        {
+            level: CENTER_LOG_STREAM_LEVEL,
+            stream: safeConsoleLogStream,
+        },
+        {
+            level: CENTER_LOG_STREAM_LEVEL,
+            stream: new RotatingCenterLogStream(join(
+                centerDirectory,
+                "logs",
+            )),
+        },
+    ];
+    return pino(
+        createPinoOptions(),
+        pino.multistream(
+            streams,
+            {
+                dedupe: false,
+            },
+        ),
+    );
 }
 
 /**
- * centerConsoleLogger：中心服务开发控制台结构化日志。
+ * createSafeConsoleLogStream：创建控制台日志安全写入流。
  *
- * 来源：pino 第三方日志包。
- * 含义：替代散落 console.info/error 的开发控制台日志，控制台按 UTF-8 原文显示中文。
- * 默认值：输出到当前进程 stdout。
- * 约束：payload 不写敏感明文，running 中间态不输出，时间使用中心服务本机时间格式。
- */
-export const centerConsoleLogger: CenterConsoleLogger = createCenterConsoleLogger();
-
-/**
- * createCenterConsoleLogger：创建控制台日志门面。
+ * 用途：包装 process.stdout，避免 IDEA 强停、父进程管道断开或控制台关闭时的 EPIPE 阻断 pino 多流写入。
+ * 关键逻辑：第一次遇到 EPIPE 后禁用控制台输出，后续日志直接丢弃；文件日志流继续由 pino multistream 写入。
  *
- * @returns 控制台日志门面。
+ * @returns 可交给 pino multistream 的 Writable 控制台流。
  */
-function createCenterConsoleLogger(): CenterConsoleLogger {
-    const logger = pino(
-        {
-            base: null,
-            messageKey: CENTER_LOG_MESSAGE_KEY,
-            timestamp: () => {
-                return `,"occurredAt":"${formatCenterLocalDateTime()}"`;
-            },
-        },
-        new Utf8ConsoleStream(),
-    );
-
-    return {
-        info: (line, event) => {
-            if (shouldSkipConsoleLog(line)) {
+function createSafeConsoleLogStream(): Writable {
+    // isPipeBroken: 控制台管道是否已经断开，断开后不再尝试写 stdout。
+    let isPipeBroken = false;
+    return new Writable({
+        write(
+            chunk: Buffer | string,
+            _encoding: BufferEncoding,
+            callback: (error?: Error | null) => void,
+        ): void {
+            if (isPipeBroken) {
+                callback();
                 return;
             }
-            logger.info(
-                line,
-                event,
-            );
+
+            // isCallbackSettled: stdout 可能通过同步异常、写入回调或 error 事件报告错误，只允许回调一次。
+            let isCallbackSettled = false;
+            let handleError: (error: Error) => void = () => {};
+            const finishWrite = (error?: Error | null): void => {
+                if (isCallbackSettled) {
+                    return;
+                }
+                isCallbackSettled = true;
+                process.stdout.off(
+                    "error",
+                    handleError,
+                );
+                callback(error);
+            };
+            handleError = (error: Error): void => {
+                if (isConsolePipeBrokenError(error)) {
+                    isPipeBroken = true;
+                    finishWrite();
+                    return;
+                }
+                finishWrite(error);
+            };
+
+            try {
+                process.stdout.once(
+                    "error",
+                    handleError,
+                );
+                process.stdout.write(
+                    chunk,
+                    (error) => {
+                        if (error && isConsolePipeBrokenError(error)) {
+                            isPipeBroken = true;
+                            finishWrite();
+                            return;
+                        }
+                        finishWrite(error);
+                    },
+                );
+            } catch (error) {
+                if (isConsolePipeBrokenError(error)) {
+                    isPipeBroken = true;
+                    finishWrite();
+                    return;
+                }
+                finishWrite(error instanceof Error ? error : new Error(String(error)));
+            }
         },
-        error: (line, event) => {
-            logger.error(
-                line,
-                event,
-            );
+    });
+}
+
+/**
+ * isConsolePipeBrokenError：判断控制台写入异常是否为 stdout 断管。
+ *
+ * @param error 捕获到的未知异常。
+ * @returns 命中 EPIPE 时返回 true。
+ */
+function isConsolePipeBrokenError(error: unknown): boolean {
+    return error instanceof Error
+        && "code" in error
+        && (error as NodeJS.ErrnoException).code === CONSOLE_PIPE_BROKEN_ERROR_CODE;
+}
+
+/**
+ * createPinoOptions：创建 pino 输出配置。
+ *
+ * @returns pino 配置对象。
+ */
+function createPinoOptions(): LoggerOptions {
+    return {
+        base: null,
+        level: "info",
+        messageKey: CENTER_LOG_MESSAGE_KEY,
+        timestamp: () => {
+            return `,"occurredAt":"${formatCenterLocalDateTime()}"`;
+        },
+        formatters: {
+            level: (label) => {
+                return {
+                    level: label,
+                };
+            },
         },
     };
 }
 
 /**
- * shouldSkipConsoleLog：判断控制台是否跳过中间态日志。
+ * sanitizeLogValue：递归脱敏日志载荷。
  *
- * @param line 结构化日志对象。
- * @returns true 表示跳过输出。
+ * @param value 日志原始值。
+ * @param depth 当前递归深度。
+ * @param seen 已访问对象集合，用于截断循环引用。
+ * @returns 可安全序列化的日志值。
  */
-function shouldSkipConsoleLog(line: CenterLogLine): boolean {
-    const payload = line.payload;
-    if (!payload) {
-        return false;
+function sanitizeLogValue(
+    value: unknown,
+    depth: number,
+    seen: WeakSet<object>,
+): unknown {
+    if (depth > CENTER_LOG_DEPTH_LIMIT) {
+        return "[日志字段过深已省略]";
     }
-    if (payload.status === "running") {
-        return true;
+
+    if (value === null || typeof value !== "object") {
+        if (typeof value === "bigint") {
+            return value.toString();
+        }
+        if (typeof value === "function") {
+            return "[函数已省略]";
+        }
+        if (typeof value === "symbol") {
+            return "[Symbol已省略]";
+        }
+        return value;
     }
-    return typeof payload.eventType === "string" && payload.eventType.endsWith(".started");
+
+    if (seen.has(value)) {
+        return "[循环引用已省略]";
+    }
+    seen.add(value);
+
+    if (value instanceof Error) {
+        return {
+            name: value.name,
+            message: value.message,
+            stack: value.stack,
+        };
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => {
+            return sanitizeLogValue(
+                item,
+                depth + 1,
+                seen,
+            );
+        });
+    }
+
+    const sanitized: Record<string, unknown> = {};
+    for (const [
+        key,
+        fieldValue,
+    ] of Object.entries(value as Record<string, unknown>)) {
+        if (isSensitiveLogField(key)) {
+            sanitized[key] = "[已脱敏]";
+            continue;
+        }
+        sanitized[key] = sanitizeLogValue(
+            fieldValue,
+            depth + 1,
+            seen,
+        );
+    }
+    return sanitized;
 }
 
 /**
- * shouldSkipFileLog：判断文件日志是否跳过流式中间态。
+ * isSensitiveLogField：判断字段名是否属于敏感信息。
  *
- * @param event 固定日志事件名。
- * @param payload 当前日志载荷。
- * @returns true 表示不写入固化文件日志。
+ * @param key 日志字段名。
+ * @returns 命中敏感字段片段时返回 true。
  */
-function shouldSkipFileLog(event: string, payload: Record<string, unknown>): boolean {
-    const filePayload = payload as CenterFileLogPayload;
-    const eventType = typeof filePayload.eventType === "string"
-        ? filePayload.eventType
-        : event;
-    if (eventType === "model.stream.delta" || eventType === "thinking.delta" || eventType === "tool.command.output") {
-        return true;
-    }
-    return filePayload.status === "running" && (
-        eventType.startsWith("model.stream.")
-        || eventType.startsWith("thinking.")
-        || eventType.endsWith(".delta")
-        || eventType.endsWith(".output")
-    );
+function isSensitiveLogField(key: string): boolean {
+    const normalizedKey = key.toLowerCase();
+    return normalizedKey.includes("apikey")
+        || normalizedKey.includes("api_key")
+        || normalizedKey.includes("authorization")
+        || normalizedKey.includes("cookie")
+        || normalizedKey.includes("password")
+        || normalizedKey.includes("token")
+        || normalizedKey.includes("secret");
 }
 
 /**

@@ -3,9 +3,9 @@ import {randomUUID} from "node:crypto";
 import type {EventRecord} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
-import {createDataAccess} from "./data-access/index.js";
+import {createDataAccess} from "./data-access";
 import type {CenterLogger} from "./logger.js";
-import {centerConsoleLogger} from "./logger.js";
+import type {CenterLogLevel} from "./system-config.js";
 import {formatCenterLocalDateTime} from "./time.js";
 
 export class CenterEventStore {
@@ -33,6 +33,7 @@ export class CenterEventStore {
      * constructor：绑定中心服务数据库。
      *
      * @param database 中心服务 SQLite 封装。
+     * @param logger 中心服务统一日志实例；为空时不镜像事件日志。
      * @param onAppended 单条事件落库后的可选回调。
      */
     constructor(
@@ -119,25 +120,22 @@ export class CenterEventStore {
             errorCode: input.errorCode ?? null,
             traceId,
         });
-        writeCenterEventToConsole(event);
-        void writeCenterEventToFile(
+        void writeCenterEventToLog(
             this.logger,
             event,
         ).catch((error: unknown) => {
             const errorMessage = error instanceof Error
                 ? error.message
                 : "中心服务事件文件日志写入失败。";
-            centerConsoleLogger.error(
-                {
-                    payload: {
-                        eventType: event.eventType,
-                        turnId: event.turnId,
-                        taskId: event.taskId,
-                        traceId,
-                        errorMessage,
-                    },
-                },
+            void this.logger?.error(
                 "中心事件文件日志写入失败",
+                {
+                    eventType: event.eventType,
+                    turnId: event.turnId,
+                    taskId: event.taskId,
+                    traceId,
+                    errorMessage,
+                },
             );
         });
         if (this.onAppended) {
@@ -147,17 +145,15 @@ export class CenterEventStore {
                 const errorMessage = error instanceof Error
                     ? error.message
                     : "中心服务事件追加监听器执行失败。";
-                centerConsoleLogger.error(
-                    {
-                        payload: {
-                            eventType: event.eventType,
-                            turnId: event.turnId,
-                            taskId: event.taskId,
-                            traceId,
-                            errorMessage,
-                        },
-                    },
+                void this.logger?.error(
                     "中心事件追加监听器执行失败",
+                    {
+                        eventType: event.eventType,
+                        turnId: event.turnId,
+                        taskId: event.taskId,
+                        traceId,
+                        errorMessage,
+                    },
                 );
             }
         }
@@ -196,20 +192,21 @@ export function createBroadcastingEventStore(
 }
 
 /**
- * writeCenterEventToFile：把中心服务事件镜像到固化文件日志。
+ * writeCenterEventToLog：把中心服务事件同步写入统一日志管线。
  *
- * @param logger 中心服务文件日志；为空时跳过。
+ * @param logger 中心服务统一日志；为空时跳过。
  * @param event 已落库中心服务事件。
  * @returns 没有返回值。
  */
-async function writeCenterEventToFile(
+async function writeCenterEventToLog(
     logger: CenterLogger | null,
     event: EventRecord,
 ): Promise<void> {
     if (!logger) {
         return;
     }
-    await logger.info("中心事件", {
+    const logLevel = resolveCenterEventLogLevel(event);
+    await logger[logLevel]("中心事件", {
         eventType: event.eventType,
         status: event.status,
         scopeType: event.scopeType,
@@ -232,77 +229,34 @@ async function writeCenterEventToFile(
 }
 
 /**
- * writeCenterEventToConsole：把中心服务事实事件同步输出到开发控制台。
+ * resolveCenterEventLogLevel：解析中心事件镜像日志等级。
  *
  * @param event 已落库的中心服务事件。
- * @returns 没有返回值。
+ * @returns 日志等级。
  */
-function writeCenterEventToConsole(event: EventRecord): void {
-    if (!shouldWriteCenterEventToConsole(event)) {
-        return;
-    }
-    // consolePayload: 控制台只保留排查关键字段和截断摘要，完整事实源仍以 SQLite events 表为准。
-    const consolePayload = {
-        eventType: event.eventType,
-        status: event.status,
-        sessionId: event.sessionId,
-        turnId: event.turnId,
-        taskId: event.taskId,
-        stepId: event.stepId,
-        sequence: event.sequence,
-        traceId: event.traceId,
-        summary: truncateConsoleText(event.summary),
-        occurredAt: event.occurredAt,
-    };
+function resolveCenterEventLogLevel(event: EventRecord): CenterLogLevel {
     if (event.status === "failed" || event.errorCode) {
-        centerConsoleLogger.error(
-            {
-                payload: consolePayload,
-            },
-            "中心事件",
-        );
-        return;
+        return "error";
     }
-    centerConsoleLogger.info(
-        {
-            payload: consolePayload,
-        },
-        "中心事件",
-    );
+    if (isStreamingCenterEvent(event)) {
+        return "debug";
+    }
+    if (event.status === "running" || event.eventType.endsWith(".started")) {
+        return "debug";
+    }
+    return "info";
 }
 
 /**
- * shouldWriteCenterEventToConsole：判断事件是否需要输出到开发控制台。
+ * isStreamingCenterEvent：判断中心事件是否属于流式或高频过程输出。
  *
  * @param event 已落库中心服务事件。
- * @returns 失败、命令启动、终态和关键审计节点返回 true；运行中和输出块等中间态返回 false。
+ * @returns 属于流式输出时返回 true。
  */
-function shouldWriteCenterEventToConsole(event: EventRecord): boolean {
-    if (event.status === "failed" || event.errorCode) {
-        return true;
-    }
-    // 轮次边界需要固定输出一头一尾，便于控制台直接审计单轮开始和终态。
-    if (event.eventType === "turn.started" || event.eventType === "turn.updated") {
-        return true;
-    }
-    if (event.eventType === "tool.command.output") {
-        return false;
-    }
-    if (event.eventType === "tool.command.started") {
-        return true;
-    }
-    return event.status !== "running" && !event.eventType.endsWith(".started");
-}
-
-/**
- * truncateConsoleText：截断控制台摘要，避免长命令、长文档或模型正文刷屏。
- *
- * @param text 原始摘要。
- * @returns 控制台可读的短文本。
- */
-function truncateConsoleText(text: string): string {
-    const normalizedText = text.replace(/\s+/gu, " ").trim();
-    return normalizedText.length > 240
-        ? `${normalizedText.slice(0, 240)}...`
-        : normalizedText;
+function isStreamingCenterEvent(event: EventRecord): boolean {
+    return event.eventType === "model.stream.delta"
+        || event.eventType === "thinking.delta"
+        || event.eventType === "tool.command.output"
+        || event.eventType.endsWith(".delta")
+        || event.eventType.endsWith(".output");
 }

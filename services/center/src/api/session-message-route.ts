@@ -8,7 +8,6 @@ import {
     createErrorResponse,
     createSuccessResponse,
 } from "../helpers.js";
-import {centerConsoleLogger} from "../logger.js";
 import {broadcastEvents} from "../realtime.js";
 import {
     appendSessionTouchedEvent,
@@ -162,6 +161,7 @@ export function sendSessionMessageThroughCenter(
             centerDirectory,
             memoryQueues,
             () => pushedSequence,
+            logger,
         );
     }, 0);
 
@@ -222,7 +222,10 @@ export function registerSessionMessageRoute(context: SessionMessageRouteContext)
  * @param session 当前会话记录。
  * @param sent 当前发送轮次身份。
  * @param contentMarkdown 用户消息正文。
+ * @param centerDirectory 中心目录绝对路径。
+ * @param memoryQueues 智能体记忆单写队列。
  * @param readPushedSequence 读取已实时推送的最大序号。
+ * @param logger 中心服务统一日志实例。
  * @returns 没有返回值。
  */
 async function runCreatedTurnInBackground(
@@ -238,6 +241,7 @@ async function runCreatedTurnInBackground(
     centerDirectory: string,
     memoryQueues: Map<string, MemoryQueueState>,
     readPushedSequence: () => number,
+    logger: import("../logger.js").CenterLogger,
 ): Promise<void> {
     try {
         await completeCreatedTurn(
@@ -257,16 +261,14 @@ async function runCreatedTurnInBackground(
         );
     } catch (error) {
         const message = error instanceof Error ? error.message : "MESSAGE_TURN_ASYNC_FAILED";
-        centerConsoleLogger.error(
-            {
-                payload: {
-                    sessionId: session.sessionId,
-                    turnId: sent.turnId,
-                    taskId: sent.taskId,
-                    errorMessage: truncateConsoleText(message),
-                },
-            },
+        void logger.error(
             "后台轮次执行失败",
+            {
+                sessionId: session.sessionId,
+                turnId: sent.turnId,
+                taskId: sent.taskId,
+                errorMessage: truncateConsoleText(message),
+            },
         );
         try {
             // updateTurnStatus: 后台执行抛错时必须同时更新 turn/task 终态，不能只留失败事件导致前端一直判定为 running。

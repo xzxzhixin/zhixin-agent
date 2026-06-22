@@ -21,6 +21,7 @@ import {registerAuditRoutes} from "./audit.js";
 import {registerProviderRoutes} from "./provider-routes.js";
 import {registerUsageRoutes} from "./usage-routes.js";
 import {registerCenterSyncRoute} from "./sync-route.js";
+import {registerCenterConfigRoutes} from "./center-config-routes.js";
 import type {CenterApiRouteContext} from "./route-context.js";
 
 /**
@@ -50,6 +51,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     registerApprovalRoutes(context);
     registerAttachmentRoutes(context);
     registerAuditRoutes(context);
+    registerCenterConfigRoutes(context);
     registerProviderRoutes(
         context.app,
         context.database,
