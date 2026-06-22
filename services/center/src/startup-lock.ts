@@ -155,7 +155,7 @@ function parseStartupLockFile(content: string): StartupLockFile | null {
  * @param pid 进程 ID。
  * @returns 进程存在时返回 true。
  */
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
     if (pid === process.pid) {
         return true;
     }

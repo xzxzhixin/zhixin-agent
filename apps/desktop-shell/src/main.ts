@@ -156,6 +156,8 @@ const CENTER_HEALTH_WAIT_TIMEOUT_MS = 30000;
 const CENTER_HEALTH_RETRY_INTERVAL_MS = 300;
 // CENTER_STOP_WAIT_TIMEOUT_MS：退出时等待中心服务释放端口的最长时间，避免应用退出被残留服务长期阻塞。
 const CENTER_STOP_WAIT_TIMEOUT_MS = 5000;
+// CENTER_MANAGER_CHECK_INTERVAL_MS：中心服务监护桌面壳进程的检查间隔，强杀场景下用于尽快释放端口。
+const CENTER_MANAGER_CHECK_INTERVAL_MS = 1000;
 // CENTER_STARTUP_LOCK_FILE_NAME：中心服务启动锁文件名，用于复用场景下定位已有中心服务进程。
 const CENTER_STARTUP_LOCK_FILE_NAME = ".zhixin-center.lock";
 // EXTERNAL_LINK_PROTOCOLS: 桌面端主窗口外链交给系统默认处理器，避免主窗口跳出致心工作台。
@@ -802,6 +804,9 @@ function startCenterService(): void {
       PATH: resolveCenterProcessPath(process.env.PATH),
       ZHIXIN_CENTER_PORT: String(centerLaunchConfig.port),
       ZHIXIN_CENTER_DIR: centerLaunchConfig.centerDirectory,
+      ZHIXIN_CENTER_LIFECYCLE_MODE: "desktop-managed",
+      ZHIXIN_CENTER_MANAGER_PID: String(process.pid),
+      ZHIXIN_CENTER_MANAGER_CHECK_INTERVAL_MS: String(CENTER_MANAGER_CHECK_INTERVAL_MS),
       ZHIXIN_FRONTEND_DIST: frontendDistPath,
       ZHIXIN_FRONTEND_DEV_URL: frontendDevUrl ?? "",
       ZHIXIN_BUILTIN_PLUGINS_DIR: builtinPluginsPath,
@@ -1199,6 +1204,40 @@ async function waitForCenterHealth(): Promise<void> {
 }
 
 /**
+ * registerDesktopManagedLifecycle：向当前中心服务登记桌面壳管理者进程。
+ *
+ * @returns 登记成功后没有返回值。
+ */
+async function registerDesktopManagedLifecycle(): Promise<void> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${centerLaunchConfig.port}/api/center/lifecycle/desktop-manager`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        lifecycleMode: "desktop-managed",
+        managerPid: process.pid,
+        checkIntervalMs: CENTER_MANAGER_CHECK_INTERVAL_MS,
+      }),
+    });
+    if (!response.ok) {
+      lastCenterError = `桌面端生命周期登记失败：HTTP ${response.status}`;
+      writeDesktopShellLog(
+        "error",
+        lastCenterError,
+      );
+    }
+  } catch (error) {
+    lastCenterError = `桌面端生命周期登记失败：${error instanceof Error ? error.message : "未知错误"}`;
+    writeDesktopShellLog(
+      "error",
+      lastCenterError,
+    );
+  }
+}
+
+/**
  * escapeHtml：转义错误页中的诊断文本。
  *
  * @param value 原始诊断文本。
@@ -1285,6 +1324,7 @@ async function createWindow(): Promise<void> {
   const targetUrl = resolveDesktopWindowUrl();
   try {
     await waitForCenterHealth();
+    await registerDesktopManagedLifecycle();
     await mainWindow.loadURL(targetUrl);
   } catch (error) {
     lastCenterError = error instanceof Error ? error.message : "桌面窗口加载中心服务页面失败";

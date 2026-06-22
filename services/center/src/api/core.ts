@@ -3,8 +3,11 @@ import {
 } from "@zhixin/shared";
 
 import {
+    createErrorResponse,
     createSuccessResponse,
+    isRequestFromLocalHost,
 } from "../helpers.js";
+import {registerDesktopManagedLifecycleManager} from "../manager-lifecycle-watch.js";
 import {
     CORE_SQLITE_TABLES,
     type BootstrapStateResponse,
@@ -43,4 +46,43 @@ export function registerCoreRoutes(context: CenterApiRouteContext): void {
         coreTables: [...CORE_SQLITE_TABLES],
         appliedMigrations: database.listAppliedMigrations(),
     }));
+
+    app.post("/api/center/lifecycle/desktop-manager", async (request) => {
+        if (!isRequestFromLocalHost(request.ip)) {
+            return createErrorResponse(
+                "CENTER_LIFECYCLE_LOCAL_ONLY",
+                "桌面端生命周期登记只允许本机请求",
+                "中心服务生命周期只能由本机桌面端管理。",
+            );
+        }
+
+        const body = (request.body ?? {}) as {
+            /** lifecycleMode: 桌面壳声明的生命周期模式。 */
+            lifecycleMode?: string;
+            /** managerPid: 桌面壳主进程 PID。 */
+            managerPid?: number;
+            /** checkIntervalMs: 可选管理者判活检查间隔，单位毫秒。 */
+            checkIntervalMs?: number;
+        };
+        const registered = registerDesktopManagedLifecycleManager({
+            lifecycleMode: body.lifecycleMode ?? "",
+            managerPid: body.managerPid ?? 0,
+            checkIntervalMs: body.checkIntervalMs,
+        });
+        if (!registered) {
+            return createErrorResponse(
+                "CENTER_LIFECYCLE_MANAGER_INVALID",
+                "桌面端生命周期登记参数无效",
+                "桌面端生命周期登记参数无效。",
+            );
+        }
+
+        await context.logger.info("桌面端管理者进程已登记", {
+            managerPid: body.managerPid,
+            checkIntervalMs: body.checkIntervalMs ?? null,
+        });
+        return createSuccessResponse({
+            registered: true,
+        });
+    });
 }

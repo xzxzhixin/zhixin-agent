@@ -3,6 +3,7 @@ import {fileURLToPath} from "node:url";
 
 import {readCenterServiceConfig} from "./config.js";
 import {CenterLogger} from "./logger.js";
+import {installDesktopManagedLifecycleWatch} from "./manager-lifecycle-watch.js";
 import {createCenterService} from "./service.js";
 
 export {readCenterServiceConfig} from "./config.js";
@@ -35,16 +36,39 @@ async function runFromCli(): Promise<void> {
         port: config.port,
     });
 
-    const shutdown = async (): Promise<void> => {
-        await service.close();
-        process.exit(0);
+    // lifecycleWatch: 桌面托管模式下监护桌面壳主进程，正常关闭时需要先停掉定时器。
+    let lifecycleWatch: {stop: () => void} | null = null;
+    // isShuttingDown: 多个信号或管理者消失只能进入一次关闭流程。
+    let isShuttingDown = false;
+
+    const shutdown = async (exitCode = 0): Promise<void> => {
+        if (isShuttingDown) {
+            return;
+        }
+        isShuttingDown = true;
+        lifecycleWatch?.stop();
+        try {
+            await service.close();
+            process.exit(exitCode);
+        } catch (error) {
+            await logger.error("中心服务关闭失败", {
+                errorMessage: error instanceof Error ? error.message : String(error),
+                errorStack: error instanceof Error ? error.stack ?? null : null,
+            });
+            process.exit(1);
+        }
     };
 
+    lifecycleWatch = installDesktopManagedLifecycleWatch({
+        logger,
+        closeService: () => shutdown(0),
+    });
+
     process.once("SIGINT", () => {
-        void shutdown();
+        void shutdown(0);
     });
     process.once("SIGTERM", () => {
-        void shutdown();
+        void shutdown(0);
     });
 }
 
