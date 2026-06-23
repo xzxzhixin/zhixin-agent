@@ -29,10 +29,10 @@ import {commitMainAgentMemoryAfterTurn} from "./domain/session-turn-effects.js";
 import {handleWorkerMessage, startWorkerTask} from "./domain/workflow-domain.js";
 import {
     buildMainAgentMemoryPrompt,
-    createLangChainChatModel,
     listMainAgentMemoryPromptEntries,
-    type ProviderModelGatewayResult,
-} from "./model-gateway-runtime.js";
+} from "./model-provider/MainAgentMemoryPrompt.js";
+import {ModelProviderRuntimeFactory} from "./model-provider/ModelProviderRuntimeFactory.js";
+import type {ProviderModelGatewayResult} from "./model-provider/ModelProviderRuntimeTypes.js";
 import {formatCenterLocalDateTime} from "./time.js";
 import type {
     DeepAgentsAgentRunInput,
@@ -421,7 +421,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
         },
     });
     return createDeepAgent({
-        model: createLangChainChatModel(context.runtime),
+        model: new ModelProviderRuntimeFactory(context.input.database).createChatModel(context.runtime),
         tools,
         systemPrompt: [
             "长任务要拆解成小任务执行。",
@@ -530,6 +530,7 @@ async function collectDeepAgentToolCalls(
 
     return {
         providerId: context.runtime.provider.providerId,
+        providerSource: context.runtime.provider.providerSource,
         model: context.runtime.modelSelection.model,
         reasoningEffort: context.runtime.modelSelection.reasoningEffort,
         assistantText: "",

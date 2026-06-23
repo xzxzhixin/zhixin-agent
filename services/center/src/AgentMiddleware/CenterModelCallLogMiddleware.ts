@@ -1,47 +1,15 @@
 import {AIMessage} from "@langchain/core/messages";
 
 import {CenterLogger} from "../logger.js";
-import {normalizeOpenAiBaseUrl} from "../model-gateway-runtime.js";
 import type {DeepAgentsToolExecutionContext} from "../StructuredTool/index.js";
 import {CenterAgentMiddleware} from "./CenterAgentMiddleware.js";
-
-/** ModelProtocolLogType：模型协议日志中的稳定协议分类。 */
-type ModelProtocolLogType =
-    | "openai_chat_completions"
-    | "anthropic_messages_tool_use"
-    | "openai_responses"
-    | "unknown";
-
-/** ModelCallProtocolLog：模型调用协议日志摘要。 */
-interface ModelCallProtocolLog {
-    /** pluginId：供应商配置保存的协议适配器 ID。 */
-    pluginId: string;
-    /** mode：供应商配置保存的协议模式。 */
-    mode: string;
-    /** type：按协议文档归类后的稳定协议类型。 */
-    type: ModelProtocolLogType;
-    /** description：面向日志排查的协议说明。 */
-    description: string;
-}
-
-/** ModelCallUrlLog：模型调用 URL 日志摘要。 */
-interface ModelCallUrlLog {
-    /** configuredBaseUrl：供应商配置中的基础地址。 */
-    configuredBaseUrl: string;
-    /** normalizedBaseUrl：按实际模型客户端规则规范后的基础地址。 */
-    normalizedBaseUrl: string | null;
-    /** requestUrl：本次协议对应的模型调用接口地址。 */
-    requestUrl: string;
-    /** source：requestUrl 的来源，区分真实配置拼接和 SDK 默认推断。 */
-    source: "openai-compatible-base-url" | "anthropic-sdk-default" | "unknown";
-}
 
 /**
  * CenterModelCallLogMiddleware：模型调用日志中间件。
  *
  * @remarks
- * 该中间件只在模型返回后记录协议、调用地址和 LangChain AIMessage 近原始响应。
- * 协议分类以供应商配置中的 protocolPluginId 与 protocolMode 为准，不从提示词或工具名反推。
+ * 该中间件只在模型返回后记录模型来源、调用地址和 LangChain AIMessage 近原始响应。
+ * 新供应商链路不保存插件 ID 或协议模式，日志只使用 providerSource 与 AI SDK 响应摘要。
  */
 export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
     /** name：Deep Agents 用于识别和过滤当前中间件的固定名称。 */
@@ -107,14 +75,6 @@ export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
      */
     private buildBasePayload(extraPayload: Record<string, unknown>): Record<string, unknown> {
         const provider = this.context.runtime.provider;
-        const protocol = resolveModelCallProtocol(
-            provider.protocolPluginId,
-            provider.protocolMode,
-        );
-        const url = resolveModelCallUrl(
-            provider.baseUrl,
-            protocol.type,
-        );
         return {
             eventType: "model.call.raw_response",
             status: "completed",
@@ -123,101 +83,13 @@ export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
             taskId: this.context.input.sent.taskId,
             providerId: provider.providerId,
             providerName: provider.providerName,
+            providerSource: provider.providerSource,
             model: this.context.runtime.modelSelection.model,
             reasoningEffort: this.context.runtime.modelSelection.reasoningEffort,
-            protocol,
-            url,
+            requestUrl: this.context.runtime.requestUrl,
             ...extraPayload,
         };
     }
-}
-
-/**
- * resolveModelCallProtocol：按供应商协议配置解析日志协议分类。
- *
- * @param pluginId 协议适配器 ID。
- * @param mode 协议模式。
- * @returns 模型调用协议日志摘要。
- */
-function resolveModelCallProtocol(
-    pluginId: string,
-    mode: string,
-): ModelCallProtocolLog {
-    if (pluginId === "openai-langchain" && mode === "chat-completions") {
-        return {
-            pluginId,
-            mode,
-            type: "openai_chat_completions",
-            description: "OpenAI Chat Completions",
-        };
-    }
-    if (pluginId === "anthropic-langchain" && mode === "messages") {
-        return {
-            pluginId,
-            mode,
-            type: "anthropic_messages_tool_use",
-            description: "Anthropic Messages / Tool Use",
-        };
-    }
-    if (pluginId === "openai-langchain" && mode === "responses") {
-        return {
-            pluginId,
-            mode,
-            type: "openai_responses",
-            description: "OpenAI Responses",
-        };
-    }
-    return {
-        pluginId,
-        mode,
-        type: "unknown",
-        description: "未知模型协议",
-    };
-}
-
-/**
- * resolveModelCallUrl：按协议类型生成模型调用地址日志。
- *
- * @param configuredBaseUrl 供应商配置中的基础地址。
- * @param protocolType 已解析的协议分类。
- * @returns 模型调用 URL 日志摘要。
- */
-function resolveModelCallUrl(
-    configuredBaseUrl: string,
-    protocolType: ModelProtocolLogType,
-): ModelCallUrlLog {
-    if (protocolType === "openai_chat_completions") {
-        const normalizedBaseUrl = normalizeOpenAiBaseUrl(configuredBaseUrl);
-        return {
-            configuredBaseUrl,
-            normalizedBaseUrl,
-            requestUrl: `${normalizedBaseUrl}/chat/completions`,
-            source: "openai-compatible-base-url",
-        };
-    }
-    if (protocolType === "openai_responses") {
-        const normalizedBaseUrl = normalizeOpenAiBaseUrl(configuredBaseUrl);
-        return {
-            configuredBaseUrl,
-            normalizedBaseUrl,
-            requestUrl: `${normalizedBaseUrl}/responses`,
-            source: "openai-compatible-base-url",
-        };
-    }
-    if (protocolType === "anthropic_messages_tool_use") {
-        return {
-            configuredBaseUrl,
-            normalizedBaseUrl: null,
-            requestUrl: "https://api.anthropic.com/v1/messages",
-            source: "anthropic-sdk-default",
-        };
-    }
-    return {
-        configuredBaseUrl,
-        normalizedBaseUrl: null,
-        requestUrl: "unknown",
-        source: "unknown",
-    };
 }
 
 /**

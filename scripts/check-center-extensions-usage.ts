@@ -39,34 +39,35 @@ async function main(): Promise<void> {
 
     const provider = (await service.app.inject({
       method: "POST",
-      url: "/api/provider/create",
+      url: "/api/model-provider/create",
       payload: {
         providerName: "聚合供应商",
-        protocolPluginId: "openai-builtin",
-        protocolMode: "chat-completions",
-        baseUrl: "https://api.example.com",
+        providerSource: "openai-compatible-custom",
+        apiBaseUrl: "https://api.example.com/v1",
         apiKey: "secret",
-        model: "model-a",
+        defaultModelName: "model-a",
       },
-    })).json<ApiResponse<{ providerId: string }>>();
+    })).json<ApiResponse<{
+      provider: {
+        providerId: string;
+      };
+    }>>();
     assert(provider.success, "供应商创建失败");
 
     const refresh = (await service.app.inject({
       method: "POST",
-      url: "/api/provider/model-refresh",
+      url: "/api/model-provider/model/save",
       payload: {
-        providerId: provider.data?.providerId,
+        providerId: provider.data?.provider.providerId,
+        defaultModelName: "model-a",
         models: [
-          "model-a",
-        ],
-        contextWindows: [
           {
-            model: "model-a",
+            modelName: "model-a",
+            displayName: "model-a",
             contextWindowTokens: 1000000,
+            enabled: true,
+            sortOrder: 0,
           },
-        ],
-        reasoningEfforts: [
-          "medium",
         ],
       },
     })).json<ApiResponse<unknown>>();
@@ -74,23 +75,23 @@ async function main(): Promise<void> {
 
     const modelList = (await service.app.inject({
       method: "POST",
-      url: "/api/provider/model-list",
+      url: "/api/model-provider/list",
       payload: {
-        providerId: provider.data?.providerId,
+        providerId: provider.data?.provider.providerId,
       },
     })).json<ApiResponse<{
-      providerId: string;
-      models: string[];
-      contextWindows: Array<{
-        model: string;
-        contextWindowTokens: number;
+      providers: Array<{
+        providerId: string;
+        models: Array<{
+          modelName: string;
+          contextWindowTokens: number;
+        }>;
       }>;
-      reasoningEfforts: string[];
     }>>();
     assert(modelList.success, "模型列表查询失败，当前 services/center 源码不应返回 API_NOT_FOUND");
-    assert(modelList.data?.models.includes("model-a") === true, "模型列表查询没有返回刷新后的模型");
-    assert(modelList.data?.contextWindows.some((item) => item.model === "model-a" && item.contextWindowTokens === 1000000) === true, "模型列表查询没有返回模型上下文窗口");
-    assert(modelList.data?.reasoningEfforts.includes("medium") === true, "模型列表查询没有返回刷新后的推理深度");
+    const savedProvider = modelList.data?.providers.find((item) => item.providerId === provider.data?.provider.providerId);
+    assert(savedProvider?.models.some((item) => item.modelName === "model-a") === true, "模型列表查询没有返回刷新后的模型");
+    assert(savedProvider?.models.some((item) => item.modelName === "model-a" && item.contextWindowTokens === 1000000) === true, "模型列表查询没有返回模型上下文窗口");
 
     const proxy = (await service.app.inject({
       method: "POST",
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
       method: "POST",
       url: "/api/usage/record",
       payload: {
-        providerId: provider.data?.providerId,
+        providerId: provider.data?.provider.providerId,
         model: "model-a",
         projectId: "project-a",
         inputTokens: 3,
@@ -208,7 +209,11 @@ async function main(): Promise<void> {
     await service?.close().catch(() => {});
     await rm(tempRoot, {
       force: true,
+      maxRetries: 5,
       recursive: true,
+      retryDelay: 100,
+    }).catch(() => {
+      // ignore: Windows 日志句柄释放可能晚于 service.close，清理失败不能覆盖业务断言。
     });
   }
 }

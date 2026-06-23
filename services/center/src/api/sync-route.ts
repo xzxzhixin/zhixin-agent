@@ -22,6 +22,7 @@ import {
     createDataAccess,
 } from "../data-access/index.js";
 import {AgentEditRepository} from "../data-access/agent-edit-repository.js";
+import {ModelProviderRepository} from "../data-access/ModelProviderRepository.js";
 import {
     deleteProject,
     deleteSession,
@@ -48,11 +49,7 @@ import {
 import {
     cancelRunningCommandsForTurn,
 } from "../domain/turn-command-cancel-registry.js";
-import {
-    listProviderConfigs,
-    listRegisteredModelProtocolPlugins,
-    readProviderModelList,
-} from "../domain/provider-domain.js";
+import {ModelProviderSourceRegistry} from "../model-provider/ModelProviderSourceRegistry.js";
 import {
     listAgents,
 } from "../domain/agent-domain.js";
@@ -317,7 +314,6 @@ function handleRealtimeRequest(input: {
                 type: "chat.bootstrap.snapshot",
                 requestId: input.envelope.requestId,
                 payload: buildChatBootstrapSnapshot(
-                    input.centerDirectory,
                     input.database,
                 ),
             });
@@ -755,40 +751,71 @@ function scheduleTurnRuntimeCancellation(
 /**
  * buildChatBootstrapSnapshot：构造对话页首屏所需的供应商、模型和智能体快照。
  *
- * @param centerDirectory 中心目录绝对路径，用于读取供应商 JSON 和模型缓存。
  * @param database 中心服务数据库事实源，用于读取智能体索引。
  * @returns 对话页输入区初始化快照。
  */
 function buildChatBootstrapSnapshot(
-    centerDirectory: string,
     database: CenterDatabase,
 ): {
-    /** providers: 供应商配置列表，来源于中心服务供应商事实源。 */
-    providers: ReturnType<typeof listProviderConfigs>;
-    /** providerProtocolPlugins: 内联 LangChain 协议能力列表，兼容前端原字段命名。 */
-    providerProtocolPlugins: ReturnType<typeof listRegisteredModelProtocolPlugins>;
+    /** providers: 供应商配置列表，来源于 SQLite 模型供应商事实源。 */
+    providers: ReturnType<typeof buildModelProviderSnapshot>;
+    /** providerSourceOptions: 模型来源下拉选项。 */
+    providerSourceOptions: ReturnType<ModelProviderSourceRegistry["listSourceOptions"]>;
     /** providerModelOptions: 供应商 ID 到已保存模型列表的映射。 */
-    providerModelOptions: Record<string, ReturnType<typeof readProviderModelList>>;
+    providerModelOptions: Record<string, ReturnType<typeof buildModelProviderSnapshot>[number]["models"]>;
     /** agents: 主智能体和长期智能体索引。 */
     agents: ReturnType<typeof listAgents>;
 } {
-    const providers = listProviderConfigs(centerDirectory);
+    const providers = buildModelProviderSnapshot(database);
     const providerModelOptions = Object.fromEntries(providers.map((provider) => {
         return [
             provider.providerId,
-            readProviderModelList(
-                centerDirectory,
-                provider.providerId,
-            ),
+            provider.models,
         ];
     }));
 
     return {
         providers,
-        providerProtocolPlugins: listRegisteredModelProtocolPlugins(centerDirectory),
+        providerSourceOptions: new ModelProviderSourceRegistry().listSourceOptions(),
         providerModelOptions,
         agents: listAgents(database),
     };
+}
+
+/**
+ * buildModelProviderSnapshot：构造对话页可消费的新模型供应商快照。
+ *
+ * @param database 中心服务数据库。
+ * @returns 模型供应商快照。
+ */
+function buildModelProviderSnapshot(database: CenterDatabase) {
+    const sourceRegistry = new ModelProviderSourceRegistry();
+    return new ModelProviderRepository(database).listProviders().map((provider) => {
+        const sourceDefinition = sourceRegistry.getSourceDefinition(provider.providerSource);
+        return {
+            providerId: provider.providerId,
+            providerName: provider.providerName,
+            providerSource: provider.providerSource,
+            providerSourceLabel: sourceDefinition.label,
+            apiBaseUrl: provider.apiBaseUrl,
+            hasApiKey: typeof provider.apiKeySecretRef === "string",
+            customHeadersJson: provider.customHeadersJson,
+            proxyMode: provider.proxyMode,
+            proxyId: provider.proxyId,
+            enabled: provider.enabled,
+            createdAt: provider.createdAt,
+            updatedAt: provider.updatedAt,
+            settings: provider.settings,
+            defaultModel: provider.settings.defaultModelName ?? "",
+            capabilities: provider.capabilities,
+            models: provider.models,
+            latestCheck: provider.latestCheck,
+            proxyPolicy: {
+                mode: provider.proxyMode,
+                proxyId: provider.proxyId,
+            },
+        };
+    });
 }
 
 /**

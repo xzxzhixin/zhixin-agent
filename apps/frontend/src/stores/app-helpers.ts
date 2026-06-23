@@ -182,11 +182,11 @@ export function createProviderDraft(): ProviderDraft {
     return {
         providerId: null,
         providerName: "",
-        protocolPluginId: "openai-langchain",
-        protocolMode: "chat-completions",
-        baseUrl: "",
+        providerSource: "openai-compatible-custom",
+        apiBaseUrl: "",
         apiKey: "",
-        model: "",
+        customHeadersText: formatJsonText({}),
+        defaultModelName: "",
         enabled: true,
         capabilities: {
             supportsVision: false,
@@ -201,9 +201,9 @@ export function createProviderDraft(): ProviderDraft {
             mode: "use-global-default",
             proxyId: null,
         },
-        refreshModelsText: "",
-        refreshModelContextWindowsText: "",
-        refreshReasoningText: "",
+        manualModelsText: "",
+        manualModelContextText: "",
+        reasoningEffortText: "",
     };
 }
 
@@ -548,21 +548,21 @@ export function buildProviderModelRefreshDraft(
     // isEditingCurrentProvider: 只有当前表单正在编辑该供应商时，行级刷新才使用表单文本，避免把 A 的草稿误写到 B。
     const isEditingCurrentProvider = draft.providerId === provider.providerId;
     const models = isEditingCurrentProvider
-        ? splitLines(draft.refreshModelsText)
+        ? splitLines(draft.manualModelsText)
         : savedOptions?.models ?? [];
     return {
         models: models.length > 0
             ? models
             : [
-                provider.defaultModel,
+                provider.settings.defaultModelName ?? "",
             ].filter((model) => {
                 return model.length > 0;
             }),
         contextWindows: isEditingCurrentProvider
-            ? parseModelContextWindows(draft.refreshModelContextWindowsText)
+            ? parseModelContextWindows(draft.manualModelContextText)
             : savedOptions?.contextWindows ?? [],
         reasoningEfforts: isEditingCurrentProvider
-            ? splitLines(draft.refreshReasoningText)
+            ? splitLines(draft.reasoningEffortText)
             : savedOptions?.reasoningEfforts ?? [],
     };
 }

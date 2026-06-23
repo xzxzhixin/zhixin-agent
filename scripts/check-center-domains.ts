@@ -7,7 +7,7 @@
  * 返回值：检查通过时正常退出；任一断言失败时抛错并返回非零退出码。
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import {
   platform,
   release,
@@ -162,38 +162,37 @@ function closeFakeServer(child: ChildProcessWithoutNullStreams): Promise<void> {
  * @returns 写入完成后没有返回值。
  */
 async function writeMemoryFakeProvider(
-  centerDirectory: string,
+  service: CenterService,
   baseUrl: string,
-): Promise<void> {
-  await writeFile(
-    join(centerDirectory, "providers", "memory-fake-provider.json"),
-    JSON.stringify(
-      {
-        providerId: "memory-fake-provider",
-        displayName: "记忆闭环假模型",
-        baseUrl,
-        protocolPluginId: "openai-builtin",
-        protocolMode: "chat-completions",
-        defaultModel: "memory-fake-model",
-        defaultReasoningEffort: null,
-        enabled: true,
-        apiKeySecretRef: null,
-        proxyStrategy: "none",
-        capabilities: {
-          supportsVision: false,
-          supportsToolCalling: false,
-          supportsJsonOutput: false,
-          supportsReasoningEffort: false,
-          supportsCacheUsage: false,
-          supportsModelList: false,
-          supportsStreaming: false,
-        },
+): Promise<string> {
+  const response = await service.app.inject({
+    method: "POST",
+    url: "/api/model-provider/create",
+    payload: {
+      providerName: "记忆闭环假模型",
+      providerSource: "openai-compatible-custom",
+      apiBaseUrl: `${baseUrl}/v1`,
+      apiKey: "memory-fake-key",
+      enabled: true,
+      defaultModelName: "memory-fake-model",
+      capabilities: {
+        supportsVision: false,
+        supportsToolCalling: false,
+        supportsJsonOutput: false,
+        supportsReasoningEffort: false,
+        providesCacheUsage: false,
+        supportsModelList: false,
+        supportsStreaming: true,
       },
-      null,
-      2,
-    ),
-    "utf-8",
-  );
+    },
+  });
+  const result = response.json<ApiResponse<{
+    provider: {
+      providerId: string;
+    };
+  }>>();
+  assert(result.success, "数据库模型供应商创建失败");
+  return result.data?.provider.providerId ?? "";
 }
 
 /**
@@ -269,8 +268,8 @@ async function main(): Promise<void> {
     service = await createCenterService(config);
     await service.initialize();
     fakeModelServer = await startMemoryFakeModelServer();
-    await writeMemoryFakeProvider(
-      centerDirectory,
+    const memoryProviderId = await writeMemoryFakeProvider(
+      service,
       fakeModelServer.baseUrl,
     );
 
@@ -322,7 +321,7 @@ async function main(): Promise<void> {
       payload: {
         agentId: "main",
         roleDescription: "主智能体检查角色说明",
-        defaultProviderId: "memory-fake-provider",
+        defaultProviderId: memoryProviderId,
         defaultModel: "memory-fake-model",
         reasoningEffort: "high",
       },
@@ -436,14 +435,13 @@ async function main(): Promise<void> {
 
     const providerResponse = await service.app.inject({
       method: "POST",
-      url: "/api/provider/create",
+      url: "/api/model-provider/create",
       payload: {
         providerName: "检查供应商",
-        protocolPluginId: "openai-builtin",
-        protocolMode: "chat-completions",
-        baseUrl: "https://api.example.com",
+        providerSource: "openai-compatible-custom",
+        apiBaseUrl: "https://api.example.com/v1",
         apiKey: "secret",
-        model: "example-model",
+        defaultModelName: "example-model",
         capabilities: {
           supportsVision: true,
           supportsToolCalling: true,
@@ -453,22 +451,28 @@ async function main(): Promise<void> {
           supportsModelList: true,
           supportsStreaming: true,
         },
-        proxyPolicy: {
-          mode: "use-global-default",
-          proxyId: null,
-        },
       },
     });
     const provider = providerResponse.json<ApiResponse<{
-      providerId: string;
-      hasApiKey: boolean;
+      provider: {
+        providerId: string;
+        hasApiKey: boolean;
+        capabilities: {
+          supportsVision: boolean;
+          supportsStreaming: boolean;
+        };
+        proxyPolicy: {
+          mode: string;
+          proxyId: string | null;
+        };
+      };
     }>>();
     assert(provider.success, "供应商创建失败");
-    assert(provider.data?.hasApiKey === true, "供应商没有返回 hasApiKey");
+    assert(provider.data?.provider.hasApiKey === true, "供应商没有返回 hasApiKey");
 
     const providerListResponse = await service.app.inject({
       method: "POST",
-      url: "/api/provider/list",
+      url: "/api/model-provider/list",
       payload: {},
     });
     const providerList = providerListResponse.json<ApiResponse<{
@@ -497,34 +501,16 @@ async function main(): Promise<void> {
 
     const providerUpdateResponse = await service.app.inject({
       method: "POST",
-      url: "/api/provider/update",
+      url: "/api/model-provider/update",
       payload: {
-        providerId: provider.data?.providerId,
+        providerId: provider.data?.provider.providerId,
         enabled: false,
-        defaultModel: "updated-model",
-        proxyPolicy: {
-          mode: "none",
-          proxyId: null,
-        },
+        defaultModelName: "updated-model",
+        proxyMode: "none",
+        proxyId: null,
       },
     });
     assert(providerUpdateResponse.json<ApiResponse<unknown>>().success, "供应商更新失败");
-
-    const modelErrorResponse = await service.app.inject({
-      method: "POST",
-      url: "/api/model-gateway/classify-error",
-      payload: {
-        failureStage: "proxy-auth",
-        statusCode: 407,
-        message: "Proxy Authentication Required",
-      },
-    });
-    const modelError = modelErrorResponse.json<ApiResponse<{
-      errorKind: string;
-      displayMessage: string;
-    }>>();
-    assert(modelError.success, "模型网关错误分类失败");
-    assert(modelError.data?.errorKind === "proxy-auth-failed", "模型网关没有区分代理认证失败");
 
     const pluginResponse = await service.app.inject({
       method: "POST",
@@ -550,34 +536,6 @@ async function main(): Promise<void> {
     const pluginList = pluginListResponse.json<ApiResponse<{ plugins: unknown[] }>>();
     assert(pluginList.data?.plugins.length === 1, "插件列表查询失败");
     assert((await service.app.inject({ method: "POST", url: "/api/plugin/delete", payload: { pluginId: "check-plugin" } })).json<ApiResponse<unknown>>().success, "插件删除失败");
-
-    assert((await service.app.inject({
-      method: "POST",
-      url: "/api/plugin/install",
-      payload: {
-        manifest: {
-          id: "builtin-model-anthropic-messages",
-          name: "Anthropic 适配器",
-          version: "0.1.0",
-          source: "system-builtin",
-          scope: "global",
-          permissions: [
-            "provider.call",
-          ],
-        },
-      },
-    })).json<ApiResponse<unknown>>().success, "系统内置协议适配器插件安装失败");
-    const builtinDeleteResponse = await service.app.inject({
-      method: "POST",
-      url: "/api/plugin/delete",
-      payload: {
-        pluginId: "builtin-model-anthropic-messages",
-      },
-    });
-    const builtinDelete = builtinDeleteResponse.json<ApiResponse<{
-      deleted: boolean;
-    }>>();
-    assert(!builtinDelete.data?.deleted, "系统内置协议适配器插件不允许卸载");
 
     const todoResponse = await service.app.inject({
       method: "POST",
@@ -693,7 +651,7 @@ async function main(): Promise<void> {
       method: "POST",
       url: "/api/usage/record",
       payload: {
-        providerId: provider.data?.providerId,
+        providerId: provider.data?.provider.providerId,
         model: "example-model",
         projectId: null,
         inputTokens: 1,
@@ -931,7 +889,7 @@ async function main(): Promise<void> {
       method: "POST",
       url: "/api/usage/query",
       payload: {
-        providerId: provider.data?.providerId,
+        providerId: provider.data?.provider.providerId,
       },
     });
     const usageQuery = usageQueryResponse.json<ApiResponse<{

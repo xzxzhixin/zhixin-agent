@@ -19,13 +19,14 @@ const databasePath = join(
   "src",
   "database.ts",
 );
-// workflowDomainPath: 模型网关源码，当前仍通过 meta 读取中心目录。
+// workflowDomainPath: 模型供应商运行时源码，当前仍通过 meta 读取中心目录。
 const workflowDomainPath = join(
   process.cwd(),
   "services",
   "center",
   "src",
-  "model-gateway-runtime.ts",
+  "model-provider",
+  "ModelProviderRuntimeFactory.ts",
 );
 // chatPagePath: 对话页路由入口源码。
 const chatPagePath = join(
@@ -88,8 +89,8 @@ const frontendMainSource = readFileSync(
   "utf-8",
 );
 
-if (!workflowDomainSource.includes("SELECT value FROM meta WHERE key = ?")) {
-  console.error("模型网关当前中心目录读取协议已变化，请同步更新本检查。");
+if (!workflowDomainSource.includes("readMetaValue(\"centerDirectory\")")) {
+  console.error("模型供应商运行时当前中心目录读取协议已变化，请同步更新本检查。");
   process.exitCode = 1;
 }
 
@@ -99,7 +100,7 @@ if (!databaseSource.includes("CREATE TABLE IF NOT EXISTS meta")) {
 }
 
 if (!/INSERT\s+INTO\s+meta\s*\(\s*key\s*,\s*value\s*,\s*updated_at\s*\)/u.test(databaseSource)) {
-  console.error("数据库初始化必须写入 meta.centerDirectory，供模型网关读取中心目录。");
+  console.error("数据库初始化必须写入 meta.centerDirectory，供模型供应商运行时读取中心目录。");
   process.exitCode = 1;
 }
 

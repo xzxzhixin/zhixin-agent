@@ -3,6 +3,7 @@ import type {FastifyInstance} from "fastify";
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
+import {ModelProviderRepository} from "../data-access/ModelProviderRepository.js";
 import {
     createErrorResponse,
     createSuccessResponse,
@@ -13,7 +14,6 @@ import {
     refreshUsageDailyStats,
     type UsageQueryFilters,
 } from "../domain/usage-domain.js";
-import {listProviderConfigs} from "../domain/provider-domain.js";
 import {recordUsage} from "../domain/workflow-domain.js";
 
 /**
@@ -43,17 +43,17 @@ interface UsageQueryBody {
 /**
  * normalizeUsageQueryBody：把用量筛选请求体转为中心服务内部筛选结构。
  *
- * @param centerDirectory 中心目录，用于按 providerName 读取供应商配置事实源。
+ * @param database 中心服务数据库，用于按 providerName 读取供应商事实源。
  * @param body 前端筛选请求体。
  * @returns 用量查询筛选条件。
  */
 function normalizeUsageQueryBody(
-    centerDirectory: string,
+    database: CenterDatabase,
     body: UsageQueryBody,
 ): UsageQueryFilters {
     // providerId: providerName 输入时先按供应商配置 providerName 单一来源解析，避免前端根据展示文案猜 providerId。
     const providerId = body.providerName
-        ? resolveProviderIdByProviderName(centerDirectory, body.providerName)
+        ? resolveProviderIdByProviderName(database, body.providerName)
         : body.providerId ?? null;
 
     return {
@@ -72,15 +72,15 @@ function normalizeUsageQueryBody(
 /**
  * resolveProviderIdByProviderName：按供应商名称解析供应商 ID。
  *
- * @param centerDirectory 中心目录。
+ * @param database 中心服务数据库。
  * @param providerName 供应商名称，来源于用量统计筛选输入。
  * @returns 匹配供应商 ID；不存在时返回不会命中真实记录的固定值。
  */
 function resolveProviderIdByProviderName(
-    centerDirectory: string,
+    database: CenterDatabase,
     providerName: string,
 ): string {
-    const provider = listProviderConfigs(centerDirectory).find((item) => {
+    const provider = new ModelProviderRepository(database).listProviders().find((item) => {
         return item.providerName === providerName;
     });
     // __provider_name_not_found__: 固定不可命中 ID，用于表达明确名称无匹配，不把缺失名称静默退回全量统计。
@@ -97,20 +97,20 @@ function resolveProviderIdByProviderName(
 export function registerUsageRoutes(
     app: FastifyInstance,
     database: CenterDatabase,
-    centerDirectory?: string,
+    _centerDirectory?: string,
     events?: CenterEventStore,
 ): void {
     app.post("/api/usage/query", async (request) => {
         const body = request.body as UsageQueryBody;
 
         return createSuccessResponse({
-            records: queryUsageRecords(database, normalizeUsageQueryBody(centerDirectory ?? "", body)),
+            records: queryUsageRecords(database, normalizeUsageQueryBody(database, body)),
         });
     });
 
     app.post("/api/usage/aggregate", async (request) => {
         const body = request.body as UsageQueryBody;
-        const filters = normalizeUsageQueryBody(centerDirectory ?? "", body);
+        const filters = normalizeUsageQueryBody(database, body);
 
         return createSuccessResponse({
             stats: aggregateUsageRecords(database, filters),

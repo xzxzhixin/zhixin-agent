@@ -27,17 +27,6 @@ const usageChartModulesRegistered = use;
 const currentWorkspacePage = "providers";
 // providerDialogVisible: 供应商新增和编辑弹框显隐。
 const providerDialogVisible = ref(false);
-// selectedProtocolPlugin：当前草稿选中的协议适配器，来源于中心服务固定项和中心目录模型插件扫描结果。
-const selectedProtocolPlugin = computed(() => {
-  return appStore.providerProtocolPlugins.find((plugin) => {
-    return plugin.pluginId === appStore.providerDraft.protocolPluginId;
-  }) ?? null;
-});
-
-// selectedProtocolModes：当前协议适配器支持的协议模式列表，用于避免前端写死模式。
-const selectedProtocolModes = computed(() => {
-  return selectedProtocolPlugin.value?.protocolModes ?? [];
-});
 
 /**
  * formatDisplayTime：统一格式化前端展示时间。
@@ -146,12 +135,28 @@ const defaultProviderCapabilities = {
 // selectedProviderModelOptions：供应商默认模型下拉候选，来源于已保存或刷新后的模型列表。
 const selectedProviderModelOptions = computed(() => {
   const providerId = appStore.providerDraft.providerId;
-  if (!providerId) {
-    return [];
-  }
+  // manualModels: 弹框手填模型是用户当前正在编辑的事实，必须即时进入默认模型下拉候选。
+  const manualModels = readProviderModelNamesFromContextText(appStore.providerDraft.manualModelContextText);
+  const savedModels = providerId
+    ? appStore.providerModelOptions[providerId]?.models
+    : [];
+  const normalizedSavedModels = Array.isArray(savedModels)
+    ? savedModels
+    : [];
+  return Array.from(new Set([
+    ...manualModels,
+    ...normalizedSavedModels,
+  ]));
+});
 
-  const savedModels = appStore.providerModelOptions[providerId]?.models;
-  return Array.isArray(savedModels) ? savedModels : [];
+// providerSourceLabelByValue：模型来源展示名索引，来源于中心服务 source-options。
+const providerSourceLabelByValue = computed(() => {
+  return new Map(appStore.providerSourceOptions.map((source) => {
+    return [
+      source.providerSource,
+      source.label,
+    ];
+  }));
 });
 
 // providerModelSourceText：默认模型候选来源说明。
@@ -170,27 +175,43 @@ const providerModelSourceText = computed(() => {
 // manualModelContextText：供应商手填模型的唯一输入口，页面层同步旧状态字段，避免继续显示两个文本域。
 const manualModelContextText = computed({
   get() {
-    return appStore.providerDraft.refreshModelContextWindowsText;
+    return appStore.providerDraft.manualModelContextText;
   },
   set(value: string) {
-    appStore.providerDraft.refreshModelContextWindowsText = value;
-    // refreshModelsText：模型刷新接口仍接收模型名数组，这里只从明确的 `模型名=上下文长度` 左侧解析，不做候选字段兜底。
-    appStore.providerDraft.refreshModelsText = value.split(/\r?\n/u).map((line) => {
-      const equalIndex = line.indexOf("=");
-      return equalIndex > 0 ? line.slice(0, equalIndex).trim() : "";
-    }).filter((model) => {
-      return model.length > 0;
-    }).join("\n");
+    appStore.providerDraft.manualModelContextText = value;
+    // manualModelsText：模型保存接口仍接收模型名数组，这里只从明确的 `模型名=上下文长度` 左侧解析，不做候选字段兜底。
+    const modelNames = readProviderModelNamesFromContextText(value);
+    appStore.providerDraft.manualModelsText = modelNames.join("\n");
+    if (modelNames.length > 0 && !modelNames.includes(appStore.providerDraft.defaultModelName)) {
+      // defaultModelName: 手填列表更新后，旧默认模型可能已经不可用，按当前列表第一项同步。
+      appStore.providerDraft.defaultModelName = modelNames[0];
+    }
   },
 });
+
+/**
+ * readProviderModelNamesFromContextText：从 `模型名=上下文长度K` 文本中读取模型名。
+ *
+ * @param value 手填模型与上下文文本。
+ * @returns 去重后的模型名数组。
+ */
+function readProviderModelNamesFromContextText(value: string): string[] {
+  const modelNames = value.split(/\r?\n/u).map((line) => {
+    const equalIndex = line.indexOf("=");
+    return equalIndex > 0 ? line.slice(0, equalIndex).trim() : "";
+  }).filter((model) => {
+    return model.length > 0;
+  });
+  return Array.from(new Set(modelNames));
+}
 
 // manualReasoningEffortText：推理深度手填入口，来源于供应商模型刷新协议 reasoningEfforts。
 const manualReasoningEffortText = computed({
   get() {
-    return appStore.providerDraft.refreshReasoningText;
+    return appStore.providerDraft.reasoningEffortText;
   },
   set(value: string) {
-    appStore.providerDraft.refreshReasoningText = value;
+    appStore.providerDraft.reasoningEffortText = value;
   },
 });
 
@@ -215,8 +236,8 @@ const manualModelContextError = computed(() => {
  */
 function openCreateProviderDialog(): void {
   appStore.resetProviderDraft();
-  // 协议适配器：打开新增弹框时立即按中心服务当前列表校准，避免本地热状态残留已删除的 OpenAI 插件 ID。
-  appStore.syncProviderDraftWithProtocolPlugins(appStore.providerProtocolPlugins);
+  // 模型来源：打开新增弹框时立即按中心服务当前列表校准，避免本地热状态残留已删除的来源值。
+  appStore.syncProviderDraftWithSourceOptions(appStore.providerSourceOptions);
   // enabled: 新增供应商默认保存为停用，避免只填 Base URL 和 API Key 的草稿触发启用完整性校验。
   appStore.providerDraft.enabled = false;
   providerDialogVisible.value = true;
@@ -241,11 +262,11 @@ function openEditProviderDialog(provider: Parameters<typeof appStore.editProvide
   appStore.providerDraft = {
     providerId: provider.providerId,
     providerName: provider.providerName,
-    protocolPluginId: provider.protocolPluginId,
-    protocolMode: provider.protocolMode,
-    baseUrl: provider.baseUrl,
+    providerSource: provider.providerSource,
+    apiBaseUrl: provider.apiBaseUrl ?? "",
     apiKey: "",
-    model: provider.defaultModel,
+    customHeadersText: provider.customHeadersJson,
+    defaultModelName: provider.settings.defaultModelName ?? "",
     enabled: provider.enabled,
     capabilities: {
       ...defaultProviderCapabilities,
@@ -253,11 +274,12 @@ function openEditProviderDialog(provider: Parameters<typeof appStore.editProvide
     },
     proxyPolicy: {
       ...defaultProviderProxyPolicy,
-      ...(provider.proxyPolicy ?? {}),
+      mode: provider.proxyMode,
+      proxyId: provider.proxyId,
     },
-    refreshModelsText: provider.defaultModel,
-    refreshModelContextWindowsText: formatModelContextWindowsForDialog(contextWindows),
-    refreshReasoningText: reasoningEfforts.join("\n"),
+    manualModelsText: provider.settings.defaultModelName ?? "",
+    manualModelContextText: formatModelContextWindowsForDialog(contextWindows),
+    reasoningEffortText: reasoningEfforts.join("\n"),
   };
   void appStore.loadProviderModelOptions(provider.providerId);
   void nextTick();
@@ -466,42 +488,26 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="6">
-            <el-form-item label="协议适配器">
+            <el-form-item label="模型来源">
               <el-select
-                  v-model="appStore.providerDraft.protocolPluginId"
-                  @change="appStore.selectProviderProtocolPlugin"
+                  v-model="appStore.providerDraft.providerSource"
+                  @change="appStore.selectProviderSource"
               >
                 <el-option
-                    v-for="plugin in appStore.providerProtocolPlugins"
-                    :key="plugin.pluginId"
-                    :label="plugin.pluginName"
-                    :value="plugin.pluginId"
+                    v-for="source in appStore.providerSourceOptions"
+                    :key="source.providerSource"
+                    :label="source.label"
+                    :value="source.providerSource"
                 />
               </el-select>
-              <small class="field-helper">OpenAI 和 Anthropic 直接使用中心服务内联 LangChain 能力。</small>
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="协议模式">
-              <el-select v-model="appStore.providerDraft.protocolMode">
-                <el-option
-                    v-for="mode in selectedProtocolModes"
-                    :key="mode.mode"
-                    :label="mode.label"
-                    :value="mode.mode"
-                >
-                  <span>{{ mode.label }}</span>
-                  <small class="option-helper">{{ mode.description }}</small>
-                </el-option>
-              </el-select>
-              <small class="field-helper">协议模式由当前协议适配器声明，保存后进入中心服务供应商配置。</small>
+              <small class="field-helper">模型来源由中心服务声明，页面只保存业务来源。</small>
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item label="默认模型">
               <!-- 默认模型必须始终使用可创建下拉，避免无模型列表时退回普通输入框。 -->
               <el-select
-                  v-model="appStore.providerDraft.model"
+                  v-model="appStore.providerDraft.defaultModelName"
                   filterable
                   allow-create
                   default-first-option
@@ -587,7 +593,7 @@ onMounted(() => {
           </el-col>
           <el-col :span="12">
             <el-form-item label="Base URL">
-              <el-input v-model="appStore.providerDraft.baseUrl"/>
+              <el-input v-model="appStore.providerDraft.apiBaseUrl"/>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -598,6 +604,17 @@ onMounted(() => {
                   show-password
                   placeholder="保存后不回显"
               />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="自定义请求头">
+              <el-input
+                  v-model="appStore.providerDraft.customHeadersText"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="{&#10;  &quot;X-Custom-Header&quot;: &quot;value&quot;&#10;}"
+              />
+              <small class="field-helper">必须是 JSON 对象；保存后由中心服务用于后续供应商请求。</small>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -668,12 +685,20 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column
-            label="协议"
+            label="模型来源"
             min-width="220"
         >
           <template #default="{ row: provider }">
-            <span>{{ provider.protocolPluginId }}</span>
-            <small>{{ provider.protocolMode }}</small>
+            <span>{{ providerSourceLabelByValue.get(provider.providerSource) ?? provider.providerSource }}</span>
+            <small>{{ provider.providerSource }}</small>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="默认模型"
+            min-width="180"
+        >
+          <template #default="{ row: provider }">
+            <span>{{ provider.settings.defaultModelName || "未设置" }}</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -681,7 +706,7 @@ onMounted(() => {
             min-width="260"
         >
           <template #default="{ row: provider }">
-            <span>{{ provider.baseUrl }}</span>
+            <span>{{ provider.apiBaseUrl || "未设置" }}</span>
             <small>API Key：{{ provider.hasApiKey ? "已保存" : "未保存" }}</small>
           </template>
         </el-table-column>
@@ -693,6 +718,15 @@ onMounted(() => {
             <el-tag :type="provider.enabled ? 'success' : 'info'">
               {{ provider.enabled ? "启用" : "停用" }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+            label="最近检测"
+            min-width="180"
+        >
+          <template #default="{ row: provider }">
+            <span>{{ provider.latestCheck?.status ?? "未检测" }}</span>
+            <small>{{ provider.latestCheck?.checkedAt ?? "无检测记录" }}</small>
           </template>
         </el-table-column>
         <el-table-column

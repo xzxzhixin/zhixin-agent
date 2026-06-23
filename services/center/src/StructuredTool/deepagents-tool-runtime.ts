@@ -7,7 +7,11 @@ import {createAgentForTask} from "../agents/index.js";
 import type {CenterDatabase} from "../database.js";
 import {SessionRepository} from "../data-access/session-repository.js";
 import type {CenterEventStore} from "../events.js";
-import {extractCenterDirectory, resolveProviderModelRuntime} from "../model-gateway-runtime.js";
+import {
+    extractCenterDirectory,
+    ModelProviderRuntimeFactory,
+} from "../model-provider/ModelProviderRuntimeFactory.js";
+import type {ResolvedModelProviderRuntime} from "../model-provider/ModelProviderRuntimeTypes.js";
 import type {
     MemoryQueueState,
     SendMessageResponse,
@@ -48,7 +52,7 @@ export interface DeepAgentsToolExecutionContext {
     /** executionAgent: 当前执行智能体。 */
     executionAgent: ReturnType<typeof createAgentForTask>;
     /** runtime: 当前模型运行时。 */
-    runtime: ReturnType<typeof resolveProviderModelRuntime>;
+    runtime: ResolvedModelProviderRuntime;
     /** subAgents: 当前轮次运行期子智能体表。 */
     subAgents: Map<string, SubAgentRuntimeRecord>;
     /** toolFailureCounts: 轮次内工具失败指纹计数，用于阻断同一错误无限重试。 */
@@ -92,10 +96,7 @@ export async function createDeepAgentsToolExecutionContext(
         centerDirectory,
         projectId: session?.projectId ?? null,
         executionAgent: createAgentForTask(task),
-        runtime: resolveProviderModelRuntime(
-            input.database,
-            input.sent.taskId,
-        ),
+        runtime: new ModelProviderRuntimeFactory(input.database).resolveRuntime(input.sent.taskId),
         subAgents: new Map<string, SubAgentRuntimeRecord>(),
         toolFailureCounts: new Map<string, number>(),
         lastModelMessageDiagnostics: null,

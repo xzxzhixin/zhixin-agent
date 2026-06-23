@@ -1,7 +1,4 @@
-import {
-    mkdirSync,
-    readdirSync,
-} from "node:fs";
+import {mkdirSync} from "node:fs";
 import {
     join,
 } from "node:path";
@@ -10,10 +7,6 @@ import {Memory} from "mem0ai/oss";
 
 import type {CenterEventStore} from "./events.js";
 import type {AttachmentMemorySource} from "./domain/AttachmentMemoryService.js";
-import {
-    readProviderConfig,
-    readSecretValue,
-} from "./domain/provider-domain.js";
 
 /**
  * Mem0MemorySource：同步到 Mem0 的来源追溯信息。
@@ -378,56 +371,8 @@ function resolveMem0ProviderConfig(centerDirectory: string): {
     chatModel: string;
     embeddingModel: string;
 } | null {
-    const providersDirectory = join(
-        centerDirectory,
-        "providers",
-    );
-    try {
-        const providerFiles = readdirSync(providersDirectory)
-            .filter((fileName: string) => {
-                return fileName.endsWith(".json")
-                    && !fileName.endsWith(".models.json")
-                    && !fileName.endsWith(".patch.json");
-            })
-            .sort();
-        for (const fileName of providerFiles) {
-            const providerId = fileName.replace(/\.json$/u, "");
-            const provider = readProviderConfig(
-                centerDirectory,
-                providerId,
-            );
-            if (!provider?.enabled) {
-                continue;
-            }
-            const apiKey = readSecretValue(
-                centerDirectory,
-                provider.apiKeySecretRef,
-            );
-            if (!apiKey) {
-                continue;
-            }
-            return {
-                apiKey,
-                baseUrl: normalizeMem0ProviderBaseUrl(provider.baseUrl),
-                chatModel: provider.defaultModel || "gpt-5-mini",
-                embeddingModel: "text-embedding-3-small",
-            };
-        }
-    } catch {
-        return null;
-    }
+    void centerDirectory;
+    // Mem0 目前没有数据库句柄，不能再读取旧 providers/*.json 绕过新供应商模块。
+    // 后续如果启用语义抽取，应由中心服务供应商运行时显式注入模型配置。
     return null;
-}
-
-/**
- * normalizeMem0ProviderBaseUrl：把中心服务供应商地址规整为 Mem0 OpenAI 兼容配置。
- *
- * @param baseUrl 供应商基础地址。
- * @returns 以 /v1 结尾的基础地址。
- */
-function normalizeMem0ProviderBaseUrl(baseUrl: string): string {
-    const normalizedBaseUrl = baseUrl.replace(/\/$/u, "");
-    return normalizedBaseUrl.endsWith("/v1")
-        ? normalizedBaseUrl
-        : `${normalizedBaseUrl}/v1`;
 }

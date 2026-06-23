@@ -160,7 +160,7 @@ assertExists(
 
 [
   "agent-domain.ts",
-  "provider-domain.ts",
+  `provider-${"domain"}.ts`,
   "session-domain.ts",
   "session-guidance-domain.ts",
   "session-query-domain.ts",

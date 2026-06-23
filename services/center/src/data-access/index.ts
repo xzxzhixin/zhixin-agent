@@ -4,6 +4,7 @@ import {AgentRepository} from "./agent-repository.js";
 import {AgentTeamRepository} from "./agent-team-repository.js";
 import {EventRepository} from "./event-repository.js";
 import {ExtensionRepository} from "./extension-repository.js";
+import {ModelProviderRepository} from "./ModelProviderRepository.js";
 import {SessionRepository} from "./session-repository.js";
 import {SystemRepository} from "./system-repository.js";
 import {TokenizerRepository} from "./tokenizer-repository.js";
@@ -29,6 +30,8 @@ export function createDataAccess(database: CenterDatabase): {
     events: EventRepository;
     /** extensions: 插件安装和扩展调用持久层。 */
     extensions: ExtensionRepository;
+    /** modelProviders: 数据库化模型供应商持久层。 */
+    modelProviders: ModelProviderRepository;
     /** sessions: 项目、会话、消息、轮次、任务和同步客户端持久层。 */
     sessions: SessionRepository;
     /** system: 中心服务系统表持久层。 */
@@ -46,6 +49,7 @@ export function createDataAccess(database: CenterDatabase): {
         agents: new AgentRepository(database),
         events: new EventRepository(database),
         extensions: new ExtensionRepository(database),
+        modelProviders: new ModelProviderRepository(database),
         sessions: new SessionRepository(database),
         system: new SystemRepository(database),
         tokenizer: new TokenizerRepository(database),
@@ -59,6 +63,7 @@ export {AgentEditRepository} from "./agent-edit-repository.js";
 export {AgentTeamRepository} from "./agent-team-repository.js";
 export {EventRepository} from "./event-repository.js";
 export {ExtensionRepository} from "./extension-repository.js";
+export {ModelProviderRepository} from "./ModelProviderRepository.js";
 export {SessionRepository} from "./session-repository.js";
 export {SystemRepository} from "./system-repository.js";
 export {TokenizerRepository} from "./tokenizer-repository.js";

@@ -1,5 +1,5 @@
 /**
- * 本轮长任务、WebSocket 对话页、LangChain 和智能体架构静态回归检查。
+ * 本轮长任务、WebSocket 对话页、AI SDK 模型供应商和智能体架构静态回归检查。
  *
  * 用途：作为 TDD 红灯脚本，证明当前实现仍会暴露工具循环上限、对话页仍混用 REST、
  * 模型协议仍依赖插件适配器，以及中心服务目录和智能体类层级尚未收敛。
@@ -180,8 +180,10 @@ const chatConversation = readText("apps/frontend/src/views/Chat/useChatConversat
 const taskDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/TaskDetailDialog.vue");
 const sessionGuidanceDomain = readText("services/center/src/domain/session-guidance-domain.ts");
 const autoScroll = readText("apps/frontend/src/views/Chat/useMessageListAutoScroll.ts");
-const providerDomain = readText("services/center/src/domain/provider-domain.ts");
-const modelGateway = readText("services/center/src/model-gateway-runtime.ts");
+const modelProviderRuntimeFactory = readText("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
+const aiSdkChatModelAdapter = readText("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
+const modelProviderSourceRegistry = readText("services/center/src/model-provider/ModelProviderSourceRegistry.ts");
+const modelProviderApi = readText("services/center/src/api/model-provider.ts");
 const centerPackage = readText("services/center/package.json");
 const apiClient = readText("packages/api-client/src/index.ts");
 const workspace = readText("pnpm-workspace.yaml");
@@ -287,12 +289,12 @@ assertRegex(
   "长任务必须具备自动续跑或批次计数状态信号。",
 );
 assertIncludes(
-  sessionDomain + deepAgentsRunner,
+  sessionDomain + deepAgentsAgent,
   "task.plan.revised",
   "用户中途修改需求后必须写入 task.plan.revised 重规划事件。",
 );
 assertIncludes(
-  sessionDomain + deepAgentsRunner,
+  sessionDomain + deepAgentsAgent,
   "superseded",
   "任务步骤必须支持 superseded 状态以保留被新需求替换的旧步骤。",
 );
@@ -551,35 +553,48 @@ assertIncludes(
   "消息区贴底时必须隐藏快捷箭头并允许 token 流贴底跟随。",
 );
 
+for (const aiSdkDependency of [
+  "\"ai\"",
+  "\"@ai-sdk/openai\"",
+  "\"@ai-sdk/openai-compatible\"",
+  "\"@ai-sdk/anthropic\"",
+  "\"@ai-sdk/google\"",
+  "\"@openrouter/ai-sdk-provider\"",
+]) {
+  assertIncludes(
+    centerPackage,
+    aiSdkDependency,
+    `中心服务必须显式声明 AI SDK 供应商依赖：${aiSdkDependency}。`,
+  );
+}
+for (const runtimeSignal of [
+  "createOpenAI",
+  "createOpenAICompatible",
+  "createAnthropic",
+  "createGoogleGenerativeAI",
+  "createOpenRouter",
+  "new AiSdkChatModelAdapter",
+]) {
+  assertIncludes(
+    modelProviderRuntimeFactory,
+    runtimeSignal,
+    `模型供应商运行时必须通过 Vercel AI SDK 创建模型：${runtimeSignal}。`,
+  );
+}
 assertIncludes(
-  centerPackage + modelGateway,
-  "@langchain/openai",
-  "OpenAI 模型调用必须直接使用 LangChain ChatOpenAI。",
-);
-assertIncludes(
-  centerPackage + modelGateway,
-  "@langchain/anthropic",
-  "Anthropic 模型调用必须直接使用 LangChain ChatAnthropic。",
-);
-assertIncludes(
-  modelGateway,
-  "OpenAiCompatibleChatModel",
-  "模型网关必须通过 OpenAI 兼容 ChatModel 包装创建模型。",
-);
-assertIncludes(
-  modelGateway,
-  "ChatAnthropic",
-  "模型网关必须出现 ChatAnthropic 初始化路径。",
-);
-assertNotIncludes(
-  modelGateway,
-  "void chatModel",
-  "LangChain ChatModel 不能只是实例化后丢弃，必须承载真实模型调用。",
+  aiSdkChatModelAdapter,
+  "extends BaseChatModel",
+  "AI SDK 适配器必须包装成 Deep Agents 可消费的 ChatModel。",
 );
 assertIncludes(
   deepAgentsAgent,
-  "model: createLangChainChatModel(",
-  "Deep Agents 原生入口必须直接注入 LangChain ChatModel。",
+  "new ModelProviderRuntimeFactory",
+  "Deep Agents 原生入口必须通过数据库供应商运行时工厂创建模型。",
+);
+assertIncludes(
+  deepAgentsAgent,
+  "createChatModel(context.runtime)",
+  "Deep Agents 原生入口必须注入 AI SDK ChatModel 适配器。",
 );
 assertIncludes(
   deepAgentsAgent,
@@ -591,11 +606,14 @@ for (const legacyProtocol of [
   "listBuiltinModelAdapterPlugins",
   "OPENAI_BUILTIN_PROTOCOL_ADAPTER",
   "plugins/builtin-model-*",
+  `protocol${"Plugin"}Id`,
+  `protocol${"Mode"}`,
+  "providerProtocolPlugins",
 ]) {
   assertNotIncludes(
-    providerDomain + apiClient + frontendProviderPage,
+    modelProviderRuntimeFactory + modelProviderApi + modelProviderSourceRegistry + apiClient + frontendProviderPage,
     legacyProtocol,
-    `OpenAI/Anthropic 不再通过插件协议适配器字段或注册表：${legacyProtocol}`,
+    `模型供应商不再通过插件协议适配器字段或注册表：${legacyProtocol}`,
   );
 }
 assertNotIncludes(

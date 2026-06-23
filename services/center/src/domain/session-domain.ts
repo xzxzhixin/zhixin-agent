@@ -20,7 +20,7 @@ import {
     recordUsage,
 } from "./workflow-domain.js";
 import {refreshUsageDailyStats} from "./usage-domain.js";
-import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
+import type {ProviderModelGatewayResult} from "../model-provider/ModelProviderRuntimeTypes.js";
 import {
     type TurnGraphCheckpoint,
     type TurnGraphContext,

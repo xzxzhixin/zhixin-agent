@@ -1,5 +1,5 @@
 import type {ModelMessageDiagnostics} from "../AgentMiddleware/CenterToolChoiceMiddleware.js";
-import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
+import type {ProviderModelGatewayResult} from "../model-provider/ModelProviderRuntimeTypes.js";
 
 /** AgentCompletionStatus：中心服务对单次 Deep Agents 候选结果的判定状态。 */
 export type AgentCompletionStatus =

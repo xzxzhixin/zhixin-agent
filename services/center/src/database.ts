@@ -804,6 +804,194 @@ export class CenterDatabase {
                 )
             );
 
+            CREATE TABLE IF NOT EXISTS model_providers
+            (
+                provider_id
+                TEXT
+                PRIMARY
+                KEY,
+                provider_name
+                TEXT
+                NOT
+                NULL,
+                provider_source
+                TEXT
+                NOT
+                NULL,
+                api_base_url
+                TEXT,
+                api_key_secret_ref
+                TEXT,
+                custom_headers_json
+                TEXT
+                NOT
+                NULL
+                DEFAULT '{}',
+                proxy_mode
+                TEXT
+                NOT
+                NULL
+                DEFAULT 'use-global-default',
+                proxy_id
+                TEXT,
+                enabled
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                created_at
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS model_provider_models
+            (
+                model_id
+                TEXT
+                PRIMARY
+                KEY,
+                provider_id
+                TEXT
+                NOT
+                NULL,
+                model_name
+                TEXT
+                NOT
+                NULL,
+                display_name
+                TEXT
+                NOT
+                NULL,
+                context_window_tokens
+                INTEGER,
+                enabled
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 1,
+                sort_order
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                created_at
+                TEXT
+                NOT
+                NULL,
+                updated_at
+                TEXT
+                NOT
+                NULL,
+                UNIQUE
+                (
+                    provider_id,
+                    model_name
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS model_provider_settings
+            (
+                provider_id
+                TEXT
+                PRIMARY
+                KEY,
+                default_model_name
+                TEXT,
+                reasoning_effort
+                TEXT,
+                temperature
+                REAL,
+                max_output_tokens
+                INTEGER,
+                extra_json
+                TEXT
+                NOT
+                NULL
+                DEFAULT '{}',
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS model_provider_capabilities
+            (
+                provider_id
+                TEXT
+                PRIMARY
+                KEY,
+                supports_vision
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                supports_tool_calling
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                supports_json_output
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                supports_reasoning_effort
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                supports_model_list
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                supports_streaming
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 1,
+                provides_cache_usage
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                updated_at
+                TEXT
+                NOT
+                NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS model_provider_checks
+            (
+                check_id
+                TEXT
+                PRIMARY
+                KEY,
+                provider_id
+                TEXT
+                NOT
+                NULL,
+                check_type
+                TEXT
+                NOT
+                NULL,
+                status
+                TEXT
+                NOT
+                NULL,
+                error_message
+                TEXT,
+                checked_at
+                TEXT
+                NOT
+                NULL
+            );
+
             CREATE TABLE IF NOT EXISTS todos
             (
                 id

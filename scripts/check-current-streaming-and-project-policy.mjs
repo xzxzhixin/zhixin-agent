@@ -59,14 +59,15 @@ function assertNotIncludes(
 }
 
 const packageJson = readProjectFile("package.json");
-const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
+const modelRuntimeFactory = readProjectFile("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
+const aiSdkChatModelAdapter = readProjectFile("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const chatRouter = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
 const appStore = readProjectFile("apps/frontend/src/stores/app.ts");
 const appProjectActions = readProjectFile("apps/frontend/src/stores/app-project-actions.ts");
 const agents = readProjectFile("AGENTS.md");
 const architecture = readProjectFile("架构.md");
-const plan = readProjectFile("计划.md");
+const requirement = readProjectFile("需求.md");
 
 assertNotIncludes(
   packageJson,
@@ -74,34 +75,34 @@ assertNotIncludes(
   "根 package.json 不能继续暴露中心服务独立启动脚本 dev:center:new。",
 );
 assertNotIncludes(
-  modelGatewayRuntime,
+  aiSdkChatModelAdapter,
   "stream: false",
-  "模型网关请求不能关闭流式输出，真实供应商必须使用 stream: true。",
+  "AI SDK 模型适配器不能关闭流式输出，真实供应商必须使用流式输出。",
 );
 assertNotIncludes(
-  modelGatewayRuntime,
+  aiSdkChatModelAdapter + modelRuntimeFactory,
   "spawnSync",
-  "模型网关不能用同步子进程等待完整 HTTP 响应，否则 UI 会卡住。",
+  "模型供应商运行时不能用同步子进程等待完整 HTTP 响应，否则 UI 会卡住。",
 );
 assertIncludes(
-  modelGatewayRuntime,
+  aiSdkChatModelAdapter,
   "for await",
-  "模型网关必须使用 LangChain 流式迭代读取供应商输出。",
+  "AI SDK 模型适配器必须使用流式迭代读取供应商输出。",
 );
 assertIncludes(
-  modelGatewayRuntime,
-  "appendProviderStreamDelta",
-  "模型网关必须在收到 token/SSE delta 时立即追加 model.stream.delta 事件。",
+  aiSdkChatModelAdapter,
+  "stream",
+  "AI SDK 模型适配器必须使用 streamText 读取 token/SSE delta。",
 );
 assertIncludes(
-  modelGatewayRuntime,
-  "textDelta",
-  "模型网关必须解析 OpenAI Chat Completions 的文本 delta 事件。",
+  aiSdkChatModelAdapter,
+  "textStream",
+  "AI SDK 模型适配器必须解析文本 delta 事件。",
 );
 assertIncludes(
-  modelGatewayRuntime,
-  "tool_calls",
-  "模型网关必须解析 OpenAI Chat Completions 的结构化工具调用 delta。",
+  aiSdkChatModelAdapter,
+  "tool-call",
+  "AI SDK 模型适配器必须解析结构化工具调用 delta。",
 );
 assertIncludes(
   sessionDomain,
@@ -109,12 +110,12 @@ assertIncludes(
   "会话执行链路必须进入 Deep Agents 原生入口，不能回到旧模型网关入口。",
 );
 assertNotIncludes(
-  sessionDomain + modelGatewayRuntime,
+  sessionDomain + aiSdkChatModelAdapter + modelRuntimeFactory,
   "invokeProviderModelGateway",
   "旧 invokeProviderModelGateway 入口已无真实调用方，不能继续残留。",
 );
 assertNotIncludes(
-  sessionDomain + modelGatewayRuntime,
+  sessionDomain + aiSdkChatModelAdapter + modelRuntimeFactory,
   "appendModelStreamEvent(events, sent.sessionId, sent.taskId, sent.turnId, modelResult)",
   "会话执行链路不能在完整响应后一次性追加流式片段。",
 );
@@ -145,7 +146,7 @@ assertIncludes(
 );
 assertIncludes(
   agents,
-  "中心服务不允许独立启动",
+  "中心服务**不允许独立启动**",
   "AGENTS.md 必须写入中心服务只能由桌面端启停的协作规范。",
 );
 assertIncludes(
@@ -154,23 +155,23 @@ assertIncludes(
   "AGENTS.md 必须写入项目对话测试目录规范。",
 );
 assertIncludes(
-  agents,
-  "用户后续提到的需求在 `需求.md` 中没有明确覆盖，必须先新增到 `需求.md`",
-  "AGENTS.md 必须写入后续需求默认写入需求源的规则。",
+  requirement,
+  "中心服务 API 必须有真实业务调用方",
+  "需求.md 必须写入 API 真实调用方和旧兼容接口删除规则。",
+);
+assertIncludes(
+  requirement,
+  "供应商模型调用统一通过中心服务 `AiSdkChatModelAdapter`",
+  "需求.md 必须写入模型供应商 AI SDK 适配口径。",
 );
 assertIncludes(
   agents,
-  "如果新需求与已有 `需求.md` 内容冲突，必须按 `需求.md` 的最新需求优先口径先修订 `需求.md`",
-  "AGENTS.md 必须写入新需求优先于旧需求的规则。",
-);
-assertIncludes(
-  agents,
-  "`dev:frontend` 是前端 Vite 开发服务器的独立启动入口",
+  "`dev:frontend` – 独立启动前端 Vite 服务",
   "AGENTS.md 必须写入 dev:frontend 独立拉起前端的规则。",
 );
 assertIncludes(
   agents,
-  "`dev:desktop-shell` 只启动桌面壳并由桌面壳拉起中心服务",
+  "`dev:desktop-shell` – 启动桌面壳并拉起中心服务",
   "AGENTS.md 必须写入 dev:desktop-shell 不拉起前端的规则。",
 );
 assertIncludes(
@@ -179,9 +180,9 @@ assertIncludes(
   "架构文档必须写入禁止独立启动中心服务的运行边界。",
 );
 assertIncludes(
-  plan,
-  "真实供应商 token/SSE 级逐字模型回复",
-  "计划必须同步本轮真实供应商流式回复任务。",
+  requirement,
+  "AiSdkChatModelAdapter",
+  "需求必须同步当前供应商模型调用适配任务。",
 );
 
 if (existsSync(join(process.cwd(), "services/center/center-data"))) {

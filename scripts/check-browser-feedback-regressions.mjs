@@ -99,7 +99,7 @@ const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const sessionMessageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
-const modelGatewayRuntime = readProjectFile("services/center/src/model-gateway-runtime.ts");
+const aiSdkChatModelAdapter = readProjectFile("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const toolRuntime = [
   readProjectFile("services/center/src/StructuredTool/index.ts"),
@@ -110,12 +110,12 @@ const editDialog = readProjectFile("apps/frontend/src/views/Chat/dialogs/EditDet
 for (const signal of [
   "model.stream",
   "tool.execute",
-  "appendProviderStreamDelta",
+  "model.stream.delta",
   "setTimeout",
   "broadcastEvents",
 ]) {
   assertIncludes(
-    apiRoutes + sessionDomain + sessionMessageRoute + modelGatewayRuntime,
+    apiRoutes + sessionDomain + sessionMessageRoute + aiSdkChatModelAdapter,
     signal,
     `对话发送链路缺少异步过程可见信号：${signal}`,
   );
@@ -163,7 +163,7 @@ for (const signal of [
   "run.toolCalls",
 ]) {
   assertIncludes(
-    conversationActions + sessionDomain + toolRuntime + modelGatewayRuntime,
+    conversationActions + sessionDomain + toolRuntime + aiSdkChatModelAdapter,
     signal,
     `命令工具必须通过 Deep Agents 结构化工具调用链路进入工具过程：${signal}`,
   );

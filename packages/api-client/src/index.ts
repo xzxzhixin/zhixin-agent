@@ -324,8 +324,8 @@ export interface CommittedAttachmentResult {
 /**
  * ProviderCapabilityDeclaration：供应商模型能力声明。
  *
- * 来源：中心服务供应商配置协议。
- * 含义：描述协议适配器暴露给 UI 的能力开关。
+ * 来源：中心服务模型来源配置协议。
+ * 含义：描述供应商配置声明的模型能力开关。
  * 格式：布尔字段对象。
  * 默认值：创建表单默认全部 false。
  * 约束：前端只提交明确字段，不猜测能力。
@@ -347,44 +347,98 @@ export interface ProviderCapabilityDeclaration {
   supportsStreaming: boolean;
 }
 
+/** ModelProviderSource：模型来源稳定值，由中心服务映射到具体模型 SDK。 */
+export type ModelProviderSource =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "deepseek"
+  | "qwen"
+  | "openrouter"
+  | "codex"
+  | "openai-compatible-custom";
+
 /**
- * ProviderProtocolModeView：协议适配器模式展示结构。
+ * ModelProviderSourceOption：模型来源下拉选项。
  *
- * 来源：`POST /api/provider/protocol-plugin/list`。
- * 含义：描述某个协议适配器支持的供应商协议模式。
- * 格式：JSON 对象。
- * 默认值：无。
- * 约束：mode 是保存到供应商配置的稳定协议值。
+ * 来源：`POST /api/model-provider/source-options`。
+ * 含义：供应商页只展示业务来源，不暴露底层实现包或适配实现。
  */
-export interface ProviderProtocolModeView {
-  /** mode: 协议模式稳定值。 */
-  mode: string;
-  /** label: 协议模式展示名。 */
+export interface ModelProviderSourceOption {
+  /** providerSource: 模型来源稳定值。 */
+  providerSource: ModelProviderSource;
+  /** label: 模型来源展示名。 */
   label: string;
-  /** description: 协议模式说明。 */
+  /** description: 模型来源说明。 */
   description: string;
+  /** defaultBaseUrl: 默认接口地址，没有默认值时为 null。 */
+  defaultBaseUrl: string | null;
+  /** defaultCapabilities: 当前来源推荐的默认能力声明。 */
+  defaultCapabilities: ProviderCapabilityDeclaration;
 }
 
 /**
- * ProviderProtocolPluginView：协议适配器展示结构。
+ * ModelProviderCapabilityView：数据库化模型供应商能力声明。
  *
- * 来源：中心服务内联 LangChain OpenAI / Anthropic 提供方。
- * 含义：供应商页协议适配器下拉的数据源。
- * 格式：JSON 对象。
- * 默认值：无。
- * 约束：pluginId 必须与供应商配置 protocolPluginId 一致。
+ * 来源：`model_provider_capabilities` 表。
+ * 含义：展示和编辑供应商能力开关。
+ * 约束：字段只表达业务能力，不包含底层实现包信息。
  */
-export interface ProviderProtocolPluginView {
-  /** pluginId: 协议适配器 ID。 */
-  pluginId: string;
-  /** pluginName: 协议适配器显示名。 */
-  pluginName: string;
-  /** protocolModes: 该插件支持的协议模式列表。 */
-  protocolModes: ProviderProtocolModeView[];
-  /** defaultProtocolMode: 新建供应商时推荐默认模式。 */
-  defaultProtocolMode: string;
-  /** defaultCapabilities: 该协议适配器推荐默认能力声明。 */
-  defaultCapabilities: ProviderCapabilityDeclaration;
+export interface ModelProviderCapabilityView extends ProviderCapabilityDeclaration {
+  /** providerId: 所属供应商 ID。 */
+  providerId: string;
+  /** updatedAt: 更新时间，中心服务本机时间字符串。 */
+  updatedAt: string;
+}
+
+/**
+ * ModelProviderSettingsView：数据库化模型供应商默认调用设置。
+ *
+ * 来源：`model_provider_settings` 表。
+ * 含义：保存默认模型、推理深度和后续运行时参数。
+ */
+export interface ModelProviderSettingsView {
+  /** providerId: 所属供应商 ID。 */
+  providerId: string;
+  /** defaultModelName: 默认模型名称。 */
+  defaultModelName: string | null;
+  /** reasoningEffort: 推理深度。 */
+  reasoningEffort: string | null;
+  /** temperature: 温度参数。 */
+  temperature: number | null;
+  /** maxOutputTokens: 最大输出 token。 */
+  maxOutputTokens: number | null;
+  /** extraJson: 额外业务设置 JSON 字符串。 */
+  extraJson: string;
+  /** updatedAt: 更新时间，中心服务本机时间字符串。 */
+  updatedAt: string;
+}
+
+/**
+ * ModelProviderModelView：数据库化模型列表项。
+ *
+ * 来源：`model_provider_models` 表。
+ * 含义：作为模型下拉和上下文窗口配置事实源。
+ */
+export interface ModelProviderModelView {
+  /** modelId: 模型记录 ID。 */
+  modelId: string;
+  /** providerId: 所属供应商 ID。 */
+  providerId: string;
+  /** modelName: 供应商模型真实名称。 */
+  modelName: string;
+  /** displayName: UI 展示名。 */
+  displayName: string;
+  /** contextWindowTokens: 上下文窗口 token 数，未知时为 null。 */
+  contextWindowTokens: number | null;
+  /** enabled: 是否启用该模型。 */
+  enabled: boolean;
+  /** sortOrder: 排序值。 */
+  sortOrder: number;
+  /** createdAt: 创建时间，中心服务本机时间字符串。 */
+  createdAt: string;
+  /** updatedAt: 更新时间，中心服务本机时间字符串。 */
+  updatedAt: string;
 }
 
 /**
@@ -406,7 +460,7 @@ export interface ProviderProxyPolicy {
 /**
  * ProviderConfigView：供应商列表展示结构。
  *
- * 来源：`POST /api/provider/list`。
+ * 来源：`POST /api/model-provider/list`。
  * 含义：客户端可展示和编辑的供应商配置摘要。
  * 格式：JSON 对象。
  * 默认值：无。
@@ -417,30 +471,141 @@ export interface ProviderConfigView {
   providerId: string;
   /** providerName: 供应商名称。 */
   providerName: string;
-  /** protocolPluginId: 协议适配器 ID。 */
-  protocolPluginId: string;
-  /** protocolMode: 协议模式。 */
-  protocolMode: string;
-  /** baseUrl: 供应商接口地址。 */
-  baseUrl: string;
-  /** defaultModel: 默认模型。 */
-  defaultModel: string;
+  /** providerSource: 模型来源稳定值。 */
+  providerSource: ModelProviderSource;
+  /** providerSourceLabel: 模型来源展示名，来源于中心服务来源注册表。 */
+  providerSourceLabel: string;
+  /** apiBaseUrl: 供应商接口地址。 */
+  apiBaseUrl: string | null;
+  /** customHeadersJson: 自定义请求头 JSON 文本。 */
+  customHeadersJson: string;
+  /** proxyMode: 代理策略模式。 */
+  proxyMode: ProviderProxyPolicy["mode"];
+  /** proxyId: 指定代理 ID，未指定时为 null。 */
+  proxyId: string | null;
   /** enabled: 是否启用。 */
   enabled: boolean;
   /** hasApiKey: 是否已保存 API Key。 */
   hasApiKey: boolean;
-  /** capabilities: 能力声明。 */
-  capabilities: ProviderCapabilityDeclaration;
-  /** proxyPolicy: 代理策略。 */
-  proxyPolicy: ProviderProxyPolicy;
+  /** createdAt: 创建时间，中心服务本机时间字符串。 */
+  createdAt: string;
   /** updatedAt: 更新时间。 */
   updatedAt: string;
+  /** settings: 默认调用设置。 */
+  settings: ModelProviderSettingsView;
+  /** defaultModel: 默认模型兼容展示字段，来源于 settings.defaultModelName。 */
+  defaultModel: string;
+  /** capabilities: 能力声明。 */
+  capabilities: ModelProviderCapabilityView;
+  /** models: 模型列表。 */
+  models: ModelProviderModelView[];
+  /** latestCheck: 最近检测结果；没有检测记录时为 null。 */
+  latestCheck: ModelProviderCheckView | null;
+  /** proxyPolicy: 代理策略兼容对象，来源于 proxyMode 和 proxyId。 */
+  proxyPolicy: ProviderProxyPolicy;
+}
+
+/**
+ * ModelProviderCheckView：模型来源检测结果。
+ *
+ * 来源：`model_provider_checks` 表或检测接口返回。
+ * 含义：用于列表展示最近一次检测状态和失败原因。
+ */
+export interface ModelProviderCheckView {
+  /** checkId: 检测记录 ID。 */
+  checkId: string;
+  /** providerId: 所属供应商 ID。 */
+  providerId: string;
+  /** checkType: 检测类型。 */
+  checkType: string;
+  /** status: 检测状态。 */
+  status: "passed" | "failed";
+  /** errorMessage: 检测失败原因，成功时为 null。 */
+  errorMessage: string | null;
+  /** checkedAt: 检测时间，中心服务本机时间字符串。 */
+  checkedAt: string;
+}
+
+/**
+ * CreateModelProviderPayload：新增数据库化模型供应商入参。
+ *
+ * 来源：供应商管理页表单。
+ * 含义：提交业务来源、连接信息、默认设置和能力声明。
+ */
+export interface CreateModelProviderPayload {
+  /** providerName: 供应商名称。 */
+  providerName: string;
+  /** providerSource: 模型来源。 */
+  providerSource: ModelProviderSource;
+  /** apiBaseUrl: 接口基础地址。 */
+  apiBaseUrl?: string | null;
+  /** apiKey: 新 API Key 明文，仅用于本次保存。 */
+  apiKey?: string;
+  /** customHeadersJson: 自定义请求头 JSON 对象字符串。 */
+  customHeadersJson: string;
+  /** proxyMode: 代理策略模式。 */
+  proxyMode: ProviderProxyPolicy["mode"];
+  /** proxyId: 指定代理 ID。 */
+  proxyId?: string | null;
+  /** enabled: 是否启用。 */
+  enabled: boolean;
+  /** defaultModelName: 默认模型名称。 */
+  defaultModelName?: string | null;
+  /** reasoningEffort: 推理深度。 */
+  reasoningEffort?: string | null;
+  /** temperature: 温度参数。 */
+  temperature?: number | null;
+  /** maxOutputTokens: 最大输出 token。 */
+  maxOutputTokens?: number | null;
+  /** extraJson: 额外业务设置 JSON 对象字符串。 */
+  extraJson?: string;
+  /** capabilities: 能力声明。 */
+  capabilities: ProviderCapabilityDeclaration;
+}
+
+/**
+ * UpdateModelProviderPayload：更新数据库化模型供应商入参。
+ *
+ * 来源：供应商管理页编辑表单。
+ * 含义：只提交需要修改的字段。
+ */
+export interface UpdateModelProviderPayload extends Partial<CreateModelProviderPayload> {
+  /** providerId: 要更新的供应商 ID。 */
+  providerId: string;
+  /** clearApiKey: 是否清空已保存 API Key。 */
+  clearApiKey?: boolean;
+}
+
+/**
+ * SaveModelProviderModelsPayload：保存供应商模型列表入参。
+ *
+ * 来源：手填模型与上下文区域。
+ * 含义：把模型下拉事实源保存到 SQLite。
+ */
+export interface SaveModelProviderModelsPayload {
+  /** providerId: 所属供应商 ID。 */
+  providerId: string;
+  /** defaultModelName: 保存后同步使用的默认模型。 */
+  defaultModelName?: string | null;
+  /** models: 模型列表。 */
+  models: Array<{
+    /** modelName: 模型真实名称。 */
+    modelName: string;
+    /** displayName: UI 展示名。 */
+    displayName: string;
+    /** contextWindowTokens: 上下文窗口 token 数。 */
+    contextWindowTokens: number | null;
+    /** enabled: 是否启用该模型。 */
+    enabled: boolean;
+    /** sortOrder: 排序值。 */
+    sortOrder: number;
+  }>;
 }
 
 /**
  * ProviderModelListView：供应商模型列表展示结构。
  *
- * 来源：`POST /api/provider/model-list`。
+ * 来源：模型来源供应商详情。
  * 含义：返回中心服务已保存或刷新得到的模型与推理深度列表。
  * 格式：JSON 对象。
  * 默认值：未刷新时 models 和 reasoningEfforts 为空数组。
@@ -1003,73 +1168,60 @@ export class CenterApiClient {
   }
 
   /**
-   * listProviders：查询供应商列表。
+   * listModelProviders：查询模型来源供应商列表。
+   *
+   * @returns 供应商列表。
+   */
+  listModelProviders(): Promise<{
+    providers: ProviderConfigView[];
+  }> {
+    return this.post("/api/model-provider/list", {});
+  }
+
+  /**
+   * listProviders：兼容既有前端供应商列表调用。
    *
    * @returns 供应商列表。
    */
   listProviders(): Promise<{
     providers: ProviderConfigView[];
   }> {
-    return this.post("/api/provider/list", {});
+    return this.listModelProviders();
   }
 
   /**
-   * listProviderProtocolPlugins：查询中心服务协议适配器。
+   * listModelProviderSourceOptions：查询模型来源下拉选项。
    *
-   * @returns 协议适配器列表。
+   * @returns 模型来源选项。
    */
-  listProviderProtocolPlugins(): Promise<{
-    plugins: ProviderProtocolPluginView[];
+  listModelProviderSourceOptions(): Promise<{
+    sources: ModelProviderSourceOption[];
   }> {
-    return this.post("/api/provider/protocol-plugin/list", {});
+    return this.post("/api/model-provider/source-options", {});
   }
 
   /**
-   * createProvider：新增供应商配置。
+   * createModelProvider：新增模型来源供应商配置。
    *
    * @param payload 供应商配置表单。
    * @returns 新建供应商 ID 和密钥状态。
    */
-  createProvider(payload: {
-    providerName?: string;
-    protocolPluginId?: string;
-    protocolMode?: string;
-    baseUrl?: string;
-    apiKey?: string;
-    model?: string;
-    enabled: boolean;
-    capabilities: ProviderCapabilityDeclaration;
-    proxyPolicy: ProviderProxyPolicy;
-  }): Promise<{
-    providerId: string;
-    hasApiKey: boolean;
+  createModelProvider(payload: CreateModelProviderPayload): Promise<{
+    provider: ProviderConfigView;
   }> {
-    return this.post("/api/provider/create", payload);
+    return this.post("/api/model-provider/create", payload);
   }
 
   /**
-   * updateProvider：修改供应商配置。
+   * updateModelProvider：修改模型来源供应商配置。
    *
    * @param payload 供应商更新字段。
    * @returns 更新结果。
    */
-  updateProvider(payload: {
-    providerId: string;
-    providerName?: string;
-    protocolPluginId?: string;
-    protocolMode?: string;
-    baseUrl?: string;
-    apiKey?: string;
-    enabled?: boolean;
-    defaultModel?: string;
-    capabilities?: ProviderCapabilityDeclaration;
-    proxyPolicy?: ProviderProxyPolicy;
-  }): Promise<{
-    providerId: string;
-    enabled?: boolean;
-    defaultModel?: string;
+  updateModelProvider(payload: UpdateModelProviderPayload): Promise<{
+    provider: ProviderConfigView;
   }> {
-    return this.post("/api/provider/update", payload);
+    return this.post("/api/model-provider/update", payload);
   }
 
   /**
@@ -1134,7 +1286,22 @@ export class CenterApiClient {
   }
 
   /**
-   * deleteProvider：从中心服务供应商列表中删除供应商配置。
+   * deleteModelProvider：从中心服务供应商列表中删除供应商配置。
+   *
+   * @param payload 供应商 ID。
+   * @returns 删除结果。
+   */
+  deleteModelProvider(payload: {
+    providerId: string;
+  }): Promise<{
+    providerId: string;
+    deleted: boolean;
+  }> {
+    return this.post("/api/model-provider/delete", payload);
+  }
+
+  /**
+   * deleteProvider：兼容既有前端删除供应商调用。
    *
    * @param payload 供应商 ID。
    * @returns 删除结果。
@@ -1145,65 +1312,94 @@ export class CenterApiClient {
     providerId: string;
     deleted: boolean;
   }> {
-    return this.post("/api/provider/delete", payload);
+    return this.deleteModelProvider(payload);
   }
 
   /**
-   * refreshProviderModels：刷新模型列表和推理深度。
+   * saveModelProviderModels：保存模型列表和默认模型。
    *
-   * @param payload 供应商 ID、模型和推理深度数组。
-   * @returns 刷新结果。
+   * @param payload 供应商 ID、模型列表和默认模型。
+   * @returns 保存后的供应商详情。
    */
-  refreshProviderModels(payload: {
-    providerId: string;
-    models: string[];
-    contextWindows?: Array<{
-      model: string;
-      contextWindowTokens: number;
-    }>;
-    reasoningEfforts: string[];
-  }): Promise<{
-    providerId: string;
-    models: string[];
-    contextWindows: Array<{
-      model: string;
-      contextWindowTokens: number;
-    }>;
-    reasoningEfforts: string[];
+  saveModelProviderModels(payload: SaveModelProviderModelsPayload): Promise<{
+    provider: ProviderConfigView;
   }> {
-    return this.post("/api/provider/model-refresh", payload);
+    return this.post("/api/model-provider/model/save", payload);
   }
 
   /**
-   * fetchProviderModels：从供应商上游接口获取模型列表。
+   * listProviderModels：从供应商详情中读取已保存模型列表。
    *
    * @param payload 供应商 ID。
-   * @returns 已排序并保存的模型列表。
-   */
-  fetchProviderModels(payload: {
-    providerId: string;
-  }): Promise<{
-    providerId: string;
-    models: string[];
-    contextWindows: Array<{
-      model: string;
-      contextWindowTokens: number;
-    }>;
-    reasoningEfforts: string[];
-  }> {
-    return this.post("/api/provider/model-fetch", payload);
-  }
-
-  /**
-   * listProviderModels：查询指定供应商已保存的模型列表。
-   *
-   * @param payload 供应商 ID。
-   * @returns 模型列表和推理深度列表。
+   * @returns 模型列表和默认模型。
    */
   listProviderModels(payload: {
     providerId: string;
+  }): Promise<ProviderModelListView | null> {
+    return this.listProviders().then((result) => {
+      const provider = result.providers.find((item) => {
+        return item.providerId === payload.providerId;
+      });
+      if (!provider) {
+        return null;
+      }
+      return {
+        providerId: provider.providerId,
+        models: provider.models.map((model) => {
+          return model.modelName;
+        }),
+        contextWindows: provider.models
+          .filter((model) => {
+            return typeof model.contextWindowTokens === "number";
+          })
+          .map((model) => {
+            return {
+              model: model.modelName,
+              contextWindowTokens: model.contextWindowTokens as number,
+            };
+          }),
+        reasoningEfforts: provider.settings.reasoningEffort ? [provider.settings.reasoningEffort] : [],
+        updatedAt: provider.settings.updatedAt || null,
+      };
+    });
+  }
+
+  /**
+   * fetchProviderModels：兼容旧页面“获取模型”调用。
+   *
+   * @param payload 供应商 ID。
+   * @returns 当前已保存模型列表；真实上游获取由后续 AI SDK runtime 任务接入。
+   */
+  fetchProviderModels(payload: {
+    providerId: string;
   }): Promise<ProviderModelListView> {
-    return this.post("/api/provider/model-list", payload);
+    return this.listProviderModels(payload).then((result) => {
+      if (result) {
+        return result;
+      }
+      return {
+        providerId: payload.providerId,
+        models: [],
+        contextWindows: [],
+        reasoningEfforts: [],
+        updatedAt: null,
+      };
+    });
+  }
+
+  /**
+   * runModelProviderCheck：运行模型来源供应商检测。
+   *
+   * @param payload 供应商 ID 和检测类型。
+   * @returns 检测结果。
+   */
+  runModelProviderCheck(payload: {
+    providerId: string;
+    checkType?: string;
+  }): Promise<{
+    check: ModelProviderCheckView;
+  }> {
+    return this.post("/api/model-provider/check/run", payload);
   }
 
   /**

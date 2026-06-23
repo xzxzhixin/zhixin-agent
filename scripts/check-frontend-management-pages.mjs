@@ -102,14 +102,23 @@ const centerAgentRoutesPath = join(
   "api",
   "agent.ts",
 );
-// centerProviderDomainPath: 中心服务供应商和代理领域文件路径。
+// centerProviderDomainPath: 中心服务数据库化供应商 API 文件路径。
 const centerProviderDomainPath = join(
   process.cwd(),
   "services",
   "center",
   "src",
+  "api",
+  "model-provider.ts",
+);
+// centerProxyRuntimeDomainPath: 中心服务代理和运行环境领域文件路径。
+const centerProxyRuntimeDomainPath = join(
+  process.cwd(),
+  "services",
+  "center",
+  "src",
   "domain",
-  "provider-domain.ts",
+  "proxy-runtime-domain.ts",
 );
 // centerUsageDomainPath: 中心服务用量领域文件路径。
 const centerUsageDomainPath = join(
@@ -267,6 +276,7 @@ const centerService = [
   centerAgentRoutesPath,
   centerProviderRoutesPath,
   centerProviderDomainPath,
+  centerProxyRuntimeDomainPath,
   centerUsageDomainPath,
   centerAgentDomainPath,
 ].map((sourcePath) => {
@@ -432,7 +442,7 @@ const expectations = [
   ],
   [
     mainView,
-    "refreshModelContextWindowsText",
+    "manualModelContextText",
     "供应商页面必须支持手填模型窗口上下文。",
   ],
   [
@@ -472,23 +482,13 @@ const expectations = [
   ],
   [
     centerService,
-    "/api/provider/model-fetch",
-    "中心服务必须提供供应商真实模型获取接口。",
+    "/api/model-provider/check/run",
+    "中心服务必须提供模型来源供应商检测接口。",
   ],
   [
     centerService,
-    "fetchProviderModelsFromUpstream",
-    "中心服务必须通过供应商上游模型接口获取模型列表。",
-  ],
-  [
-    centerService,
-    "existingContextWindowByModel",
-    "中心服务获取上游模型时必须保留用户已维护的模型上下文窗口。",
-  ],
-  [
-    centerService,
-    "DEFAULT_FETCHED_MODEL_CONTEXT_WINDOW_TOKENS",
-    "中心服务必须为上游新增且未返回窗口的模型使用明确默认窗口。",
+    "/api/model-provider/model/save",
+    "中心服务必须提供供应商模型保存接口。",
   ],
   [
     store,
@@ -627,7 +627,7 @@ const expectations = [
   ],
   [
     centerService,
-    "/api/provider/model-list",
+    "/api/model-provider/list",
     "中心服务必须提供已保存模型列表查询接口，供默认模型下拉使用。",
   ],
   [
@@ -693,14 +693,13 @@ const expectations = [
  */
 const providerUpdatePayloadFields = [
   "providerName",
-  "protocolPluginId",
-  "protocolMode",
-  "baseUrl",
-  "defaultModel",
+  "providerSource",
+  "apiBaseUrl",
+  "defaultModelName",
   "apiKey",
   "enabled",
   "capabilities",
-  "proxyPolicy",
+  "proxyMode",
 ];
 
 for (const [
@@ -971,16 +970,16 @@ function extractRequiredBlock(
 // providerUpdateStoreBlock: 只抽取 saveProvider 内真正提交 updateProvider 的 payload，避免 createProvider 字段误判通过。
 const providerUpdateStoreBlock = extractRequiredBlock(
   store,
-  "await this.api().updateProvider({",
+  "await this.api().updateModelProvider({",
   "});",
-  "前端状态容器必须存在 updateProvider 提交块。",
+  "前端状态容器必须存在 updateModelProvider 提交块。",
 );
-// providerUpdateClientBlock: 只抽取 API 客户端 updateProvider 方法，避免其他接口字段误判通过。
+// providerUpdateClientBlock: 只抽取 API 客户端 updateModelProvider 方法，避免其他接口字段误判通过。
 const providerUpdateClientBlock = extractRequiredBlock(
   apiClient,
-  "updateProvider(payload: {",
-  "return this.post(\"/api/provider/update\", payload);",
-  "API 客户端必须存在 updateProvider 方法块。",
+  "export interface UpdateModelProviderPayload",
+  "return this.post(\"/api/model-provider/update\", payload);",
+  "API 客户端必须存在 updateModelProvider 方法块。",
 );
 // providerDefaultModelFormBlock: 供应商默认模型字段源码块，用于防止无模型列表时退回普通输入框。
 const providerDefaultModelFormBlock = extractRequiredBlock(
@@ -992,13 +991,13 @@ const providerDefaultModelFormBlock = extractRequiredBlock(
 for (const field of providerUpdatePayloadFields) {
   assertIncludes(
     providerUpdateStoreBlock,
-    field === "defaultModel" ? "defaultModel:" : `${field}:`,
-    `供应商 updateProvider payload 必须包含 ${field} 字段。`,
+    `${field}:`,
+    `供应商 updateModelProvider payload 必须包含 ${field} 字段。`,
   );
   assertIncludes(
-    providerUpdateClientBlock,
+    apiClient,
     field,
-    `API 客户端 updateProvider 入参必须包含 ${field} 字段。`,
+    `API 客户端 updateModelProvider 入参必须包含 ${field} 字段。`,
   );
 }
 

@@ -140,7 +140,7 @@ if (existsSync(join(root, "services/center/src/deepagents-agent.ts"))) {
   const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
   for (const signal of [
     "createDeepAgent",
-    "createLangChainChatModel",
+    "ModelProviderRuntimeFactory",
     "run.toolCalls",
     "runStructuredTool",
     "model.tool.result.appended",

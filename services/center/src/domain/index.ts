@@ -6,7 +6,7 @@
  */
 export * from "./agent-domain.js";
 export * from "./extension-domain.js";
-export * from "./provider-domain.js";
+export * from "./proxy-runtime-domain.js";
 export * from "./session-domain.js";
 export * from "./session-guidance-domain.js";
 export * from "./session-query-domain.js";

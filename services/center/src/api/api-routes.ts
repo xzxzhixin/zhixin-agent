@@ -18,6 +18,7 @@ import {registerEngineRoutes} from "./engine.js";
 import {registerApprovalRoutes} from "./approval.js";
 import {registerAttachmentRoutes} from "./attachment.js";
 import {registerAuditRoutes} from "./audit.js";
+import {registerModelProviderRoutes} from "./model-provider.js";
 import {registerProviderRoutes} from "./provider-routes.js";
 import {registerUsageRoutes} from "./usage-routes.js";
 import {registerCenterSyncRoute} from "./sync-route.js";
@@ -52,6 +53,7 @@ export function registerCenterApiRoutes(context: CenterApiRouteContext): void {
     registerAttachmentRoutes(context);
     registerAuditRoutes(context);
     registerCenterConfigRoutes(context);
+    registerModelProviderRoutes(context);
     registerProviderRoutes(
         context.app,
         context.database,

@@ -43,12 +43,6 @@ const commands = [
   [
     "node",
     [
-      "scripts/check-openai-compatible-chat-completions-regression.mjs",
-    ],
-  ],
-  [
-    "node",
-    [
       "scripts/check-center-data-access-layer.mjs",
     ],
   ],
@@ -209,12 +203,6 @@ const commands = [
   [
     "node",
     [
-      "scripts/check-provider-empty-response-regression.mjs",
-    ],
-  ],
-  [
-    "node",
-    [
       "scripts/check-dialog-agent-workflow-regression.mjs",
     ],
   ],
@@ -228,12 +216,6 @@ const commands = [
     "node",
     [
       "scripts/check-session-title-summary-regression.mjs",
-    ],
-  ],
-  [
-    "node",
-    [
-      "scripts/check-provider-management-dialog-regression.mjs",
     ],
   ],
   [

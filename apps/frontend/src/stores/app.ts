@@ -11,10 +11,10 @@ import {
     type AgentConfigView,
     type HealthResponse,
     type McpConfigView,
+    type ModelProviderSourceOption,
     type PluginConfigView,
     type ProviderConfigView,
     type ProviderModelListView,
-    type ProviderProtocolPluginView,
     type ProxyConfigView,
     type RuntimeConfigView,
     type SessionDetailResult,
@@ -210,9 +210,9 @@ export const useAppStore = defineStore("app", {
         providers: [] as ProviderConfigView[],
 
         /**
-         * providerProtocolPlugins: 中心服务返回的协议适配器列表。
+         * providerSourceOptions: 中心服务返回的模型来源列表。
          */
-        providerProtocolPlugins: [] as ProviderProtocolPluginView[],
+        providerSourceOptions: [] as ModelProviderSourceOption[],
 
         /**
          * providerDraft: 供应商编辑表单草稿。
@@ -1404,7 +1404,7 @@ export const useAppStore = defineStore("app", {
         resolveComposerDefaultModel(provider: ProviderConfigView): string {
             // savedModels: 模型列表来自中心服务保存或刷新结果；只在供应商默认模型为空时作为明确兜底。
             const savedModels = this.providerModelOptions[provider.providerId]?.models ?? [];
-            return provider.defaultModel || savedModels[0] || "";
+            return provider.settings.defaultModelName || savedModels[0] || "";
         },
 
         /**

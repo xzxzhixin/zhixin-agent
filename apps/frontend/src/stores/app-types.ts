@@ -238,28 +238,28 @@ export interface ProviderDraft {
     providerId: string | null;
     /** providerName: 供应商名称。 */
     providerName: string;
-    /** protocolPluginId: 协议适配器 ID，OpenAI 内置固定为 openai-builtin。 */
-    protocolPluginId: string;
-    /** protocolMode: 协议模式。 */
-    protocolMode: string;
-    /** baseUrl: 供应商接口地址。 */
-    baseUrl: string;
+    /** providerSource: 模型来源稳定值，由中心服务映射到具体模型 SDK。 */
+    providerSource: ModelProviderSource;
+    /** apiBaseUrl: 供应商接口地址。 */
+    apiBaseUrl: string;
     /** apiKey: 本次提交的 API Key 明文，保存后清空。 */
     apiKey: string;
-    /** model: 默认模型。 */
-    model: string;
+    /** customHeadersText: 自定义请求头 JSON 文本，保存前校验为 JSON 对象。 */
+    customHeadersText: string;
+    /** defaultModelName: 默认模型。 */
+    defaultModelName: string;
     /** enabled: 是否启用。 */
     enabled: boolean;
     /** capabilities: 模型能力声明。 */
     capabilities: ProviderCapabilityDeclaration;
     /** proxyPolicy: 代理策略。 */
     proxyPolicy: ProviderProxyPolicy;
-    /** refreshModelsText: 手动刷新模型列表的多行文本。 */
-    refreshModelsText: string;
-    /** refreshModelContextWindowsText: 手动模型窗口配置，每行格式为 模型名=数字K。 */
-    refreshModelContextWindowsText: string;
-    /** refreshReasoningText: 手动刷新推理深度的多行文本。 */
-    refreshReasoningText: string;
+    /** manualModelsText: 手动模型列表的多行文本。 */
+    manualModelsText: string;
+    /** manualModelContextText: 手动模型窗口配置，每行格式为 模型名=数字K。 */
+    manualModelContextText: string;
+    /** reasoningEffortText: 手动推理深度的多行文本。 */
+    reasoningEffortText: string;
 }
 
 /**
@@ -767,6 +767,7 @@ export interface ActiveConversationAgentState {
 }
 
 import type {
+    ModelProviderSource,
     ProviderCapabilityDeclaration,
     ProviderProxyPolicy,
 } from "@zhixin/api-client";

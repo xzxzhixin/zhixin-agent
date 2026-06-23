@@ -36,7 +36,7 @@ function assert(condition, message) {
     }
 }
 
-const runtime = readText("services/center/src/model-gateway-runtime.ts");
+const runtime = readText("services/center/src/model-provider/MainAgentMemoryPrompt.ts");
 const workflowRepository = readText("services/center/src/data-access/workflow-repository.ts");
 const deepAgentsAgent = readText("services/center/src/deepagents-agent.ts");
 

@@ -12,7 +12,7 @@ import {findProject, findSession, createMessageTurnAndTask, isFinalTaskStatus} f
 import {listAgents} from "./agent-domain.js";
 import type {MemoryQueueState, SubAgentRuntimeRecord} from "../types.js";
 import {writeJsonFile} from "../helpers.js";
-import type {ProviderModelGatewayResult} from "../model-gateway-runtime.js";
+import type {ProviderModelGatewayResult} from "../model-provider/ModelProviderRuntimeTypes.js";
 import {formatCenterLocalDateTime} from "../time.js";
 import {
     type TurnGraphCheckpoint,

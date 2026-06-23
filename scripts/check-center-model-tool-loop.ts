@@ -8,7 +8,7 @@
  */
 import {spawn, type ChildProcessWithoutNullStreams} from "node:child_process";
 import {existsSync, readFileSync} from "node:fs";
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
@@ -222,42 +222,36 @@ function readFakeServerPort(child: ChildProcessWithoutNullStreams): Promise<numb
 }
 
 /**
- * writeEnabledProvider：写入启用的 OpenAI 兼容供应商配置。
+ * writeEnabledProvider：通过中心服务 API 写入启用的 OpenAI 兼容供应商配置。
  *
- * @param centerDirectory 中心目录。
+ * @param service 中心服务实例。
  * @param baseUrl 假模型服务地址。
  * @returns 没有返回值。
  */
-async function writeEnabledProvider(centerDirectory: string, baseUrl: string): Promise<void> {
-  await writeFile(
-    join(centerDirectory, "providers", "fake-tool-loop.json"),
-    JSON.stringify(
-      {
-        providerId: "fake-tool-loop",
-        displayName: "工具闭环假模型",
-        baseUrl,
-        protocolPluginId: "openai-builtin",
-        protocolMode: "chat-completions",
-        defaultModel: "fake-tool-model",
-        defaultReasoningEffort: null,
-        enabled: true,
-        apiKeySecretRef: null,
-        proxyStrategy: "none",
-        capabilities: {
-          supportsVision: false,
-          supportsToolCalling: true,
-          supportsJsonOutput: true,
-          supportsReasoningEffort: false,
-          supportsCacheUsage: false,
-          supportsModelList: false,
-          supportsStreaming: false,
-        },
+async function writeEnabledProvider(service: CenterService, baseUrl: string): Promise<void> {
+  const response = await service.app.inject({
+    method: "POST",
+    url: "/api/model-provider/create",
+    payload: {
+      providerName: "工具闭环假模型",
+      providerSource: "openai-compatible-custom",
+      apiBaseUrl: `${baseUrl}/v1`,
+      apiKey: "fake-tool-loop-key",
+      enabled: true,
+      defaultModelName: "fake-tool-model",
+      capabilities: {
+        supportsVision: false,
+        supportsToolCalling: true,
+        supportsJsonOutput: true,
+        supportsReasoningEffort: false,
+        providesCacheUsage: false,
+        supportsModelList: false,
+        supportsStreaming: true,
       },
-      null,
-      2,
-    ),
-    "utf-8",
-  );
+    },
+  });
+  const result = response.json<ApiResponse<unknown>>();
+  assert(result.success, `模型工具闭环供应商创建失败：${JSON.stringify(result.error)}`);
 }
 
 /**
@@ -353,7 +347,7 @@ async function waitForTurnEvents(
     const eventTypes = latestEvents.map((event) => {
       return event.eventType;
     });
-    if (eventTypes.includes("model.tool.result.appended") || eventTypes.includes("turn.updated")) {
+    if (eventTypes.includes("turn.updated")) {
       return latestEvents;
     }
     await new Promise((resolve) => {
@@ -411,7 +405,7 @@ async function main(): Promise<void> {
     });
     service = await createCenterService(config);
     await service.initialize();
-    await writeEnabledProvider(centerDirectory, fakeModelServer.baseUrl);
+    await writeEnabledProvider(service, fakeModelServer.baseUrl);
 
     const sessionResponse = await service.app.inject({
       method: "POST",

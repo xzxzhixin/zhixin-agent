@@ -1,62 +1,7 @@
-import {existsSync, readdirSync} from "node:fs";
-import {join} from "node:path";
-
-import {ChatAnthropic} from "@langchain/anthropic";
-
-import type {CenterDatabase} from "./database.js";
-import type {
-    OpenAiToolCall,
-} from "./openai-chat-protocol.js";
-import {createDataAccess} from "./data-access/index.js";
-import {
-    readProviderConfig,
-    readSecretValue,
-    resolveProviderModelSelection,
-} from "./domain/provider-domain.js";
-import {
-    searchSemanticMemories,
-} from "./memory-engine.js";
-import {OpenAiCompatibleChatCompletionsModel} from "./model-compat/OpenAiCompatibleChatCompletionsModel";
-import {ChatOpenAI} from "@langchain/openai";
-
-/**
- * ProviderModelGatewayResult：中心服务模型网关统一返回。
- */
-export interface ProviderModelGatewayResult {
-    /** providerId: 供应商 ID。 */
-    providerId: string;
-    /** model: 实际请求模型。 */
-    model: string;
-    /** reasoningEffort: 推理深度。 */
-    reasoningEffort: string | null;
-    /** assistantText: 助手文本。 */
-    assistantText: string;
-    /** usage: 用量；供应商未提供时为 null。 */
-    usage: {
-        inputTokens: number | null;
-        outputTokens: number | null;
-        totalTokens: number | null;
-        cacheHitTokens: number | null;
-        cacheMissTokens: number | null;
-        rawUsage: unknown;
-    } | null;
-    /** toolCall: 模型请求的首个工具调用；没有工具请求时为 null。 */
-    toolCall: OpenAiToolCall | null;
-    /** toolCalls: 模型请求的全部工具调用；没有工具请求时为空数组。 */
-    toolCalls: OpenAiToolCall[];
-}
-
-export interface ResolvedProviderModelRuntime {
-    /** provider: 已启用供应商配置。 */
-    provider: NonNullable<ReturnType<typeof readProviderConfigByPriority>>;
-    /** centerDirectory: 中心目录绝对路径。 */
-    centerDirectory: string;
-    /** modelSelection: 当前模型和推理深度选择。 */
-    modelSelection: {
-        model: string;
-        reasoningEffort: string | null;
-    };
-}
+import type {CenterDatabase} from "../database.js";
+import {createDataAccess} from "../data-access/index.js";
+import {searchSemanticMemories} from "../memory-engine.js";
+import {extractCenterDirectory} from "./ModelProviderRuntimeFactory.js";
 
 interface AgentMemoryPromptEntry {
     /** keywords: 记忆关键词。 */
@@ -86,119 +31,12 @@ interface AgentMemoryAttachmentPromptEntry {
 const MAIN_AGENT_MEMORY_PROMPT_LIMIT = 12;
 // MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS：记忆系统消息长度上限，防止历史摘要异常膨胀。
 const MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS = 1200;
-/**
- * resolveProviderModelRuntime：解析一次模型调用所需供应商、中心目录和模型选择。
- *
- * @param database 中心服务数据库。
- * @param taskId 任务 ID。
- * @returns 模型调用运行时上下文。
- */
-export function resolveProviderModelRuntime(database: CenterDatabase, taskId: string): ResolvedProviderModelRuntime {
-    const provider = readProviderConfigByPriority(database, taskId);
-    if (!provider) {
-        throw new Error("PROVIDER_NOT_AVAILABLE");
-    }
-
-    const centerDirectory = extractCenterDirectory(database);
-    const modelSelection = resolveProviderModelSelection(
-        centerDirectory,
-        provider.providerId,
-        provider.defaultModel,
-    );
-
-    return {
-        provider,
-        centerDirectory,
-        modelSelection,
-    };
-}
-
-/**
- * createLangChainChatModel：按供应商配置创建 LangChain ChatModel。
- *
- * @param runtime 模型调用运行时上下文。
- * @returns LangChain OpenAI 或 Anthropic ChatModel。
- */
-export function createLangChainChatModel(runtime: ResolvedProviderModelRuntime): LangChainChatModelRuntime {
-    const provider = runtime.provider;
-    const apiKey = readSecretValue(
-        runtime.centerDirectory,
-        provider.apiKeySecretRef,
-    ) ?? "zhixin-local-provider-placeholder-key";
-    const model = runtime.modelSelection.model;
-    if (provider.providerName.toLowerCase().includes("anthropic")) {
-        return new ChatAnthropic({
-            apiKey,
-            model,
-            streaming: true,
-        });
-    }
-    return new OpenAiCompatibleChatCompletionsModel({
-        apiKey,
-        model,
-        streaming: true,
-        centerDirectory: runtime.centerDirectory,
-        // OpenAI 兼容供应商必须走 Chat Completions；普通 ChatOpenAI 会因 gpt-5 系列模型名自动切到 Responses API，
-        // 兼容网关的 Responses 流式工具块可能被解析成空工具名，导致工具闭环失败。
-        configuration: {
-            baseURL: normalizeOpenAiBaseUrl(provider.baseUrl),
-        },
-    });
-}
-
-/**
- * normalizeOpenAiBaseUrl：把供应商基础地址规范为 OpenAI Chat Completions 需要的 /v1 根路径。
- *
- * @param baseUrl 用户在供应商配置中保存的基础地址。
- * @returns 以 /v1 结尾的 OpenAI 兼容接口地址。
- */
-export function normalizeOpenAiBaseUrl(baseUrl: string): string {
-    // normalizedBaseUrl: 用户可能填写服务根地址，也可能已经填写 /v1；这里统一为 LangChain ChatOpenAI 的 baseURL。
-    const normalizedBaseUrl = baseUrl.replace(/\/$/u, "");
-    if (normalizedBaseUrl.endsWith("/v1")) {
-        return normalizedBaseUrl;
-    }
-    return `${normalizedBaseUrl}/v1`;
-}
-
-export function extractCenterDirectory(database: CenterDatabase): string {
-    return createDataAccess(database).system.readMetaValue("centerDirectory") ?? "";
-}
-
-export function readProviderConfigByPriority(database: CenterDatabase, taskId: string) {
-    const centerDirectory = extractCenterDirectory(database);
-    if (!centerDirectory) {
-        return null;
-    }
-    void taskId;
-    const providersDirectory = join(centerDirectory, "providers");
-    if (!existsSync(providersDirectory)) {
-        return null;
-    }
-    const providerFiles = readdirSync(providersDirectory)
-        .filter((fileName) => {
-            return fileName.endsWith(".json")
-                && !fileName.endsWith(".models.json")
-                && !fileName.endsWith(".patch.json");
-        })
-        .sort();
-    for (const fileName of providerFiles) {
-        const providerId = fileName.replace(/\.json$/u, "");
-        const provider = readProviderConfig(centerDirectory, providerId);
-        if (provider?.enabled) {
-            return provider;
-        }
-    }
-
-    return null;
-}
-
-type LangChainChatModelRuntime = ChatOpenAI | ChatAnthropic;
 
 /**
  * listMainAgentMemoryPromptEntries：读取主智能体最近长期记忆摘要。
  *
  * @param database 中心服务数据库。
+ * @param userText 用户本轮输入。
  * @returns 可注入模型请求的主智能体记忆摘要。
  */
 export async function listMainAgentMemoryPromptEntries(
@@ -271,7 +109,42 @@ export async function listMainAgentMemoryPromptEntries(
 }
 
 /**
- * shouldIncludeMainAgentMemoryPromptEntry：过滤明显错误的主智能体长期记忆摘要，避免历史污染继续压过正确信息。
+ * buildMainAgentMemoryPrompt：把主智能体长期记忆压缩成模型系统消息。
+ *
+ * @param memories 主智能体最近记忆摘要。
+ * @returns 系统消息正文；没有记忆时返回 null。
+ */
+export function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string | null {
+    if (memories.length === 0) {
+        return null;
+    }
+
+    const prompt = [
+        "主智能体长期记忆：",
+        ...memories.map((memory, index) => {
+            const source = memory.sourceSessionId && memory.sourceTurnId
+                ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
+                : "来源未绑定";
+            const memoryPathText = memory.sourceMemoryPath
+                ? `；Markdown：${memory.sourceMemoryPath}`
+                : "";
+            const attachmentText = memory.attachments.length > 0
+                ? `；附件来源：${memory.attachments.map((attachment) => {
+                    return formatMemoryAttachmentForPrompt(attachment);
+                }).join("、")}`
+                : "";
+            return `${index + 1}. 关键词：${memory.keywords}；摘要：${memory.summary}；${source}${memoryPathText}${attachmentText}`;
+        }),
+        "使用这些记忆理解用户偏好和历史上下文，但不要编造未写入记忆的事实。",
+    ].join("\n");
+
+    return prompt.length > MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS
+        ? `${prompt.slice(0, MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS)}\n[长期记忆已截断]`
+        : prompt;
+}
+
+/**
+ * shouldIncludeMainAgentMemoryPromptEntry：过滤明显错误的主智能体长期记忆摘要。
  *
  * @param summary 长期记忆摘要。
  * @returns 可注入模型提示时返回 true。
@@ -291,7 +164,7 @@ function shouldIncludeMainAgentMemoryPromptEntry(summary: string): boolean {
 }
 
 /**
- * scoreMainAgentMemoryPromptEntry：给主智能体长期记忆候选打分，让 mem0 稳定事实优先、回归口水降权。
+ * scoreMainAgentMemoryPromptEntry：给主智能体长期记忆候选打分。
  *
  * @param memory 长期记忆候选。
  * @returns 数值越高越应优先展示。
@@ -331,7 +204,7 @@ function buildMainAgentMemorySearchQuery(userText: string): string {
 }
 
 /**
- * searchMainAgentIndexedMemories：按当前问题检索 SQLite 记忆索引，避免只看最近几条把旧正确信息压下去。
+ * searchMainAgentIndexedMemories：按当前问题检索 SQLite 记忆索引。
  *
  * @param workflowRepository 执行链路仓储。
  * @param userText 用户本轮输入。
@@ -429,7 +302,7 @@ function extractMeaningfulMemoryTerms(text: string): string[] {
 }
 
 /**
- * scoreIndexedMemorySearchHit：给 SQLite 记忆命中结果打分，优先保留和当前问题强相关的稳定事实。
+ * scoreIndexedMemorySearchHit：给 SQLite 记忆命中结果打分。
  *
  * @param searchTerm 当前使用的检索词。
  * @param summary 长期记忆摘要。
@@ -505,7 +378,7 @@ function looksLikeGenericFailedMemorySummary(summary: string): boolean {
 }
 
 /**
- * dedupeMainAgentMemoryPromptEntries：按摘要去重主智能体长期记忆候选，避免 mem0 与索引重复占位。
+ * dedupeMainAgentMemoryPromptEntries：按摘要去重主智能体长期记忆候选。
  *
  * @param entries 主智能体长期记忆候选。
  * @returns 去重后的候选数组。
@@ -607,39 +480,3 @@ function tryParseJsonArray(value: string): unknown[] {
         return [];
     }
 }
-
-/**
- * buildMainAgentMemoryPrompt：把主智能体长期记忆压缩成模型系统消息。
- *
- * @param memories 主智能体最近记忆摘要。
- * @returns 系统消息正文；没有记忆时返回 null。
- */
-export function buildMainAgentMemoryPrompt(memories: AgentMemoryPromptEntry[]): string | null {
-    if (memories.length === 0) {
-        return null;
-    }
-
-    const prompt = [
-        "主智能体长期记忆：",
-        ...memories.map((memory, index) => {
-            const source = memory.sourceSessionId && memory.sourceTurnId
-                ? `来源会话 ${memory.sourceSessionId}，轮次 ${memory.sourceTurnId}`
-                : "来源未绑定";
-            const memoryPathText = memory.sourceMemoryPath
-                ? `；Markdown：${memory.sourceMemoryPath}`
-                : "";
-            const attachmentText = memory.attachments.length > 0
-                ? `；附件来源：${memory.attachments.map((attachment) => {
-                    return formatMemoryAttachmentForPrompt(attachment);
-                }).join("、")}`
-                : "";
-            return `${index + 1}. 关键词：${memory.keywords}；摘要：${memory.summary}；${source}${memoryPathText}${attachmentText}`;
-        }),
-        "使用这些记忆理解用户偏好和历史上下文，但不要编造未写入记忆的事实。",
-    ].join("\n");
-
-    return prompt.length > MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS
-        ? `${prompt.slice(0, MAIN_AGENT_MEMORY_PROMPT_MAX_CHARS)}\n[长期记忆已截断]`
-        : prompt;
-}
-

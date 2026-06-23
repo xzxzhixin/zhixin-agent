@@ -382,6 +382,18 @@ function createPinoLogger(centerDirectory: string): Logger {
 function createSafeConsoleLogStream(): Writable {
     // isPipeBroken: 控制台管道是否已经断开，断开后不再尝试写 stdout。
     let isPipeBroken = false;
+    // handleProcessStdoutError: stdout 可能在写入回调之后异步抛 EPIPE，常驻监听负责吞掉断管事件。
+    const handleProcessStdoutError = (error: Error): void => {
+        if (isConsolePipeBrokenError(error)) {
+            isPipeBroken = true;
+            return;
+        }
+        throw error;
+    };
+    process.stdout.on(
+        "error",
+        handleProcessStdoutError,
+    );
     return new Writable({
         write(
             chunk: Buffer | string,
@@ -393,52 +405,25 @@ function createSafeConsoleLogStream(): Writable {
                 return;
             }
 
-            // isCallbackSettled: stdout 可能通过同步异常、写入回调或 error 事件报告错误，只允许回调一次。
-            let isCallbackSettled = false;
-            let handleError: (error: Error) => void = () => {};
-            const finishWrite = (error?: Error | null): void => {
-                if (isCallbackSettled) {
-                    return;
-                }
-                isCallbackSettled = true;
-                process.stdout.off(
-                    "error",
-                    handleError,
-                );
-                callback(error);
-            };
-            handleError = (error: Error): void => {
-                if (isConsolePipeBrokenError(error)) {
-                    isPipeBroken = true;
-                    finishWrite();
-                    return;
-                }
-                finishWrite(error);
-            };
-
             try {
-                process.stdout.once(
-                    "error",
-                    handleError,
-                );
                 process.stdout.write(
                     chunk,
                     (error) => {
                         if (error && isConsolePipeBrokenError(error)) {
                             isPipeBroken = true;
-                            finishWrite();
+                            callback();
                             return;
                         }
-                        finishWrite(error);
+                        callback(error);
                     },
                 );
             } catch (error) {
                 if (isConsolePipeBrokenError(error)) {
                     isPipeBroken = true;
-                    finishWrite();
+                    callback();
                     return;
                 }
-                finishWrite(error instanceof Error ? error : new Error(String(error)));
+                callback(error instanceof Error ? error : new Error(String(error)));
             }
         },
     });

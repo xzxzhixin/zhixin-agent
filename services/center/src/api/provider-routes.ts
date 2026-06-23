@@ -7,34 +7,21 @@ import {
     createSuccessResponse,
 } from "../helpers.js";
 import {
-    classifyModelGatewayError,
-    createProvider,
-    deleteProviderConfig,
     deleteProxyConfig,
     deleteRuntimeConfig,
-    fetchProviderModelsFromUpstream,
-    listProviderConfigs,
     listProxyConfigs,
-    listRegisteredModelProtocolPlugins,
     listRuntimeConfigs,
-    prepareModelGatewayRequest,
     readGlobalDefaultProxyId,
-    readProviderModelList,
-    refreshProviderModels,
     saveProxyConfig,
     saveRuntimeConfig,
     setGlobalDefaultProxy,
-    updateProviderConfig,
-} from "../domain/provider-domain.js";
+} from "../domain/proxy-runtime-domain.js";
 import type {
     CenterServiceConfig,
-    ProviderCapabilityDeclaration,
-    ProviderModelContextWindow,
-    ProviderProxyPolicy,
 } from "../types.js";
 
 /**
- * registerProviderRoutes：注册供应商、代理、运行环境和模型网关管理接口。
+ * registerProviderRoutes：注册代理和运行环境管理接口。
  *
  * @param app Fastify 实例。
  * @param database 中心服务数据库。
@@ -48,151 +35,8 @@ export function registerProviderRoutes(
     events: CenterEventStore,
     config: CenterServiceConfig,
 ): void {
-    app.post("/api/provider/create", async (request) => {
-        const body = request.body as {
-            providerName?: string;
-            protocolPluginId?: string;
-            protocolMode?: string;
-            baseUrl?: string;
-            apiKey?: string;
-            model?: string;
-            enabled?: boolean;
-            capabilities?: ProviderCapabilityDeclaration;
-            proxyPolicy?: ProviderProxyPolicy;
-        };
-
-        if (!body.baseUrl) {
-            return createErrorResponse(
-                "PROVIDER_CREATE_INVALID",
-                "供应商创建缺少 Base URL",
-                "请至少填写 Base URL 后保存供应商。",
-            );
-        }
-
-        try {
-            return createSuccessResponse(createProvider(
-                database,
-                events,
-                config.centerDirectory,
-                body,
-            ));
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "供应商创建失败";
-            if (message.includes("配置不完整，无法启用")) {
-                return createErrorResponse(
-                    "PROVIDER_ENABLE_CONFIG_INCOMPLETE",
-                    message,
-                    message,
-                );
-            }
-            throw error;
-        }
-    });
-
-    app.post("/api/provider/list", async () => createSuccessResponse({
-        providers: listProviderConfigs(config.centerDirectory),
-    }));
-
-    app.post("/api/provider/protocol-plugin/list", async () => createSuccessResponse({
-        // plugins: 供应商页兼容字段；当前阶段只返回中心服务内联 LangChain OpenAI / Anthropic 能力。
-        plugins: listRegisteredModelProtocolPlugins(config.centerDirectory),
-    }));
-
-    app.post("/api/provider/update", async (request) => {
-        const body = request.body as {
-            providerId?: string;
-            providerName?: string;
-            protocolPluginId?: string;
-            protocolMode?: string;
-            baseUrl?: string;
-            apiKey?: string;
-            enabled?: boolean;
-            defaultModel?: string;
-            capabilities?: ProviderCapabilityDeclaration;
-            proxyPolicy?: ProviderProxyPolicy;
-        };
-
-        if (!body.providerId) {
-            return createErrorResponse("PROVIDER_ID_REQUIRED", "供应商更新缺少 providerId", "供应商 ID 不能为空。");
-        }
-
-        try {
-            return createSuccessResponse(updateProviderConfig(config.centerDirectory, body));
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "供应商更新失败";
-            if (message.includes("配置不完整，无法启用")) {
-                return createErrorResponse(
-                    "PROVIDER_ENABLE_CONFIG_INCOMPLETE",
-                    message,
-                    message,
-                );
-            }
-            throw error;
-        }
-    });
-
-    app.post("/api/provider/delete", async (request) => {
-        const body = request.body as {
-            providerId?: string;
-        };
-
-        if (!body.providerId) {
-            return createErrorResponse("PROVIDER_ID_REQUIRED", "供应商删除缺少 providerId", "供应商 ID 不能为空。");
-        }
-
-        return createSuccessResponse(deleteProviderConfig(
-            config.centerDirectory,
-            body.providerId,
-        ));
-    });
-
-    app.post("/api/provider/model-refresh", async (request) => {
-        const body = request.body as {
-            providerId?: string;
-            models?: string[];
-            reasoningEfforts?: string[];
-            contextWindows?: ProviderModelContextWindow[];
-        };
-
-        if (!body.providerId) {
-            return createErrorResponse("PROVIDER_ID_REQUIRED", "刷新模型列表缺少 providerId", "供应商 ID 不能为空。");
-        }
-
-        return createSuccessResponse(refreshProviderModels(
-            config.centerDirectory,
-            body.providerId,
-            body.models ?? [],
-            body.reasoningEfforts ?? [],
-            body.contextWindows ?? [],
-        ));
-    });
-
-    app.post("/api/provider/model-fetch", async (request) => {
-        const body = request.body as {
-            providerId?: string;
-        };
-
-        if (!body.providerId) {
-            return createErrorResponse("PROVIDER_ID_REQUIRED", "获取模型列表缺少 providerId", "供应商 ID 不能为空。");
-        }
-
-        return createSuccessResponse(fetchProviderModelsFromUpstream(
-            config.centerDirectory,
-            body.providerId,
-        ));
-    });
-
-    app.post("/api/provider/model-list", async (request) => {
-        const body = request.body as {
-            providerId?: string;
-        };
-
-        if (!body.providerId) {
-            return createErrorResponse("PROVIDER_ID_REQUIRED", "查询模型列表缺少 providerId", "供应商 ID 不能为空。");
-        }
-
-        return createSuccessResponse(readProviderModelList(config.centerDirectory, body.providerId));
-    });
+    void database;
+    void events;
 
     app.post("/api/proxy/save", async (request) => {
         const body = request.body as {
@@ -278,38 +122,4 @@ export function registerProviderRoutes(
         return createSuccessResponse(deleteRuntimeConfig(config.centerDirectory, body.runtimeId));
     });
 
-    app.post("/api/model-gateway/prepare", async (request) => {
-        const body = request.body as {
-            request?: unknown;
-            protocolMode?: "chat-completions";
-        };
-
-        if (!body.request || body.protocolMode !== "chat-completions") {
-            return createErrorResponse(
-                "MODEL_GATEWAY_INVALID",
-                "模型网关只接受 OpenAI Chat Completions 请求",
-                "模型请求必须使用 chat-completions 协议。",
-            );
-        }
-
-        return createSuccessResponse(prepareModelGatewayRequest(body.request, body.protocolMode));
-    });
-
-    app.post("/api/model-gateway/classify-error", async (request) => {
-        const body = request.body as {
-            failureStage?: string;
-            statusCode?: number;
-            message?: string;
-        };
-
-        if (!body.failureStage) {
-            return createErrorResponse(
-                "MODEL_GATEWAY_ERROR_STAGE_REQUIRED",
-                "模型网关错误分类缺少 failureStage",
-                "模型调用失败阶段不能为空。",
-            );
-        }
-
-        return createSuccessResponse(classifyModelGatewayError(body.failureStage, body.statusCode ?? null, body.message ?? ""));
-    });
 }
