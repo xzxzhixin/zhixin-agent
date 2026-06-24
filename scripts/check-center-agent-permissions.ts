@@ -57,13 +57,9 @@ async function main(): Promise<void> {
   assert(longTermAgent.canUseToolCapability("builtin.agent.createSubAgent"), "长期智能体必须可创建子智能体");
   assert(!longTermAgent.canUseToolCapability("create-agent-team"), "长期智能体不能管理 team");
   assert(!subAgent.canUseToolCapability("builtin.agent.createSubAgent"), "子智能体不能继续创建子智能体");
-  assert(!mainAgent.getCreationTools().includes("todo-list"), "主智能体创建类工具不能包含 todoList");
-  assert(!longTermAgent.getCreationTools().includes("todo-list"), "长期智能体创建类工具不能包含 todoList");
-  assert(!subAgent.getCreationTools().includes("todo-list"), "todoList 不是创建类工具，不能出现在 getCreationTools 中");
-  assert(subAgent.shouldCreateTodoListForTask({
-    taskSummary: "需要多步骤处理的检查任务",
-    plannedStepCount: 2,
-  }), "子智能体仍可通过 Deep Agents 自带 todoList 维护自己的多步骤任务状态");
+  assert(!mainAgent.canUseTool("todo-list"), "主智能体不能再暴露旧 todoList 工具权限");
+  assert(!longTermAgent.canUseTool("todo-list"), "长期智能体不能再暴露旧 todoList 工具权限");
+  assert(!subAgent.canUseTool("todo-list"), "子智能体不能再暴露旧 todoList 工具权限");
   assert(!subAgent.canUseToolCapability("builtin.deepagents.write_todos"), "中心服务不能再把 Deep Agents write_todos 包装成模型可见工具");
   assert(mapToolCapabilityToAgentToolName("mcp_global_files_read") === "mcp-call", "MCP adapter 工具必须继承 MCP 权限边界");
   assert(!listUnifiedToolCapabilities().some((capability) => {

@@ -1092,6 +1092,15 @@ export function createConversationActions() {
                             // 模型流完成后先做一次快照兜底；如果后续消息固化或轮次完成事件漏收，UI 也不会长期停在流式运行态。
                             void this.loadActiveSessionSnapshot();
                         }
+                        if (event.eventType.startsWith("task.step.")) {
+                            // task.step.* 事件只提示 task_steps 事实源变化；延后一拍读取快照，避免实时事件先到而步骤表读取仍为空。
+                            window.setTimeout(
+                                () => {
+                                    void this.loadActiveSessionSnapshot();
+                                },
+                                100,
+                            );
+                        }
                         if (event.eventType === "turn.updated"
                             && isCompletedEvent(event)) {
                             // 轮次完成状态来自事件载荷；被动端即使未 tracking 当前轮次，也必须强制收敛运行态。

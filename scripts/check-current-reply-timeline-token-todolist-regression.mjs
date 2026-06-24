@@ -165,15 +165,15 @@ assertNotIncludes(
   "return this.getAgentKind() !== \"sub\";",
   "BaseAgent 不能再按类型禁止子智能体创建自己的 todoList。",
 );
-assertIncludes(
+assertNotIncludes(
   baseAgent + subAgent,
   "canUseTodoListTool",
-  "智能体 todoList 权限必须按工具权限判断，而不是硬编码排除子智能体。",
+  "旧 todoList 工具链已删除，智能体不能继续暴露 canUseTodoListTool。",
 );
-assertIncludes(
+assertNotIncludes(
   subAgent,
   "\"todo-list\"",
-  "子智能体必须可获得自己的 todoList 工具权限，但仍不能获得创建智能体工具。",
+  "旧 todoList 工具权限不能继续写在子智能体权限里。",
 );
 assertNotIncludes(
   subAgent,

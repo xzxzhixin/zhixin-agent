@@ -462,9 +462,9 @@ assertIncludes(
   "前端任务入口必须使用用户可见步骤来源白名单，不能默认展示未知 source。",
 );
 assertIncludes(
-  readText("apps/frontend/src/views/Chat/chat-view-helpers.ts"),
-  "task.step.created",
-  "前端过程聚合必须消费 task.step.created，确保 queued 用户可见步骤能实时出现。",
+  conversationActions,
+  "event.eventType.startsWith(\"task.step.\")",
+  "前端收到 task.step.* 后必须刷新会话快照，让用户可见步骤从 task_steps 进入任务入口。",
 );
 assertIncludes(
   chatConversation,

@@ -10,8 +10,7 @@ export type AgentToolName =
     | "add-agent-team-member"
     | "remove-agent-team-member"
     | "mcp-call"
-    | "skill-use"
-    | "todo-list";
+    | "skill-use";
 
 /**
  * TOOL_CAPABILITY_AGENT_TOOL_MAP：统一工具 ID 到智能体权限名的映射。
@@ -57,16 +56,6 @@ export interface BaseAgentInput {
     agentId: string;
     /** name: 智能体展示名称。 */
     name: string;
-}
-
-/**
- * TodoListCreationInput：判断是否需要创建任务拆解 todoList 的输入。
- */
-export interface TodoListCreationInput {
-    /** taskSummary: 当前任务摘要，来源于用户输入或父级调度摘要。 */
-    taskSummary: string;
-    /** plannedStepCount: 已识别的计划步骤数量；简单任务通常不超过 1。 */
-    plannedStepCount: number;
 }
 
 /**
@@ -123,7 +112,6 @@ export abstract class BaseAgent {
             "command-run",
             "mcp-call",
             "skill-use",
-            "todo-list",
         ];
     }
 
@@ -180,26 +168,6 @@ export abstract class BaseAgent {
         return this.canUseToolCapability(input.toolId);
     }
 
-    /**
-     * canUseTodoListTool：判断当前智能体是否允许使用 todoList 工具。
-     *
-     * @returns 智能体具备 todo-list 工具权限时返回 true。
-     */
-    canUseTodoListTool(): boolean {
-        return this.canUseTool("todo-list");
-    }
-
-    /**
-     * shouldCreateTodoListForTask：判断当前任务是否需要创建 todoList。
-     *
-     * @param input 当前任务摘要和计划步骤数量。
-     * @returns 具备 todoList 工具权限且任务被拆成多个步骤时返回 true。
-     */
-    shouldCreateTodoListForTask(input: TodoListCreationInput): boolean {
-        // 长任务拆解才需要 todoList；简单任务直接执行，避免无意义地膨胀任务状态。
-        return this.canUseTodoListTool()
-            && input.plannedStepCount > 1;
-    }
 }
 
 /**

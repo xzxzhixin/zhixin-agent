@@ -16,6 +16,8 @@ import {
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
     recordModelUsageAfterTurn,
+    createTaskStep,
+    updateTaskStep,
     updateSessionTitleAfterTurn,
     updateTurnStatus,
 } from "./domain/session-domain.js";
@@ -55,14 +57,14 @@ type DeepAgentOutputState = {
 };
 
 type DeepAgentOutputMessage = {
-        /** role: 消息角色。 */
-        role?: string;
-        /** content: 消息正文。 */
-        content?: unknown;
-        /** _getType: LangChain BaseMessage 内部消息类型读取函数。 */
-        _getType?: () => string;
-        /** getType: 部分 LangChain 消息对象暴露的消息类型读取函数。 */
-        getType?: () => string;
+    /** role: 消息角色。 */
+    role?: string;
+    /** content: 消息正文。 */
+    content?: unknown;
+    /** _getType: LangChain BaseMessage 内部消息类型读取函数。 */
+    _getType?: () => string;
+    /** getType: 部分 LangChain 消息对象暴露的消息类型读取函数。 */
+    getType?: () => string;
 };
 
 type DeepAgentMessageContentPart = {
@@ -70,6 +72,15 @@ type DeepAgentMessageContentPart = {
     type?: unknown;
     /** text: 文本内容块正文。 */
     text?: unknown;
+};
+
+type DeepAgentsWriteTodosTaskStepInput = {
+    /** title: 用户可见任务步骤标题，来源于 Deep Agents 原生 write_todos 的 todo.content。 */
+    title: string;
+    /** status: 中心服务任务步骤状态，由 Deep Agents todo.status 映射。 */
+    status: "queued" | "running" | "completed";
+    /** stepOrder: 同一任务内的顺序，从 1 开始。 */
+    stepOrder: number;
 };
 
 /**
@@ -608,9 +619,179 @@ async function recordToolCallLifecycle(
             error,
         },
     });
+    if (status === "finished") {
+        bridgeDeepAgentsWriteTodosToTaskSteps(
+            context,
+            toolCall.name,
+            output,
+        );
+    }
     if (status !== "finished") {
         throw new Error(error ?? `DEEPAGENTS_TOOL_PLAN_FAILED:${toolCall.name}`);
     }
+}
+
+/**
+ * bridgeDeepAgentsWriteTodosToTaskSteps：把 Deep Agents 原生 write_todos 结果桥接到用户可见 task_steps。
+ *
+ * 约束：只消费 Deep Agents 原生结构化 output.update.todos，不恢复旧中心服务 todoList 包装工具。
+ *
+ * @param context 当前工具执行上下文。
+ * @param toolName Deep Agents 工具名。
+ * @param output Deep Agents 工具输出。
+ */
+function bridgeDeepAgentsWriteTodosToTaskSteps(
+    context: DeepAgentsToolExecutionContext,
+    toolName: string,
+    output: unknown,
+): void {
+    const taskStepInputs = convertDeepAgentsWriteTodosForTaskSteps({
+        toolName,
+        output,
+    });
+    if (taskStepInputs.length === 0) {
+        return;
+    }
+    const repository = new SessionRepository(context.input.database);
+    const task = repository.findTask(context.input.sent.taskId);
+    if (!task) {
+        return;
+    }
+    const existingSteps = repository.listTaskStepsByTaskForAgent({
+        sessionId: context.input.sent.sessionId,
+        taskId: context.input.sent.taskId,
+        agentId: task.agentId,
+    }).filter((step) => {
+        return step.source === "todoList"
+            && step.status !== "superseded";
+    });
+    const existingByOrder = new Map(existingSteps.map((step) => {
+        return [
+            step.stepOrder,
+            step,
+        ];
+    }));
+    for (const taskStepInput of taskStepInputs) {
+        const existingStep = existingByOrder.get(taskStepInput.stepOrder);
+        if (existingStep) {
+            updateTaskStep(
+                context.input.database,
+                context.input.events,
+                existingStep.stepId,
+                taskStepInput.status,
+                taskStepInput.title,
+                undefined,
+                {
+                    title: taskStepInput.title,
+                    source: "todoList",
+                    stepOrder: taskStepInput.stepOrder,
+                },
+            );
+            continue;
+        }
+        createTaskStep(
+            context.input.database,
+            context.input.events,
+            {
+                taskId: context.input.sent.taskId,
+                sessionId: context.input.sent.sessionId,
+                turnId: context.input.sent.turnId,
+            },
+            taskStepInput.title,
+            {
+                source: "todoList",
+                stepOrder: taskStepInput.stepOrder,
+                initialStatus: taskStepInput.status,
+                summary: taskStepInput.title,
+            },
+        );
+    }
+}
+
+/**
+ * convertDeepAgentsWriteTodosForTaskSteps：提取 Deep Agents 原生 write_todos 的用户可见步骤。
+ *
+ * @param input Deep Agents 工具名和工具输出。
+ * @returns 可写入 task_steps 的步骤输入。
+ */
+function convertDeepAgentsWriteTodosForTaskSteps(input: {
+    /** toolName: Deep Agents 工具名。 */
+    toolName: string;
+    /** output: Deep Agents 工具输出。 */
+    output: unknown;
+}): DeepAgentsWriteTodosTaskStepInput[] {
+    if (input.toolName !== "write_todos") {
+        return [];
+    }
+    const output = readObject(input.output);
+    const update = readObject(output?.update);
+    const todos = Array.isArray(update?.todos)
+        ? update.todos
+        : [];
+    return todos.flatMap((todo, index) => {
+        const todoObject = readObject(todo);
+        const content = typeof todoObject?.content === "string"
+            ? todoObject.content.trim()
+            : "";
+        const status = mapDeepAgentsTodoStatus(todoObject?.status);
+        if (content.length === 0 || !status) {
+            return [];
+        }
+        return [
+            {
+                title: content,
+                status,
+                stepOrder: index + 1,
+            },
+        ];
+    });
+}
+
+/**
+ * convertDeepAgentsWriteTodosForTaskStepsTest：暴露给回归脚本的纯转换入口。
+ *
+ * @param input Deep Agents 工具名和工具输出。
+ * @returns 可写入 task_steps 的步骤输入。
+ */
+export function convertDeepAgentsWriteTodosForTaskStepsTest(input: {
+    /** toolName: Deep Agents 工具名。 */
+    toolName: string;
+    /** output: Deep Agents 工具输出。 */
+    output: unknown;
+}): DeepAgentsWriteTodosTaskStepInput[] {
+    return convertDeepAgentsWriteTodosForTaskSteps(input);
+}
+
+/**
+ * readObject：把未知值收窄为普通对象。
+ *
+ * @param value 未知值。
+ * @returns 普通对象；非对象或数组返回 null。
+ */
+function readObject(value: unknown): Record<string, unknown> | null {
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+    }
+    return null;
+}
+
+/**
+ * mapDeepAgentsTodoStatus：映射 Deep Agents todo 状态到中心服务步骤状态。
+ *
+ * @param status Deep Agents 原生 todo.status。
+ * @returns 中心服务步骤状态；未知状态返回 null。
+ */
+function mapDeepAgentsTodoStatus(status: unknown): DeepAgentsWriteTodosTaskStepInput["status"] | null {
+    if (status === "pending") {
+        return "queued";
+    }
+    if (status === "in_progress") {
+        return "running";
+    }
+    if (status === "completed") {
+        return "completed";
+    }
+    return null;
 }
 
 /**
@@ -749,6 +930,7 @@ function readDeepAgentMessageType(message: DeepAgentOutputMessage): string {
  * @param input 当前轮次运行输入。
  * @param context 当前工具执行上下文。
  * @param attemptIndex 监督循环尝试序号。
+ * @param startedAfterSequence 本次候选开始前的事件序号，用于判断本次是否产生工具结果。
  * @param assistantText Deep Agents 最终 AIMessage 文本。
  * @param streamedAssistantText 流式累计文本。
  * @param modelResult 模型运行结果。
@@ -832,16 +1014,16 @@ function hasTurnToolExecutionEvents(input: DeepAgentsAgentRunInput): boolean {
         FROM events
         WHERE turn_id = ?
           AND event_type IN (
-              'model.tool.requested',
-              'model.tool.result.appended',
-              'tool.command.started',
-              'tool.command.completed',
-              'tool.mcp.started',
-              'tool.mcp.completed',
-              'tool.plan.created',
-              'tool.plan.completed'
-          )
-        LIMIT 1
+                             'model.tool.requested',
+                             'model.tool.result.appended',
+                             'tool.command.started',
+                             'tool.command.completed',
+                             'tool.mcp.started',
+                             'tool.mcp.completed',
+                             'tool.plan.created',
+                             'tool.plan.completed'
+            )
+            LIMIT 1
     `).get(input.sent.turnId);
     return Boolean(row);
 }
@@ -850,6 +1032,7 @@ function hasTurnToolExecutionEvents(input: DeepAgentsAgentRunInput): boolean {
  * hasTurnToolFailureEvents：判断当前轮次是否出现工具失败事件。
  *
  * @param input 当前轮次运行输入。
+ * @param startedAfterSequence 本次候选开始前的事件序号，避免读取旧失败事件。
  * @returns 存在工具失败事件时返回 true。
  */
 function hasTurnToolFailureEvents(
@@ -862,13 +1045,13 @@ function hasTurnToolFailureEvents(
         WHERE turn_id = ?
           AND sequence > ?
           AND event_type IN (
-              'tool.plan.failed',
-              'tool.mcp.failed',
-              'tool.call.failed',
-              'model.tool.repeated_failure_blocked',
-              'model.tool_call.name_missing'
-          )
-        LIMIT 1
+                             'tool.plan.failed',
+                             'tool.mcp.failed',
+                             'tool.call.failed',
+                             'model.tool.repeated_failure_blocked',
+                             'model.tool_call.name_missing'
+            )
+            LIMIT 1
     `).get(
         input.sent.turnId,
         startedAfterSequence,
@@ -881,6 +1064,7 @@ function hasTurnToolFailureEvents(
  *
  * @param input 当前轮次运行输入。
  * @param eventType 事件类型。
+ * @param startedAfterSequence 本次候选开始前的事件序号，默认 0 表示检查全轮次。
  * @returns 存在时返回 true。
  */
 function hasTurnEventType(
@@ -893,8 +1077,7 @@ function hasTurnEventType(
         FROM events
         WHERE turn_id = ?
           AND event_type = ?
-          AND sequence > ?
-        LIMIT 1
+          AND sequence > ? LIMIT 1
     `).get(
         input.sent.turnId,
         eventType,

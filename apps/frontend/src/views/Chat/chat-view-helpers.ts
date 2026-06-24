@@ -674,14 +674,6 @@ function resolveProcessGroupKey(event: EventRecord): string {
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
-    if (event.eventType.startsWith("task.step.")) {
-        return [
-            event.turnId ?? "no-turn",
-            event.taskId ?? "no-task",
-            "task-step",
-            event.stepId ?? event.scopeId ?? event.eventId,
-        ].join(":");
-    }
     if (event.eventType.startsWith("graph.node.")) {
         const graphCheckpoint = readEventGraphCheckpoint(event);
         return [

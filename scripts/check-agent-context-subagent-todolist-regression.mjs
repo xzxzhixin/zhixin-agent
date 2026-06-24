@@ -165,15 +165,15 @@ assertIncludes(
   "子智能体运行记录创建时必须写入父级当前供应商 ID。",
 );
 
-assertIncludes(
+assertNotIncludes(
   baseAgent,
   "canUseTodoListTool",
-  "智能体基类必须按工具权限暴露 todoList 使用边界。",
+  "旧 todoList 工具链已删除，智能体基类不能继续暴露 todoList 权限入口。",
 );
-assertIncludes(
+assertNotIncludes(
   baseAgent,
   "shouldCreateTodoListForTask",
-  "智能体基类必须提供长任务才创建 todoList 的判断入口。",
+  "旧 todoList 创建判断已删除，长任务步骤只能由 Deep Agents 原生 write_todos 桥接。",
 );
 assertNotIncludes(
   baseAgent,

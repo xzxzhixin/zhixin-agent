@@ -31,7 +31,6 @@ export type {
     AgentKind,
     AgentToolName,
     BaseAgentInput,
-    TodoListCreationInput,
 } from "./base-agent.js";
 
 /**
