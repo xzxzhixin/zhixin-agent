@@ -11,6 +11,9 @@ import {
 import {
   ElMessage,
 } from "element-plus";
+import {
+  parseProviderSettingsExtraJson,
+} from "@zhixin/api-client";
 
 import {
   useAppStore,
@@ -130,6 +133,15 @@ const defaultProviderCapabilities = {
   providesCacheUsage: false,
   supportsModelList: false,
   supportsStreaming: false,
+  responsesSupported: false,
+  chatCompletionsSupported: false,
+  responsesStreamSupported: false,
+  chatCompletionsStreamSupported: false,
+  streamToolCallsSupported: false,
+  selectedRuntimeMode: null,
+  lastTestStatus: null,
+  lastTestMessage: null,
+  lastTestedAt: null,
 };
 
 // selectedProviderModelOptions：供应商默认模型下拉候选，来源于已保存或刷新后的模型列表。
@@ -149,12 +161,23 @@ const selectedProviderModelOptions = computed(() => {
   ]));
 });
 
-// providerSourceLabelByValue：模型来源展示名索引，来源于中心服务 source-options。
-const providerSourceLabelByValue = computed(() => {
-  return new Map(appStore.providerSourceOptions.map((source) => {
+// reasoningEfforts：推理深度下拉候选，来源于中心服务保存的供应商模型选项快照。
+const reasoningEfforts = computed(() => {
+  const providerId = appStore.providerDraft.providerId;
+  const savedReasoningEfforts = providerId
+    ? appStore.providerModelOptions[providerId]?.reasoningEfforts
+    : [];
+  return Array.isArray(savedReasoningEfforts)
+    ? savedReasoningEfforts
+    : [];
+});
+
+// modelProtocolLabelByValue：模型协议展示名索引，来源于中心服务 protocol-options。
+const modelProtocolLabelByValue = computed(() => {
+  return new Map(appStore.modelProtocolOptions.map((protocol) => {
     return [
-      source.providerSource,
-      source.label,
+      protocol.modelProtocol,
+      protocol.label,
     ];
   }));
 });
@@ -205,7 +228,7 @@ function readProviderModelNamesFromContextText(value: string): string[] {
   return Array.from(new Set(modelNames));
 }
 
-// manualReasoningEffortText：推理深度手填入口，来源于供应商模型刷新协议 reasoningEfforts。
+// manualReasoningEffortText：默认推理深度单值，来源于供应商设置。
 const manualReasoningEffortText = computed({
   get() {
     return appStore.providerDraft.reasoningEffortText;
@@ -236,8 +259,8 @@ const manualModelContextError = computed(() => {
  */
 function openCreateProviderDialog(): void {
   appStore.resetProviderDraft();
-  // 模型来源：打开新增弹框时立即按中心服务当前列表校准，避免本地热状态残留已删除的来源值。
-  appStore.syncProviderDraftWithSourceOptions(appStore.providerSourceOptions);
+  // 模型协议：打开新增弹框时立即按中心服务当前列表校准，避免本地热状态残留已删除的协议值。
+  appStore.syncProviderDraftWithProtocolOptions(appStore.modelProtocolOptions);
   // enabled: 新增供应商默认保存为停用，避免只填 Base URL 和 API Key 的草稿触发启用完整性校验。
   appStore.providerDraft.enabled = false;
   providerDialogVisible.value = true;
@@ -252,17 +275,34 @@ function openCreateProviderDialog(): void {
 function openEditProviderDialog(provider: Parameters<typeof appStore.editProvider>[0]): void {
   providerDialogVisible.value = true;
   const providerModelOptions = appStore.providerModelOptions[provider.providerId];
-  const contextWindows = Array.isArray(providerModelOptions?.contextWindows)
+  const providerExtraSettings = parseProviderSettingsExtraJson(provider.settings.extraJson);
+  const savedContextWindows = provider.models.filter((model) => {
+    return typeof model.contextWindowTokens === "number";
+  }).map((model) => {
+    return {
+      model: model.modelName,
+      contextWindowTokens: model.contextWindowTokens as number,
+    };
+  });
+  const contextWindows = Array.isArray(providerModelOptions?.contextWindows) && providerModelOptions.contextWindows.length > 0
     ? providerModelOptions.contextWindows
-    : [];
-  const reasoningEfforts = Array.isArray(providerModelOptions?.reasoningEfforts)
-    ? providerModelOptions.reasoningEfforts
-    : [];
+    : savedContextWindows;
+  const modelNames = provider.models.map((model) => {
+    return model.modelName;
+  });
+  // providerModelOptions：编辑入口先把供应商详情中的已保存模型快照写入下拉事实源，避免页面刷新后第一次打开时异步快照为空。
+  appStore.providerModelOptions[provider.providerId] = {
+    providerId: provider.providerId,
+    models: modelNames,
+    contextWindows,
+    reasoningEfforts: providerExtraSettings.reasoningEfforts,
+    updatedAt: provider.settings.updatedAt || null,
+  };
   // 旧供应商配置可能缺少 proxyPolicy、capabilities 或模型列表，编辑草稿必须在页面入口补齐默认结构。
   appStore.providerDraft = {
     providerId: provider.providerId,
     providerName: provider.providerName,
-    providerSource: provider.providerSource,
+    modelProtocol: provider.modelProtocol,
     apiBaseUrl: provider.apiBaseUrl ?? "",
     apiKey: "",
     customHeadersText: provider.customHeadersJson,
@@ -277,9 +317,9 @@ function openEditProviderDialog(provider: Parameters<typeof appStore.editProvide
       mode: provider.proxyMode,
       proxyId: provider.proxyId,
     },
-    manualModelsText: provider.settings.defaultModelName ?? "",
+    manualModelsText: modelNames.join("\n"),
     manualModelContextText: formatModelContextWindowsForDialog(contextWindows),
-    reasoningEffortText: reasoningEfforts.join("\n"),
+    reasoningEffortText: provider.settings.reasoningEffort ?? "",
   };
   void appStore.loadProviderModelOptions(provider.providerId);
   void nextTick();
@@ -488,19 +528,19 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="6">
-            <el-form-item label="模型来源">
+            <el-form-item label="模型协议">
               <el-select
-                  v-model="appStore.providerDraft.providerSource"
-                  @change="appStore.selectProviderSource"
+                  v-model="appStore.providerDraft.modelProtocol"
+                  @change="appStore.selectModelProtocol"
               >
                 <el-option
-                    v-for="source in appStore.providerSourceOptions"
-                    :key="source.providerSource"
-                    :label="source.label"
-                    :value="source.providerSource"
+                    v-for="protocol in appStore.modelProtocolOptions"
+                    :key="protocol.modelProtocol"
+                    :label="protocol.label"
+                    :value="protocol.modelProtocol"
                 />
               </el-select>
-              <small class="field-helper">模型来源由中心服务声明，页面只保存业务来源。</small>
+              <small class="field-helper">模型协议由中心服务声明，页面只保存协议值。</small>
             </el-form-item>
           </el-col>
           <el-col :span="6">
@@ -554,13 +594,22 @@ onMounted(() => {
           </el-col>
           <el-col :span="12">
             <el-form-item label="推理深度">
-              <el-input
+              <el-select
                   v-model="manualReasoningEffortText"
-                  type="textarea"
-                  :rows="4"
-                  placeholder="low&#10;medium&#10;high"
-              />
-              <small class="field-helper">一行一个推理深度协议值；只有能力声明启用推理深度时，后续发送才会消费该列表。</small>
+                  filterable
+                  allow-create
+                  clearable
+                  default-first-option
+                  placeholder="选择或输入默认推理深度"
+              >
+                <el-option
+                    v-for="reasoningEffort in reasoningEfforts"
+                    :key="reasoningEffort"
+                    :label="reasoningEffort"
+                    :value="reasoningEffort"
+                />
+              </el-select>
+              <small class="field-helper">默认推理深度只保存一个值；获取结果中的候选列表会进入下拉选项。</small>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -685,12 +734,12 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column
-            label="模型来源"
+            label="模型协议"
             min-width="220"
         >
           <template #default="{ row: provider }">
-            <span>{{ providerSourceLabelByValue.get(provider.providerSource) ?? provider.providerSource }}</span>
-            <small>{{ provider.providerSource }}</small>
+            <span>{{ modelProtocolLabelByValue.get(provider.modelProtocol) ?? provider.modelProtocol }}</span>
+            <small>{{ provider.modelProtocol }}</small>
           </template>
         </el-table-column>
         <el-table-column

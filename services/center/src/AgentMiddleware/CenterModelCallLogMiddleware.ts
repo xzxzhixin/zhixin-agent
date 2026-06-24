@@ -8,8 +8,8 @@ import {CenterAgentMiddleware} from "./CenterAgentMiddleware.js";
  * CenterModelCallLogMiddleware：模型调用日志中间件。
  *
  * @remarks
- * 该中间件只在模型返回后记录模型来源、调用地址和 LangChain AIMessage 近原始响应。
- * 新供应商链路不保存插件 ID 或协议模式，日志只使用 providerSource 与 AI SDK 响应摘要。
+ * 该中间件只在模型返回后记录模型协议、调用地址和 LangChain AIMessage 近原始响应。
+ * 新供应商链路不保存插件 ID 或协议模式，日志只使用 modelProtocol 与 LangChain 原始响应摘要。
  */
 export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
     /** name：Deep Agents 用于识别和过滤当前中间件的固定名称。 */
@@ -83,7 +83,8 @@ export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
             taskId: this.context.input.sent.taskId,
             providerId: provider.providerId,
             providerName: provider.providerName,
-            providerSource: provider.providerSource,
+            modelProtocol: provider.modelProtocol,
+            runtimeMode: this.context.runtime.runtimeMode,
             model: this.context.runtime.modelSelection.model,
             reasoningEffort: this.context.runtime.modelSelection.reasoningEffort,
             requestUrl: this.context.runtime.requestUrl,

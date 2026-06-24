@@ -1,4 +1,4 @@
-import {existsSync, mkdirSync} from "node:fs";
+import {mkdirSync} from "node:fs";
 import {dirname, join} from "node:path";
 
 import Database from "better-sqlite3";
@@ -7,7 +7,7 @@ import {
     createDrizzleDatabase,
     type CenterDrizzleDatabase,
 } from "./data-access/database-adapter.js";
-import {CORE_SQLITE_TABLES, type AppliedMigration, type CenterServiceConfig} from "./types.js";
+import type {AppliedMigration, CenterServiceConfig} from "./types.js";
 
 export class CenterDatabase {
     /**
@@ -814,7 +814,7 @@ export class CenterDatabase {
                 TEXT
                 NOT
                 NULL,
-                provider_source
+                model_protocol
                 TEXT
                 NOT
                 NULL,
@@ -960,6 +960,39 @@ export class CenterDatabase {
                 NOT
                 NULL
                 DEFAULT 0,
+                responses_supported
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                chat_completions_supported
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                responses_stream_supported
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                chat_completions_stream_supported
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                stream_tool_calls_supported
+                INTEGER
+                NOT
+                NULL
+                DEFAULT 0,
+                selected_runtime_mode
+                TEXT,
+                last_test_status
+                TEXT,
+                last_test_message
+                TEXT,
+                last_tested_at
+                TEXT,
                 updated_at
                 TEXT
                 NOT
@@ -1246,6 +1279,124 @@ export class CenterDatabase {
         });
         if (!hasUsageSessionId) {
             db.exec("ALTER TABLE usage_records ADD COLUMN session_id TEXT");
+        }
+
+        // model_providers.model_protocol: 供应商重做后字段从来源改为内部模型协议；旧开发库重建表结构，避免旧 NOT NULL 列阻止新供应商保存。
+        const modelProviderColumns = db.prepare("PRAGMA table_info(model_providers)").all() as Array<{
+            name: string;
+        }>;
+        const modelProviderColumnNames = new Set(modelProviderColumns.map((column) => {
+            return column.name;
+        }));
+        if (!modelProviderColumnNames.has("model_protocol") && modelProviderColumnNames.has("provider_source")) {
+            db.exec(`
+                ALTER TABLE model_providers RENAME TO model_providers_legacy_source;
+                CREATE TABLE model_providers
+                (
+                    provider_id         TEXT PRIMARY KEY,
+                    provider_name       TEXT NOT NULL,
+                    model_protocol      TEXT NOT NULL,
+                    api_base_url        TEXT,
+                    api_key_secret_ref  TEXT,
+                    custom_headers_json TEXT NOT NULL DEFAULT '{}',
+                    proxy_mode          TEXT NOT NULL DEFAULT 'use-global-default',
+                    proxy_id            TEXT,
+                    enabled             INTEGER NOT NULL DEFAULT 0,
+                    created_at          TEXT NOT NULL,
+                    updated_at          TEXT NOT NULL
+                );
+                INSERT INTO model_providers (
+                    provider_id,
+                    provider_name,
+                    model_protocol,
+                    api_base_url,
+                    api_key_secret_ref,
+                    custom_headers_json,
+                    proxy_mode,
+                    proxy_id,
+                    enabled,
+                    created_at,
+                    updated_at
+                )
+                SELECT provider_id,
+                       provider_name,
+                       CASE
+                           WHEN provider_source = 'anthropic' THEN 'anthropic'
+                           ELSE 'openai'
+                       END,
+                       api_base_url,
+                       api_key_secret_ref,
+                       custom_headers_json,
+                       proxy_mode,
+                       proxy_id,
+                       enabled,
+                       created_at,
+                       updated_at
+                FROM model_providers_legacy_source;
+                DROP TABLE model_providers_legacy_source;
+            `);
+        } else if (!modelProviderColumnNames.has("model_protocol")) {
+            db.exec("ALTER TABLE model_providers ADD COLUMN model_protocol TEXT NOT NULL DEFAULT 'openai'");
+        }
+
+        // model_provider_capabilities 协议探测字段：旧库只有人工能力声明；这里补齐自动探测矩阵，运行时据此选择 Responses 或 Chat Completions 转 Responses。
+        const modelProviderCapabilityColumns = db.prepare("PRAGMA table_info(model_provider_capabilities)").all() as Array<{
+            name: string;
+        }>;
+        const modelProviderCapabilityColumnNames = new Set(modelProviderCapabilityColumns.map((column) => {
+            return column.name;
+        }));
+        const modelProviderCapabilityColumnMigrations = [
+            {
+                // responses_supported: 供应商是否原生支持 OpenAI Responses。
+                name: "responses_supported",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN responses_supported INTEGER NOT NULL DEFAULT 0",
+            },
+            {
+                // chat_completions_supported: 供应商是否支持 Chat Completions 兼容接口。
+                name: "chat_completions_supported",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN chat_completions_supported INTEGER NOT NULL DEFAULT 0",
+            },
+            {
+                // responses_stream_supported: Responses 是否支持流式事件。
+                name: "responses_stream_supported",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN responses_stream_supported INTEGER NOT NULL DEFAULT 0",
+            },
+            {
+                // chat_completions_stream_supported: Chat Completions 是否支持流式响应。
+                name: "chat_completions_stream_supported",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN chat_completions_stream_supported INTEGER NOT NULL DEFAULT 0",
+            },
+            {
+                // stream_tool_calls_supported: 流式工具调用是否可用且字段完整。
+                name: "stream_tool_calls_supported",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN stream_tool_calls_supported INTEGER NOT NULL DEFAULT 0",
+            },
+            {
+                // selected_runtime_mode: 自动探测后选择的运行时模式。
+                name: "selected_runtime_mode",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN selected_runtime_mode TEXT",
+            },
+            {
+                // last_test_status: 最近一次协议探测状态。
+                name: "last_test_status",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN last_test_status TEXT",
+            },
+            {
+                // last_test_message: 最近一次协议探测摘要。
+                name: "last_test_message",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN last_test_message TEXT",
+            },
+            {
+                // last_tested_at: 最近一次协议探测时间。
+                name: "last_tested_at",
+                sql: "ALTER TABLE model_provider_capabilities ADD COLUMN last_tested_at TEXT",
+            },
+        ];
+        for (const migration of modelProviderCapabilityColumnMigrations) {
+            if (!modelProviderCapabilityColumnNames.has(migration.name)) {
+                db.exec(migration.sql);
+            }
         }
 
         // tasks.agent_id: 智能体 todoList 需要按会话和智能体恢复；旧开发库没有该列时补为主智能体 main，避免历史主对话任务丢失。

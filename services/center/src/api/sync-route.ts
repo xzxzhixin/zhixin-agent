@@ -49,7 +49,7 @@ import {
 import {
     cancelRunningCommandsForTurn,
 } from "../domain/turn-command-cancel-registry.js";
-import {ModelProviderSourceRegistry} from "../model-provider/ModelProviderSourceRegistry.js";
+import {ModelProtocolRegistry} from "../model-provider/ModelProtocolRegistry.js";
 import {
     listAgents,
 } from "../domain/agent-domain.js";
@@ -757,29 +757,93 @@ function scheduleTurnRuntimeCancellation(
 function buildChatBootstrapSnapshot(
     database: CenterDatabase,
 ): {
-    /** providers: 供应商配置列表，来源于 SQLite 模型供应商事实源。 */
+    /** providers: 供应商配置列表，协议于 SQLite 模型供应商事实源。 */
     providers: ReturnType<typeof buildModelProviderSnapshot>;
-    /** providerSourceOptions: 模型来源下拉选项。 */
-    providerSourceOptions: ReturnType<ModelProviderSourceRegistry["listSourceOptions"]>;
+    /** modelProtocolOptions: 模型协议下拉选项。 */
+    modelProtocolOptions: ReturnType<ModelProtocolRegistry["listProtocolOptions"]>;
     /** providerModelOptions: 供应商 ID 到已保存模型列表的映射。 */
-    providerModelOptions: Record<string, ReturnType<typeof buildModelProviderSnapshot>[number]["models"]>;
+    providerModelOptions: Record<string, {
+        /** providerId: 供应商 ID。 */
+        providerId: string;
+        /** models: 供应商模型名称列表。 */
+        models: string[];
+        /** contextWindows: 模型上下文窗口配置，单位为 token。 */
+        contextWindows: Array<{
+            /** model: 模型名称。 */
+            model: string;
+            /** contextWindowTokens: 上下文窗口 token 数。 */
+            contextWindowTokens: number;
+        }>;
+        /** reasoningEfforts: 供应商推理深度候选列表。 */
+        reasoningEfforts: string[];
+        /** updatedAt: 模型设置最近更新时间。 */
+        updatedAt: string | null;
+    }>;
     /** agents: 主智能体和长期智能体索引。 */
     agents: ReturnType<typeof listAgents>;
 } {
     const providers = buildModelProviderSnapshot(database);
     const providerModelOptions = Object.fromEntries(providers.map((provider) => {
+        const extraSettings = parseModelProviderExtraSettings(provider.settings.extraJson);
+        const models = provider.models.map((model) => {
+            return model.modelName;
+        });
+        const contextWindows = provider.models.filter((model) => {
+            return typeof model.contextWindowTokens === "number";
+        }).map((model) => {
+            return {
+                model: model.modelName,
+                contextWindowTokens: model.contextWindowTokens as number,
+            };
+        });
         return [
             provider.providerId,
-            provider.models,
+            {
+                providerId: provider.providerId,
+                models,
+                contextWindows,
+                reasoningEfforts: extraSettings.reasoningEfforts,
+                updatedAt: provider.settings.updatedAt,
+            },
         ];
     }));
 
     return {
         providers,
-        providerSourceOptions: new ModelProviderSourceRegistry().listSourceOptions(),
+        modelProtocolOptions: new ModelProtocolRegistry().listProtocolOptions(),
         providerModelOptions,
         agents: listAgents(database),
     };
+}
+
+/**
+ * parseModelProviderExtraSettings：解析供应商扩展设置中的模型候选数据。
+ *
+ * @param value `model_provider_settings.extra_json` 字符串。
+ * @returns 供应商模型快照需要的扩展候选字段。
+ */
+function parseModelProviderExtraSettings(value: string): {
+    /** reasoningEfforts: 推理深度候选列表。 */
+    reasoningEfforts: string[];
+} {
+    try {
+        const parsed = JSON.parse(value) as {
+            /** reasoningEfforts: 供应商刷新得到的候选值。 */
+            reasoningEfforts?: unknown;
+        };
+        return {
+            reasoningEfforts: Array.isArray(parsed.reasoningEfforts)
+                ? parsed.reasoningEfforts.filter((item): item is string => {
+                    return typeof item === "string" && item.trim().length > 0;
+                })
+                : [],
+        };
+    } catch {
+        // extraJson: 历史脏数据不能影响对话页首屏快照，非法扩展设置按无候选处理。
+        return {
+            reasoningEfforts: [],
+        };
+    }
 }
 
 /**
@@ -789,14 +853,14 @@ function buildChatBootstrapSnapshot(
  * @returns 模型供应商快照。
  */
 function buildModelProviderSnapshot(database: CenterDatabase) {
-    const sourceRegistry = new ModelProviderSourceRegistry();
+    const protocolRegistry = new ModelProtocolRegistry();
     return new ModelProviderRepository(database).listProviders().map((provider) => {
-        const sourceDefinition = sourceRegistry.getSourceDefinition(provider.providerSource);
+        const protocolDefinition = protocolRegistry.getProtocolDefinition(provider.modelProtocol);
         return {
             providerId: provider.providerId,
             providerName: provider.providerName,
-            providerSource: provider.providerSource,
-            providerSourceLabel: sourceDefinition.label,
+            modelProtocol: provider.modelProtocol,
+            modelProtocolLabel: protocolDefinition.label,
             apiBaseUrl: provider.apiBaseUrl,
             hasApiKey: typeof provider.apiKeySecretRef === "string",
             customHeadersJson: provider.customHeadersJson,
@@ -986,7 +1050,7 @@ function registerProjectFromRealtime(
     payload: unknown,
 ): ProjectRecord {
     const body = payload as {
-        /** projectId: 项目 UUID，来源于项目身份文件。 */
+        /** projectId: 项目 UUID，协议于项目身份文件。 */
         projectId?: string;
         /** displayName: 项目文件夹主名称。 */
         displayName?: string;
@@ -1522,7 +1586,7 @@ function commitAttachmentFromRealtime(
         messageId?: string;
         /** temporaryAttachmentId: 临时附件 ID。 */
         temporaryAttachmentId?: string;
-        /** temporaryRelativePath: 临时附件相对中心目录路径，来源于 attachment.temporary.create 返回值。 */
+        /** temporaryRelativePath: 临时附件相对中心目录路径，协议于 attachment.temporary.create 返回值。 */
         temporaryRelativePath?: string;
         /** fileName: 原始文件名。 */
         fileName?: string;

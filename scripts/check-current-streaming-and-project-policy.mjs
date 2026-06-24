@@ -59,8 +59,7 @@ function assertNotIncludes(
 }
 
 const packageJson = readProjectFile("package.json");
-const modelRuntimeFactory = readProjectFile("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
-const aiSdkChatModelAdapter = readProjectFile("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
+const modelProviderRuntimeFactory = readProjectFile("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const chatRouter = readProjectFile("apps/frontend/src/views/Chat/RouterIndex.vue");
 const appStore = readProjectFile("apps/frontend/src/stores/app.ts");
@@ -75,34 +74,34 @@ assertNotIncludes(
   "根 package.json 不能继续暴露中心服务独立启动脚本 dev:center:new。",
 );
 assertNotIncludes(
-  aiSdkChatModelAdapter,
+  modelProviderRuntimeFactory,
   "stream: false",
-  "AI SDK 模型适配器不能关闭流式输出，真实供应商必须使用流式输出。",
+  "LangChain 模型运行时不能关闭流式输出，真实供应商必须使用流式输出。",
 );
 assertNotIncludes(
-  aiSdkChatModelAdapter + modelRuntimeFactory,
+  modelProviderRuntimeFactory,
   "spawnSync",
   "模型供应商运行时不能用同步子进程等待完整 HTTP 响应，否则 UI 会卡住。",
 );
 assertIncludes(
-  aiSdkChatModelAdapter,
-  "for await",
-  "AI SDK 模型适配器必须使用流式迭代读取供应商输出。",
+  modelProviderRuntimeFactory,
+  "new ChatOpenAI",
+  "OpenAI 协议必须直接创建 LangChain ChatOpenAI。",
 );
 assertIncludes(
-  aiSdkChatModelAdapter,
-  "stream",
-  "AI SDK 模型适配器必须使用 streamText 读取 token/SSE delta。",
+  modelProviderRuntimeFactory,
+  "new ChatAnthropic",
+  "Anthropic 协议必须直接创建 LangChain ChatAnthropic。",
 );
 assertIncludes(
-  aiSdkChatModelAdapter,
-  "textStream",
-  "AI SDK 模型适配器必须解析文本 delta 事件。",
+  modelProviderRuntimeFactory,
+  "streaming: true",
+  "LangChain 模型运行时必须显式启用流式输出。",
 );
-assertIncludes(
-  aiSdkChatModelAdapter,
-  "tool-call",
-  "AI SDK 模型适配器必须解析结构化工具调用 delta。",
+assertNotIncludes(
+  modelProviderRuntimeFactory,
+  "AiSdkChatModelAdapter",
+  "模型供应商运行时不能继续引用旧 AI SDK 适配器。",
 );
 assertIncludes(
   sessionDomain,
@@ -110,12 +109,12 @@ assertIncludes(
   "会话执行链路必须进入 Deep Agents 原生入口，不能回到旧模型网关入口。",
 );
 assertNotIncludes(
-  sessionDomain + aiSdkChatModelAdapter + modelRuntimeFactory,
+  sessionDomain + modelProviderRuntimeFactory,
   "invokeProviderModelGateway",
   "旧 invokeProviderModelGateway 入口已无真实调用方，不能继续残留。",
 );
 assertNotIncludes(
-  sessionDomain + aiSdkChatModelAdapter + modelRuntimeFactory,
+  sessionDomain + modelProviderRuntimeFactory,
   "appendModelStreamEvent(events, sent.sessionId, sent.taskId, sent.turnId, modelResult)",
   "会话执行链路不能在完整响应后一次性追加流式片段。",
 );
@@ -161,8 +160,8 @@ assertIncludes(
 );
 assertIncludes(
   requirement,
-  "供应商模型调用统一通过中心服务 `AiSdkChatModelAdapter`",
-  "需求.md 必须写入模型供应商 AI SDK 适配口径。",
+  "模型调用必须直接使用 LangChain 已支持的 OpenAI 和 Anthropic 协议能力",
+  "需求.md 必须写入模型供应商 LangChain 协议口径。",
 );
 assertIncludes(
   agents,
@@ -181,8 +180,8 @@ assertIncludes(
 );
 assertIncludes(
   requirement,
-  "AiSdkChatModelAdapter",
-  "需求必须同步当前供应商模型调用适配任务。",
+  "model_protocol = openai",
+  "需求必须同步当前供应商模型协议字段任务。",
 );
 
 if (existsSync(join(process.cwd(), "services/center/center-data"))) {

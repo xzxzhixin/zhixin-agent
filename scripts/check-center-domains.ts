@@ -170,7 +170,7 @@ async function writeMemoryFakeProvider(
     url: "/api/model-provider/create",
     payload: {
       providerName: "记忆闭环假模型",
-      providerSource: "openai-compatible-custom",
+      modelProtocol: "openai",
       apiBaseUrl: `${baseUrl}/v1`,
       apiKey: "memory-fake-key",
       enabled: true,
@@ -438,7 +438,7 @@ async function main(): Promise<void> {
       url: "/api/model-provider/create",
       payload: {
         providerName: "检查供应商",
-        providerSource: "openai-compatible-custom",
+        modelProtocol: "openai",
         apiBaseUrl: "https://api.example.com/v1",
         apiKey: "secret",
         defaultModelName: "example-model",

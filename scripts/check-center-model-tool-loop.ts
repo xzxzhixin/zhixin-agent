@@ -234,7 +234,7 @@ async function writeEnabledProvider(service: CenterService, baseUrl: string): Pr
     url: "/api/model-provider/create",
     payload: {
       providerName: "工具闭环假模型",
-      providerSource: "openai-compatible-custom",
+      modelProtocol: "openai",
       apiBaseUrl: `${baseUrl}/v1`,
       apiKey: "fake-tool-loop-key",
       enabled: true,

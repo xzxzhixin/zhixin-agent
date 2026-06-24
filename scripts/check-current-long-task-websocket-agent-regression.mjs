@@ -1,5 +1,5 @@
 /**
- * 本轮长任务、WebSocket 对话页、AI SDK 模型供应商和智能体架构静态回归检查。
+ * 本轮长任务、WebSocket 对话页、LangChain 模型供应商和智能体架构静态回归检查。
  *
  * 用途：作为 TDD 红灯脚本，证明当前实现仍会暴露工具循环上限、对话页仍混用 REST、
  * 模型协议仍依赖插件适配器，以及中心服务目录和智能体类层级尚未收敛。
@@ -181,8 +181,7 @@ const taskDetailDialog = readText("apps/frontend/src/views/Chat/dialogs/TaskDeta
 const sessionGuidanceDomain = readText("services/center/src/domain/session-guidance-domain.ts");
 const autoScroll = readText("apps/frontend/src/views/Chat/useMessageListAutoScroll.ts");
 const modelProviderRuntimeFactory = readText("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
-const aiSdkChatModelAdapter = readText("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
-const modelProviderSourceRegistry = readText("services/center/src/model-provider/ModelProviderSourceRegistry.ts");
+const modelProtocolRegistry = readText("services/center/src/model-provider/ModelProtocolRegistry.ts");
 const modelProviderApi = readText("services/center/src/api/model-provider.ts");
 const centerPackage = readText("services/center/package.json");
 const apiClient = readText("packages/api-client/src/index.ts");
@@ -561,30 +560,42 @@ for (const aiSdkDependency of [
   "\"@ai-sdk/google\"",
   "\"@openrouter/ai-sdk-provider\"",
 ]) {
-  assertIncludes(
+  assertNotIncludes(
     centerPackage,
     aiSdkDependency,
-    `中心服务必须显式声明 AI SDK 供应商依赖：${aiSdkDependency}。`,
+    `中心服务不得继续声明 Vercel AI SDK 供应商依赖：${aiSdkDependency}。`,
+  );
+}
+for (const langChainDependency of [
+  "\"@langchain/openai\"",
+  "\"@langchain/anthropic\"",
+]) {
+  assertIncludes(
+    centerPackage,
+    langChainDependency,
+    `中心服务必须显式声明 LangChain 模型依赖：${langChainDependency}。`,
   );
 }
 for (const runtimeSignal of [
-  "createOpenAI",
-  "createOpenAICompatible",
-  "createAnthropic",
-  "createGoogleGenerativeAI",
-  "createOpenRouter",
-  "new AiSdkChatModelAdapter",
+  "new ChatOpenAI",
+  "new ChatAnthropic",
+  "modelProtocol",
 ]) {
   assertIncludes(
     modelProviderRuntimeFactory,
     runtimeSignal,
-    `模型供应商运行时必须通过 Vercel AI SDK 创建模型：${runtimeSignal}。`,
+    `模型供应商运行时必须通过内部模型协议创建 LangChain 模型：${runtimeSignal}。`,
   );
 }
 assertIncludes(
-  aiSdkChatModelAdapter,
-  "extends BaseChatModel",
-  "AI SDK 适配器必须包装成 Deep Agents 可消费的 ChatModel。",
+  modelProtocolRegistry,
+  "modelProtocol: \"openai\"",
+  "模型协议注册表必须提供 OpenAI 协议。",
+);
+assertIncludes(
+  modelProtocolRegistry,
+  "modelProtocol: \"anthropic\"",
+  "模型协议注册表必须提供 Anthropic 协议。",
 );
 assertIncludes(
   deepAgentsAgent,
@@ -594,7 +605,7 @@ assertIncludes(
 assertIncludes(
   deepAgentsAgent,
   "createChatModel(context.runtime)",
-  "Deep Agents 原生入口必须注入 AI SDK ChatModel 适配器。",
+  "Deep Agents 原生入口必须注入 LangChain ChatModel。",
 );
 assertIncludes(
   deepAgentsAgent,
@@ -611,7 +622,7 @@ for (const legacyProtocol of [
   "providerProtocolPlugins",
 ]) {
   assertNotIncludes(
-    modelProviderRuntimeFactory + modelProviderApi + modelProviderSourceRegistry + apiClient + frontendProviderPage,
+    modelProviderRuntimeFactory + modelProviderApi + modelProtocolRegistry + apiClient + frontendProviderPage,
     legacyProtocol,
     `模型供应商不再通过插件协议适配器字段或注册表：${legacyProtocol}`,
   );
@@ -739,4 +750,3 @@ if (failures.length > 0) {
 }
 
 console.log("本轮长任务/WebSocket/LangChain/智能体架构回归检查通过。");
-

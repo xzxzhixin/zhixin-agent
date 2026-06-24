@@ -2,7 +2,7 @@
  * SelectOption：输入区下拉选项。
  *
  * 来源：执行模式和推理深度控件。
- * 含义：同时保存协议值、中文标签和说明，避免用户看到裸英文枚举。
+ * 含义：同时保存协议值、显示标签和说明；推理深度控件必须直接显示模型协议值。
  * 格式：固定字符串对象。
  * 默认值：无。
  * 约束：选项只服务当前输入框 UI，中心服务仍是审批和执行事实源。
@@ -10,7 +10,7 @@
 export interface SelectOption {
     /** value: 协议值。 */
     value: string;
-    /** label: 中文标签。 */
+    /** label: 显示标签。 */
     label: string;
     /** description: 选项解释。 */
     description: string;
@@ -38,27 +38,27 @@ export const executionModeOptions: SelectOption[] = [
 ];
 
 /**
- * reasoningEffortOptions：推理深度内置下拉；动态供应商推理深度接入前先提供明确中文解释。
+ * reasoningEffortOptions：推理深度内置下拉，直接使用模型协议值作为显示文本和提交值。
  */
 export const reasoningEffortOptions: SelectOption[] = [
     {
+        value: "minimal",
+        label: "minimal",
+        description: "minimal",
+    },
+    {
         value: "low",
-        label: "低推理",
-        description: "更快响应，适合简单问题",
+        label: "low",
+        description: "low",
     },
     {
         value: "medium",
-        label: "中推理",
-        description: "默认平衡速度和质量",
+        label: "medium",
+        description: "medium",
     },
     {
         value: "high",
-        label: "高推理",
-        description: "更充分分析复杂任务",
-    },
-    {
-        value: "xhigh",
-        label: "超高推理",
-        description: "最充分分析，耗时更长",
+        label: "high",
+        description: "high",
     },
 ];

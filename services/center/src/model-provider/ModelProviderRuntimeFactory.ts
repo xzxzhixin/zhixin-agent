@@ -1,21 +1,18 @@
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 
-import {createAnthropic} from "@ai-sdk/anthropic";
-import {createGoogleGenerativeAI} from "@ai-sdk/google";
-import {createOpenAI} from "@ai-sdk/openai";
-import {createOpenAICompatible} from "@ai-sdk/openai-compatible";
-import {createOpenRouter} from "@openrouter/ai-sdk-provider";
-import type {LanguageModel} from "ai";
+import {ChatAnthropic} from "@langchain/anthropic";
+import {
+    ChatOpenAI,
+    ChatOpenAIResponses,
+} from "@langchain/openai";
+import type {BaseChatModel} from "@langchain/core/language_models/chat_models";
 
 import type {CenterDatabase} from "../database.js";
 import {createDataAccess} from "../data-access/index.js";
 import {ModelProviderRepository} from "../data-access/ModelProviderRepository.js";
-import type {
-    ModelProviderRuntimeRecord,
-    ModelProviderSource,
-} from "../data-access/ModelProviderRepository.js";
-import {AiSdkChatModelAdapter} from "./AiSdkChatModelAdapter.js";
+import type {ModelProviderRuntimeRecord} from "../data-access/ModelProviderRepository.js";
+import {OpenAiToolCallNamePreservingCompletions} from "./OpenAiToolCallNamePreservingCompletions.js";
 import type {ResolvedModelProviderRuntime} from "./ModelProviderRuntimeTypes.js";
 
 /** SecretConfigFile：中心服务私有敏感信息文件结构。 */
@@ -30,7 +27,7 @@ interface SecretConfigFile {
 /**
  * ModelProviderRuntimeFactory：数据库供应商模型运行时工厂。
  *
- * 用途：读取 SQLite 供应商配置，创建 Deep Agents 可用的 AI SDK ChatModel 适配器。
+ * 用途：读取 SQLite 供应商配置，按内部模型协议创建 Deep Agents 可用的 LangChain ChatModel。
  */
 export class ModelProviderRuntimeFactory {
     /** database: 中心服务数据库。 */
@@ -77,6 +74,7 @@ export class ModelProviderRuntimeFactory {
             centerDirectory,
             apiKey,
             requestUrl: resolveModelProviderRequestUrl(provider),
+            runtimeMode: resolveModelProviderRuntimeMode(provider),
             modelSelection: {
                 model: provider.settings.defaultModelName,
                 reasoningEffort: provider.settings.reasoningEffort,
@@ -88,13 +86,13 @@ export class ModelProviderRuntimeFactory {
      * createChatModel：创建 Deep Agents 可消费的 LangChain ChatModel。
      *
      * @param runtime 已解析的新供应商运行时。
-     * @returns AI SDK ChatModel 适配器。
+     * @returns LangChain ChatModel。
      */
-    public createChatModel(runtime: ResolvedModelProviderRuntime): AiSdkChatModelAdapter {
-        return new AiSdkChatModelAdapter({
-            runtime,
-            languageModel: createAiSdkLanguageModel(runtime),
-        });
+    public createChatModel(runtime: ResolvedModelProviderRuntime): BaseChatModel {
+        if (runtime.provider.modelProtocol === "anthropic") {
+            return createAnthropicChatModel(runtime);
+        }
+        return createOpenAiChatModel(runtime);
     }
 
     /**
@@ -115,71 +113,74 @@ export class ModelProviderRuntimeFactory {
 }
 
 /**
- * createAiSdkLanguageModel：按模型来源创建 AI SDK LanguageModel。
+ * createOpenAiChatModel：按 OpenAI 协议创建 LangChain 模型。
  *
- * @param runtime 已解析的新供应商运行时。
- * @returns AI SDK 语言模型。
+ * @param runtime 已解析的供应商运行时。
+ * @returns OpenAI ChatModel。
  */
-function createAiSdkLanguageModel(runtime: ResolvedModelProviderRuntime): LanguageModel {
-    const provider = runtime.provider;
-    const model = runtime.modelSelection.model;
-    if (provider.providerSource === "openai" || provider.providerSource === "codex") {
-        return createOpenAI({
-            apiKey: runtime.apiKey,
-            baseURL: provider.apiBaseUrl ?? undefined,
-            headers: parseCustomHeaders(provider.customHeadersJson),
-        })(model);
-    }
-    if (provider.providerSource === "anthropic") {
-        return createAnthropic({
-            apiKey: runtime.apiKey,
-            baseURL: provider.apiBaseUrl ?? undefined,
-            headers: parseCustomHeaders(provider.customHeadersJson),
-        })(model);
-    }
-    if (provider.providerSource === "google") {
-        return createGoogleGenerativeAI({
-            apiKey: runtime.apiKey,
-            baseURL: provider.apiBaseUrl ?? undefined,
-            headers: parseCustomHeaders(provider.customHeadersJson),
-        })(model);
-    }
-    if (provider.providerSource === "openrouter") {
-        return createOpenRouter({
-            apiKey: runtime.apiKey,
-            baseURL: provider.apiBaseUrl ?? undefined,
-            headers: parseCustomHeaders(provider.customHeadersJson),
-        })(model);
-    }
-    return createOpenAICompatible({
-        name: provider.providerSource,
+function createOpenAiChatModel(runtime: ResolvedModelProviderRuntime): ChatOpenAI {
+    const openAiFields = {
         apiKey: runtime.apiKey,
-        baseURL: resolveOpenAiCompatibleBaseUrl(provider.providerSource, provider.apiBaseUrl),
-        headers: parseCustomHeaders(provider.customHeadersJson),
-    })(model);
+        model: runtime.modelSelection.model,
+        streaming: true,
+        configuration: {
+            baseURL: runtime.provider.apiBaseUrl ?? undefined,
+            defaultHeaders: parseCustomHeaders(runtime.provider.customHeadersJson),
+        },
+        modelKwargs: buildOpenAiModelKwargs(runtime),
+    };
+    return new ChatOpenAI({
+        ...openAiFields,
+        // useResponsesApi：保存前协议探测通过 Responses 时强制走 Responses；未探测或兼容模式继续交给 Chat Completions。
+        useResponsesApi: runtime.runtimeMode === "responses",
+        // responses：显式注入 Responses 底层实现，避免 ChatOpenAI 因模型名启发式和探测能力不一致。
+        responses: new ChatOpenAIResponses(openAiFields),
+        // completions：OpenAI Chat Completions 兼容供应商统一入口，补齐流式分片中同一工具调用的非空名称保持。
+        completions: new OpenAiToolCallNamePreservingCompletions({
+            apiKey: runtime.apiKey,
+            model: runtime.modelSelection.model,
+            streaming: true,
+            configuration: {
+                baseURL: runtime.provider.apiBaseUrl ?? undefined,
+                defaultHeaders: parseCustomHeaders(runtime.provider.customHeadersJson),
+            },
+            modelKwargs: buildOpenAiModelKwargs(runtime),
+        }),
+    });
 }
 
 /**
- * resolveOpenAiCompatibleBaseUrl：解析 OpenAI 兼容来源 Base URL。
+ * createAnthropicChatModel：按 Anthropic 协议创建 LangChain 模型。
  *
- * @param providerSource 模型来源。
- * @param configuredBaseUrl 用户配置地址。
- * @returns AI SDK OpenAI 兼容 provider Base URL。
+ * @param runtime 已解析的供应商运行时。
+ * @returns Anthropic ChatModel。
  */
-function resolveOpenAiCompatibleBaseUrl(
-    providerSource: ModelProviderSource,
-    configuredBaseUrl: string | null,
-): string {
-    if (configuredBaseUrl) {
-        return configuredBaseUrl;
+function createAnthropicChatModel(runtime: ResolvedModelProviderRuntime): ChatAnthropic {
+    return new ChatAnthropic({
+        apiKey: runtime.apiKey,
+        model: runtime.modelSelection.model,
+        streaming: true,
+        anthropicApiUrl: runtime.provider.apiBaseUrl ?? undefined,
+        clientOptions: {
+            defaultHeaders: parseCustomHeaders(runtime.provider.customHeadersJson),
+        },
+    });
+}
+
+/**
+ * buildOpenAiModelKwargs：构造 OpenAI 模型额外参数。
+ *
+ * @param runtime 已解析的供应商运行时。
+ * @returns 额外模型参数。
+ */
+function buildOpenAiModelKwargs(runtime: ResolvedModelProviderRuntime): Record<string, unknown> {
+    if (!runtime.modelSelection.reasoningEffort) {
+        return {};
     }
-    if (providerSource === "deepseek") {
-        return "https://api.deepseek.com";
-    }
-    if (providerSource === "qwen") {
-        return "https://dashscope.aliyuncs.com/compatible-mode/v1";
-    }
-    throw new Error("MODEL_PROVIDER_BASE_URL_NOT_AVAILABLE");
+    return {
+        // reasoning_effort：OpenAI 推理模型公开参数，由供应商配置显式启用后传递。
+        reasoning_effort: runtime.modelSelection.reasoningEffort,
+    };
 }
 
 /**
@@ -189,21 +190,37 @@ function resolveOpenAiCompatibleBaseUrl(
  * @returns 请求地址摘要。
  */
 function resolveModelProviderRequestUrl(provider: ModelProviderRuntimeRecord): string {
-    if (provider.providerSource === "anthropic") {
+    if (provider.modelProtocol === "anthropic") {
         return provider.apiBaseUrl ?? "https://api.anthropic.com/v1/messages";
     }
-    if (provider.providerSource === "google") {
-        return provider.apiBaseUrl ?? "https://generativelanguage.googleapis.com";
+    const baseUrl = provider.apiBaseUrl ?? "https://api.openai.com/v1";
+    const runtimeMode = resolveModelProviderRuntimeMode(provider);
+    if (runtimeMode === "responses") {
+        return `${baseUrl.replace(/\/$/u, "")}/responses`;
     }
-    if (provider.providerSource === "openrouter") {
-        return provider.apiBaseUrl ?? "https://openrouter.ai/api/v1/chat/completions";
-    }
-    const baseUrl = provider.apiBaseUrl ?? (provider.providerSource === "deepseek"
-        ? "https://api.deepseek.com"
-        : provider.providerSource === "qwen"
-            ? "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            : "https://api.openai.com/v1");
     return `${baseUrl.replace(/\/$/u, "")}/chat/completions`;
+}
+
+/**
+ * resolveModelProviderRuntimeMode：按探测矩阵选择 OpenAI 运行模式。
+ *
+ * @param provider 供应商配置。
+ * @returns 运行模式；Anthropic 或未探测时返回 null。
+ */
+function resolveModelProviderRuntimeMode(provider: ModelProviderRuntimeRecord): ResolvedModelProviderRuntime["runtimeMode"] {
+    if (provider.modelProtocol === "anthropic") {
+        return null;
+    }
+    if (provider.capabilities.selectedRuntimeMode) {
+        return provider.capabilities.selectedRuntimeMode;
+    }
+    if (provider.capabilities.responsesSupported) {
+        return "responses";
+    }
+    if (provider.capabilities.chatCompletionsSupported) {
+        return "chat_completions_to_responses";
+    }
+    return null;
 }
 
 /**

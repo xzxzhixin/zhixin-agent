@@ -125,7 +125,7 @@ const toolRuntime = [
 const toolCapabilityRegistry = readProjectFile("services/center/src/StructuredTool/tool-capability-registry.ts");
 const toolEvents = readProjectFile("services/center/src/StructuredTool/tool-events.ts");
 const capabilityApi = readProjectFile("services/center/src/api/capability.ts");
-const aiSdkChatModelAdapter = readProjectFile("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
+const modelProviderRuntimeFactory = readProjectFile("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
 const chatRuntimeSource = chatPage + chatConversationPanel + chatStyle;
 const chatProcessAggregationSource = chatHelpers + chatConversation + chatConversationPanel;
 
@@ -271,7 +271,7 @@ for (const signal of [
   "createDeepAgent",
 ]) {
   assertIncludes(
-    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + aiSdkChatModelAdapter + deepAgentsAgent,
+    apiRoutes + capabilityApi + sessionDomain + sessionTurnEffects + toolRuntime + toolCapabilityRegistry + toolEvents + modelProviderRuntimeFactory + deepAgentsAgent,
     signal,
     `统一工具能力注册、命令执行或审计链路缺少：${signal}`,
   );

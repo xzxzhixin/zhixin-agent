@@ -2,16 +2,10 @@ import {randomUUID} from "node:crypto";
 
 import type {CenterDatabase} from "../database.js";
 
-/** ModelProviderSource：数据库保存的模型来源枚举，只表达业务来源，不保存 AI SDK 包名。 */
-export type ModelProviderSource =
+/** ModelProtocol：数据库保存的模型协议枚举，只表达中心服务内部模型协议。 */
+export type ModelProtocol =
     | "openai"
-    | "anthropic"
-    | "google"
-    | "deepseek"
-    | "qwen"
-    | "openrouter"
-    | "codex"
-    | "openai-compatible-custom";
+    | "anthropic";
 
 /** ModelProviderProxyMode：供应商访问代理策略，来源于供应商配置表单。 */
 export type ModelProviderProxyMode = "none" | "use-global-default" | "use-specified";
@@ -34,9 +28,32 @@ export interface ModelProviderCapabilityRecord {
     supportsStreaming: boolean;
     /** providesCacheUsage: 是否提供缓存用量字段。 */
     providesCacheUsage: boolean;
+    /** responsesSupported: 是否支持 OpenAI Responses 接口。 */
+    responsesSupported: boolean;
+    /** chatCompletionsSupported: 是否支持 OpenAI Chat Completions 接口。 */
+    chatCompletionsSupported: boolean;
+    /** responsesStreamSupported: 是否支持 Responses 流式事件。 */
+    responsesStreamSupported: boolean;
+    /** chatCompletionsStreamSupported: 是否支持 Chat Completions 流式事件。 */
+    chatCompletionsStreamSupported: boolean;
+    /** streamToolCallsSupported: 是否支持流式工具调用。 */
+    streamToolCallsSupported: boolean;
+    /** selectedRuntimeMode: 运行时模式，Responses 优先，兼容供应商转换为 Responses。 */
+    selectedRuntimeMode: ModelProviderRuntimeMode | null;
+    /** lastTestStatus: 最近协议探测状态。 */
+    lastTestStatus: "passed" | "failed" | null;
+    /** lastTestMessage: 最近协议探测摘要。 */
+    lastTestMessage: string | null;
+    /** lastTestedAt: 最近协议探测时间。 */
+    lastTestedAt: string | null;
     /** updatedAt: 能力声明更新时间，中心服务本机时间。 */
     updatedAt: string;
 }
+
+/** ModelProviderRuntimeMode：供应商运行时模式，来源于保存前自动协议探测。 */
+export type ModelProviderRuntimeMode =
+    | "responses"
+    | "chat_completions_to_responses";
 
 /** ModelProviderSettingsRecord：供应商默认调用设置，来源于 model_provider_settings 表。 */
 export interface ModelProviderSettingsRecord {
@@ -100,8 +117,8 @@ export interface ModelProviderRecord {
     providerId: string;
     /** providerName: 供应商名称。 */
     providerName: string;
-    /** providerSource: 模型来源枚举。 */
-    providerSource: ModelProviderSource;
+    /** modelProtocol: 模型协议枚举，决定 LangChain 模型实现。 */
+    modelProtocol: ModelProtocol;
     /** apiBaseUrl: 接口基础地址；未配置时为 null。 */
     apiBaseUrl: string | null;
     /** apiKeySecretRef: API Key 私有引用；API 响应不得返回该字段。 */
@@ -132,8 +149,8 @@ export interface ModelProviderRecord {
 export interface CreateModelProviderInput {
     /** providerName: 供应商名称。 */
     providerName: string;
-    /** providerSource: 模型来源。 */
-    providerSource: ModelProviderSource;
+    /** modelProtocol: 模型协议。 */
+    modelProtocol: ModelProtocol;
     /** apiBaseUrl: 接口基础地址。 */
     apiBaseUrl: string | null;
     /** apiKeySecretRef: API Key 私有引用。 */
@@ -193,6 +210,8 @@ export interface SaveModelProviderModelsInput {
     }>;
     /** defaultModelName: 同步更新的默认模型；未传时不修改设置。 */
     defaultModelName?: string | null;
+    /** reasoningEfforts: 供应商可选推理深度列表；未传时不修改扩展设置。 */
+    reasoningEfforts?: string[];
     /** now: 中心服务本机时间字符串。 */
     now: string;
 }
@@ -211,6 +230,30 @@ export interface AppendModelProviderCheckInput {
     checkedAt: string;
 }
 
+/**
+ * mergeReasoningEffortsIntoExtraJson：把推理深度候选列表写入扩展设置 JSON。
+ *
+ * @param rawJson 当前数据库中的 extra_json。
+ * @param reasoningEfforts 供应商刷新得到或用户手动保存的候选值列表。
+ * @returns 合并后的 JSON 字符串。
+ */
+function mergeReasoningEffortsIntoExtraJson(
+    rawJson: string,
+    reasoningEfforts: string[],
+): string {
+    let parsed: Record<string, unknown>;
+    try {
+        const candidate = JSON.parse(rawJson);
+        parsed = typeof candidate === "object" && candidate !== null && !Array.isArray(candidate)
+            ? candidate as Record<string, unknown>
+            : {};
+    } catch {
+        parsed = {};
+    }
+    parsed.reasoningEfforts = reasoningEfforts;
+    return JSON.stringify(parsed);
+}
+
 /** ModelProviderRuntimeRecord：运行时读取供应商配置的聚合记录。 */
 export interface ModelProviderRuntimeRecord extends ModelProviderRecord {
     /** defaultModel: 已解析出的默认模型记录。 */
@@ -220,7 +263,7 @@ export interface ModelProviderRuntimeRecord extends ModelProviderRecord {
 interface ModelProviderTableRow {
     providerId: string;
     providerName: string;
-    providerSource: ModelProviderSource;
+    modelProtocol: ModelProtocol;
     apiBaseUrl: string | null;
     apiKeySecretRef: string | null;
     customHeadersJson: string;
@@ -250,6 +293,15 @@ interface ModelProviderCapabilityTableRow {
     supportsModelList: number;
     supportsStreaming: number;
     providesCacheUsage: number;
+    responsesSupported: number;
+    chatCompletionsSupported: number;
+    responsesStreamSupported: number;
+    chatCompletionsStreamSupported: number;
+    streamToolCallsSupported: number;
+    selectedRuntimeMode: ModelProviderRuntimeMode | null;
+    lastTestStatus: "passed" | "failed" | null;
+    lastTestMessage: string | null;
+    lastTestedAt: string | null;
     updatedAt: string;
 }
 
@@ -278,7 +330,7 @@ interface ModelProviderCheckTableRow {
  * ModelProviderRepository：模型供应商 SQLite 仓储。
  *
  * 用途：集中维护 model_provider 相关表的 SQL，避免 API 和运行时直接写 SQL。
- * 关键逻辑：数据库只保存业务事实，不保存 AI SDK 包名、运行时实现名或历史协议字段。
+ * 关键逻辑：数据库只保存业务事实，不保存第三方 provider 包名、运行时实现名或历史协议字段。
  */
 export class ModelProviderRepository {
     /** database: 中心服务主进程持有的数据库连接包装。 */
@@ -303,7 +355,7 @@ export class ModelProviderRepository {
             .prepare(`
                 SELECT provider_id          AS providerId,
                        provider_name        AS providerName,
-                       provider_source      AS providerSource,
+                       model_protocol       AS modelProtocol,
                        api_base_url         AS apiBaseUrl,
                        api_key_secret_ref   AS apiKeySecretRef,
                        custom_headers_json  AS customHeadersJson,
@@ -337,7 +389,7 @@ export class ModelProviderRepository {
                     INSERT INTO model_providers (
                         provider_id,
                         provider_name,
-                        provider_source,
+                        model_protocol,
                         api_base_url,
                         api_key_secret_ref,
                         custom_headers_json,
@@ -352,7 +404,7 @@ export class ModelProviderRepository {
                 .run(
                     providerId,
                     input.providerName,
-                    input.providerSource,
+                    input.modelProtocol,
                     input.apiBaseUrl,
                     input.apiKeySecretRef,
                     input.customHeadersJson,
@@ -393,7 +445,7 @@ export class ModelProviderRepository {
     updateProvider(input: UpdateModelProviderInput): ModelProviderRecord {
         const existing = this.requireProvider(input.providerId);
         const providerName = input.providerName ?? existing.providerName;
-        const providerSource = input.providerSource ?? existing.providerSource;
+        const modelProtocol = input.modelProtocol ?? existing.modelProtocol;
         const apiBaseUrl = input.apiBaseUrl === undefined ? existing.apiBaseUrl : input.apiBaseUrl;
         const apiKeySecretRef = input.apiKeySecretRef === undefined ? existing.apiKeySecretRef : input.apiKeySecretRef;
         const customHeadersJson = input.customHeadersJson ?? existing.customHeadersJson;
@@ -426,6 +478,23 @@ export class ModelProviderRepository {
                 supportsModelList: input.capabilities.supportsModelList ?? existing.capabilities.supportsModelList,
                 supportsStreaming: input.capabilities.supportsStreaming ?? existing.capabilities.supportsStreaming,
                 providesCacheUsage: input.capabilities.providesCacheUsage ?? existing.capabilities.providesCacheUsage,
+                responsesSupported: input.capabilities.responsesSupported ?? existing.capabilities.responsesSupported,
+                chatCompletionsSupported: input.capabilities.chatCompletionsSupported ?? existing.capabilities.chatCompletionsSupported,
+                responsesStreamSupported: input.capabilities.responsesStreamSupported ?? existing.capabilities.responsesStreamSupported,
+                chatCompletionsStreamSupported: input.capabilities.chatCompletionsStreamSupported ?? existing.capabilities.chatCompletionsStreamSupported,
+                streamToolCallsSupported: input.capabilities.streamToolCallsSupported ?? existing.capabilities.streamToolCallsSupported,
+                selectedRuntimeMode: input.capabilities.selectedRuntimeMode === undefined
+                    ? existing.capabilities.selectedRuntimeMode
+                    : input.capabilities.selectedRuntimeMode,
+                lastTestStatus: input.capabilities.lastTestStatus === undefined
+                    ? existing.capabilities.lastTestStatus
+                    : input.capabilities.lastTestStatus,
+                lastTestMessage: input.capabilities.lastTestMessage === undefined
+                    ? existing.capabilities.lastTestMessage
+                    : input.capabilities.lastTestMessage,
+                lastTestedAt: input.capabilities.lastTestedAt === undefined
+                    ? existing.capabilities.lastTestedAt
+                    : input.capabilities.lastTestedAt,
             }
             : {
                 supportsVision: existing.capabilities.supportsVision,
@@ -435,6 +504,15 @@ export class ModelProviderRepository {
                 supportsModelList: existing.capabilities.supportsModelList,
                 supportsStreaming: existing.capabilities.supportsStreaming,
                 providesCacheUsage: existing.capabilities.providesCacheUsage,
+                responsesSupported: existing.capabilities.responsesSupported,
+                chatCompletionsSupported: existing.capabilities.chatCompletionsSupported,
+                responsesStreamSupported: existing.capabilities.responsesStreamSupported,
+                chatCompletionsStreamSupported: existing.capabilities.chatCompletionsStreamSupported,
+                streamToolCallsSupported: existing.capabilities.streamToolCallsSupported,
+                selectedRuntimeMode: existing.capabilities.selectedRuntimeMode,
+                lastTestStatus: existing.capabilities.lastTestStatus,
+                lastTestMessage: existing.capabilities.lastTestMessage,
+                lastTestedAt: existing.capabilities.lastTestedAt,
             };
 
         const transaction = this.database.connection().transaction(() => {
@@ -442,7 +520,7 @@ export class ModelProviderRepository {
                 .prepare(`
                     UPDATE model_providers
                     SET provider_name = ?,
-                        provider_source = ?,
+                        model_protocol = ?,
                         api_base_url = ?,
                         api_key_secret_ref = ?,
                         custom_headers_json = ?,
@@ -454,7 +532,7 @@ export class ModelProviderRepository {
                 `)
                 .run(
                     providerName,
-                    providerSource,
+                    modelProtocol,
                     apiBaseUrl,
                     apiKeySecretRef,
                     customHeadersJson,
@@ -548,16 +626,24 @@ export class ModelProviderRepository {
                 );
             }
 
-            if (input.defaultModelName !== undefined) {
+            if (input.defaultModelName !== undefined || input.reasoningEfforts !== undefined) {
                 const current = this.readSettings(input.providerId);
+                const extraJson = input.reasoningEfforts === undefined
+                    ? current.extraJson
+                    : mergeReasoningEffortsIntoExtraJson(
+                        current.extraJson,
+                        input.reasoningEfforts,
+                    );
                 this.upsertSettings(
                     input.providerId,
                     {
-                        defaultModelName: input.defaultModelName,
+                        defaultModelName: input.defaultModelName === undefined
+                            ? current.defaultModelName
+                            : input.defaultModelName,
                         reasoningEffort: current.reasoningEffort,
                         temperature: current.temperature,
                         maxOutputTokens: current.maxOutputTokens,
-                        extraJson: current.extraJson,
+                        extraJson,
                         updatedAt: input.now,
                     },
                 );
@@ -640,7 +726,7 @@ export class ModelProviderRepository {
             .prepare(`
                 SELECT provider_id          AS providerId,
                        provider_name        AS providerName,
-                       provider_source      AS providerSource,
+                       model_protocol       AS modelProtocol,
                        api_base_url         AS apiBaseUrl,
                        api_key_secret_ref   AS apiKeySecretRef,
                        custom_headers_json  AS customHeadersJson,
@@ -682,7 +768,7 @@ export class ModelProviderRepository {
         return {
             providerId: row.providerId,
             providerName: row.providerName,
-            providerSource: row.providerSource,
+            modelProtocol: row.modelProtocol,
             apiBaseUrl: row.apiBaseUrl,
             apiKeySecretRef: row.apiKeySecretRef,
             customHeadersJson: row.customHeadersJson,
@@ -748,10 +834,19 @@ export class ModelProviderRepository {
                        supports_tool_calling       AS supportsToolCalling,
                        supports_json_output        AS supportsJsonOutput,
                        supports_reasoning_effort   AS supportsReasoningEffort,
-                       supports_model_list         AS supportsModelList,
-                       supports_streaming          AS supportsStreaming,
-                       provides_cache_usage        AS providesCacheUsage,
-                       updated_at                  AS updatedAt
+                        supports_model_list         AS supportsModelList,
+                        supports_streaming          AS supportsStreaming,
+                        provides_cache_usage        AS providesCacheUsage,
+                        responses_supported         AS responsesSupported,
+                        chat_completions_supported  AS chatCompletionsSupported,
+                        responses_stream_supported  AS responsesStreamSupported,
+                        chat_completions_stream_supported AS chatCompletionsStreamSupported,
+                        stream_tool_calls_supported AS streamToolCallsSupported,
+                        selected_runtime_mode       AS selectedRuntimeMode,
+                        last_test_status            AS lastTestStatus,
+                        last_test_message           AS lastTestMessage,
+                        last_tested_at              AS lastTestedAt,
+                        updated_at                  AS updatedAt
                 FROM model_provider_capabilities
                 WHERE provider_id = ?
             `)
@@ -767,6 +862,15 @@ export class ModelProviderRepository {
                 supportsModelList: false,
                 supportsStreaming: true,
                 providesCacheUsage: false,
+                responsesSupported: false,
+                chatCompletionsSupported: false,
+                responsesStreamSupported: false,
+                chatCompletionsStreamSupported: false,
+                streamToolCallsSupported: false,
+                selectedRuntimeMode: null,
+                lastTestStatus: null,
+                lastTestMessage: null,
+                lastTestedAt: null,
                 updatedAt: "",
             };
         }
@@ -780,6 +884,15 @@ export class ModelProviderRepository {
             supportsModelList: row.supportsModelList === 1,
             supportsStreaming: row.supportsStreaming === 1,
             providesCacheUsage: row.providesCacheUsage === 1,
+            responsesSupported: row.responsesSupported === 1,
+            chatCompletionsSupported: row.chatCompletionsSupported === 1,
+            responsesStreamSupported: row.responsesStreamSupported === 1,
+            chatCompletionsStreamSupported: row.chatCompletionsStreamSupported === 1,
+            streamToolCallsSupported: row.streamToolCallsSupported === 1,
+            selectedRuntimeMode: row.selectedRuntimeMode,
+            lastTestStatus: row.lastTestStatus,
+            lastTestMessage: row.lastTestMessage,
+            lastTestedAt: row.lastTestedAt,
             updatedAt: row.updatedAt,
         };
     }
@@ -915,9 +1028,18 @@ export class ModelProviderRepository {
                     supports_model_list,
                     supports_streaming,
                     provides_cache_usage,
+                    responses_supported,
+                    chat_completions_supported,
+                    responses_stream_supported,
+                    chat_completions_stream_supported,
+                    stream_tool_calls_supported,
+                    selected_runtime_mode,
+                    last_test_status,
+                    last_test_message,
+                    last_tested_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(provider_id) DO UPDATE SET
                     supports_vision = excluded.supports_vision,
                     supports_tool_calling = excluded.supports_tool_calling,
@@ -926,6 +1048,15 @@ export class ModelProviderRepository {
                     supports_model_list = excluded.supports_model_list,
                     supports_streaming = excluded.supports_streaming,
                     provides_cache_usage = excluded.provides_cache_usage,
+                    responses_supported = excluded.responses_supported,
+                    chat_completions_supported = excluded.chat_completions_supported,
+                    responses_stream_supported = excluded.responses_stream_supported,
+                    chat_completions_stream_supported = excluded.chat_completions_stream_supported,
+                    stream_tool_calls_supported = excluded.stream_tool_calls_supported,
+                    selected_runtime_mode = excluded.selected_runtime_mode,
+                    last_test_status = excluded.last_test_status,
+                    last_test_message = excluded.last_test_message,
+                    last_tested_at = excluded.last_tested_at,
                     updated_at = excluded.updated_at
             `)
             .run(
@@ -937,6 +1068,15 @@ export class ModelProviderRepository {
                 capabilities.supportsModelList ? 1 : 0,
                 capabilities.supportsStreaming ? 1 : 0,
                 capabilities.providesCacheUsage ? 1 : 0,
+                capabilities.responsesSupported ? 1 : 0,
+                capabilities.chatCompletionsSupported ? 1 : 0,
+                capabilities.responsesStreamSupported ? 1 : 0,
+                capabilities.chatCompletionsStreamSupported ? 1 : 0,
+                capabilities.streamToolCallsSupported ? 1 : 0,
+                capabilities.selectedRuntimeMode,
+                capabilities.lastTestStatus,
+                capabilities.lastTestMessage,
+                capabilities.lastTestedAt,
                 updatedAt,
             );
     }

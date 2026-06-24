@@ -99,7 +99,7 @@ const appHelpers = readProjectFile("apps/frontend/src/stores/app-helpers.ts");
 const conversationActions = readProjectFile("apps/frontend/src/stores/app-conversation-actions.ts");
 const sessionDomain = readProjectFile("services/center/src/domain/session-domain.ts");
 const sessionMessageRoute = readProjectFile("services/center/src/api/session-message-route.ts");
-const aiSdkChatModelAdapter = readProjectFile("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
+const modelProviderRuntimeFactory = readProjectFile("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
 const apiRoutes = readProjectFile("services/center/src/api/api-routes.ts");
 const toolRuntime = [
   readProjectFile("services/center/src/StructuredTool/index.ts"),
@@ -115,7 +115,7 @@ for (const signal of [
   "broadcastEvents",
 ]) {
   assertIncludes(
-    apiRoutes + sessionDomain + sessionMessageRoute + aiSdkChatModelAdapter,
+    apiRoutes + sessionDomain + sessionMessageRoute + modelProviderRuntimeFactory,
     signal,
     `对话发送链路缺少异步过程可见信号：${signal}`,
   );
@@ -163,7 +163,7 @@ for (const signal of [
   "run.toolCalls",
 ]) {
   assertIncludes(
-    conversationActions + sessionDomain + toolRuntime + aiSdkChatModelAdapter,
+    conversationActions + sessionDomain + toolRuntime + modelProviderRuntimeFactory,
     signal,
     `命令工具必须通过 Deep Agents 结构化工具调用链路进入工具过程：${signal}`,
   );
@@ -208,4 +208,3 @@ for (const signal of [
     `编辑弹框缺少会话删除入口或取消路径：${signal}`,
   );
 }
-

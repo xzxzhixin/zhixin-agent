@@ -75,7 +75,7 @@ type DeepAgentMessageContentPart = {
 };
 
 type DeepAgentsWriteTodosTaskStepInput = {
-    /** title: 用户可见任务步骤标题，来源于 Deep Agents 原生 write_todos 的 todo.content。 */
+    /** title: 用户可见任务步骤标题，协议于 Deep Agents 原生 write_todos 的 todo.content。 */
     title: string;
     /** status: 中心服务任务步骤状态，由 Deep Agents todo.status 映射。 */
     status: "queued" | "running" | "completed";
@@ -541,7 +541,7 @@ async function collectDeepAgentToolCalls(
 
     return {
         providerId: context.runtime.provider.providerId,
-        providerSource: context.runtime.provider.providerSource,
+        modelProtocol: context.runtime.provider.modelProtocol,
         model: context.runtime.modelSelection.model,
         reasoningEffort: context.runtime.modelSelection.reasoningEffort,
         assistantText: "",

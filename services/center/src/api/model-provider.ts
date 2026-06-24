@@ -6,12 +6,13 @@ import type {
     ModelProviderProxyMode,
     ModelProviderRecord,
     ModelProviderSettingsRecord,
-    ModelProviderSource,
+    ModelProtocol,
     UpdateModelProviderInput,
 } from "../data-access/ModelProviderRepository.js";
 import {ModelProviderRepository} from "../data-access/ModelProviderRepository.js";
 import {createErrorResponse, createSuccessResponse} from "../helpers.js";
-import {ModelProviderSourceRegistry} from "../model-provider/ModelProviderSourceRegistry.js";
+import {ModelProtocolRegistry} from "../model-provider/ModelProtocolRegistry.js";
+import {readSecretValue} from "../model-provider/ModelProviderRuntimeFactory.js";
 import {formatCenterLocalDateTime} from "../time.js";
 import type {CenterApiRouteContext} from "./route-context.js";
 
@@ -31,6 +32,24 @@ interface ModelProviderCapabilityPayload {
     supportsStreaming?: boolean;
     /** providesCacheUsage: 是否提供缓存用量。 */
     providesCacheUsage?: boolean;
+    /** responsesSupported: 是否支持 OpenAI Responses 接口。 */
+    responsesSupported?: boolean;
+    /** chatCompletionsSupported: 是否支持 OpenAI Chat Completions 接口。 */
+    chatCompletionsSupported?: boolean;
+    /** responsesStreamSupported: 是否支持 Responses 流式事件。 */
+    responsesStreamSupported?: boolean;
+    /** chatCompletionsStreamSupported: 是否支持 Chat Completions 流式事件。 */
+    chatCompletionsStreamSupported?: boolean;
+    /** streamToolCallsSupported: 是否支持流式工具调用。 */
+    streamToolCallsSupported?: boolean;
+    /** selectedRuntimeMode: 自动探测选择的运行时模式。 */
+    selectedRuntimeMode?: ModelProviderCapabilityRecord["selectedRuntimeMode"];
+    /** lastTestStatus: 最近探测状态。 */
+    lastTestStatus?: "passed" | "failed" | null;
+    /** lastTestMessage: 最近探测摘要。 */
+    lastTestMessage?: string | null;
+    /** lastTestedAt: 最近探测时间。 */
+    lastTestedAt?: string | null;
 }
 
 /** ModelProviderSavePayload：创建或更新供应商的 API 入参。 */
@@ -39,8 +58,8 @@ interface ModelProviderSavePayload {
     providerId?: string;
     /** providerName: 供应商名称。 */
     providerName?: string;
-    /** providerSource: 模型来源。 */
-    providerSource?: string;
+    /** modelProtocol: 模型协议。 */
+    modelProtocol?: string;
     /** apiBaseUrl: 接口基础地址。 */
     apiBaseUrl?: string | null;
     /** apiKey: 新 API Key 明文，仅用于本次保存。 */
@@ -75,10 +94,10 @@ interface ModelProviderView {
     providerId: string;
     /** providerName: 供应商名称。 */
     providerName: string;
-    /** providerSource: 模型来源。 */
-    providerSource: ModelProviderSource;
-    /** providerSourceLabel: 模型来源展示名，来源于代码侧来源注册表。 */
-    providerSourceLabel: string;
+    /** modelProtocol: 模型协议。 */
+    modelProtocol: ModelProtocol;
+    /** modelProtocolLabel: 模型协议展示名，来源于代码侧协议注册表。 */
+    modelProtocolLabel: string;
     /** apiBaseUrl: 接口基础地址。 */
     apiBaseUrl: string | null;
     /** hasApiKey: 是否已保存 API Key。 */
@@ -129,6 +148,26 @@ interface SecretConfigFile {
     }>;
 }
 
+/** ProviderProtocolProbeResult：供应商协议探测结果。 */
+interface ProviderProtocolProbeResult {
+    /** capabilities: 探测后要写入数据库的能力矩阵。 */
+    capabilities: Omit<ModelProviderCapabilityRecord, "providerId" | "updatedAt">;
+    /** status: 探测状态。 */
+    status: "passed" | "failed";
+    /** message: 探测摘要。 */
+    message: string;
+}
+
+/** ProviderProtocolProbeContext：供应商协议探测输入。 */
+interface ProviderProtocolProbeContext {
+    /** provider: 当前供应商记录。 */
+    provider: ModelProviderRecord;
+    /** centerDirectory: 中心服务目录，用于读取 API Key。 */
+    centerDirectory: string;
+    /** checkedAt: 本次探测时间。 */
+    checkedAt: string;
+}
+
 /**
  * registerModelProviderRoutes：注册数据库化模型供应商 API。
  *
@@ -142,22 +181,22 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
         config,
     } = context;
     const repository = new ModelProviderRepository(database);
-    const sourceRegistry = new ModelProviderSourceRegistry();
+    const protocolRegistry = new ModelProtocolRegistry();
 
     app.post("/api/model-provider/list", async () => {
         return createSuccessResponse({
             providers: repository.listProviders().map((provider) => {
                 return toProviderView(
                     provider,
-                    sourceRegistry,
+                    protocolRegistry,
                 );
             }),
         });
     });
 
-    app.post("/api/model-provider/source-options", async () => {
+    app.post("/api/model-provider/protocol-options", async () => {
         return createSuccessResponse({
-            sources: sourceRegistry.listSourceOptions(),
+            modelProtocolOptions: protocolRegistry.listProtocolOptions(),
         });
     });
 
@@ -165,7 +204,7 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
         const body = request.body as ModelProviderSavePayload;
         const validation = validateSavePayload(
             body,
-            sourceRegistry,
+            protocolRegistry,
             false,
         );
         if (!validation.ok) {
@@ -191,7 +230,7 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
 
         const provider = repository.createProvider({
             providerName: validation.providerName,
-            providerSource: validation.providerSource,
+            modelProtocol: validation.modelProtocol,
             apiBaseUrl: validation.apiBaseUrl,
             apiKeySecretRef,
             customHeadersJson: validation.customHeadersJson,
@@ -227,7 +266,7 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
         return createSuccessResponse({
             provider: toProviderView(
                 savedProvider,
-                sourceRegistry,
+                protocolRegistry,
             ),
         });
     });
@@ -253,7 +292,7 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
 
         const validation = validateSavePayload(
             body,
-            sourceRegistry,
+            protocolRegistry,
             true,
         );
         if (!validation.ok) {
@@ -287,8 +326,8 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
         if (body.providerName !== undefined) {
             updateInput.providerName = validation.providerName;
         }
-        if (body.providerSource !== undefined) {
-            updateInput.providerSource = validation.providerSource;
+        if (body.modelProtocol !== undefined) {
+            updateInput.modelProtocol = validation.modelProtocol;
         }
         if (body.apiBaseUrl !== undefined) {
             updateInput.apiBaseUrl = validation.apiBaseUrl;
@@ -329,7 +368,7 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
         return createSuccessResponse({
             provider: toProviderView(
                 provider,
-                sourceRegistry,
+                protocolRegistry,
             ),
         });
     });
@@ -364,6 +403,7 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
         const body = request.body as {
             providerId?: string;
             defaultModelName?: string | null;
+            reasoningEfforts?: string[];
             models?: Array<{
                 modelName?: string;
                 displayName?: string;
@@ -420,13 +460,16 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
             defaultModelName: body.defaultModelName === undefined
                 ? undefined
                 : normalizeOptionalString(body.defaultModelName),
+            reasoningEfforts: Array.isArray(body.reasoningEfforts)
+                ? normalizeStringList(body.reasoningEfforts)
+                : undefined,
             now,
         });
 
         return createSuccessResponse({
             provider: toProviderView(
                 repository.requireProvider(body.providerId),
-                sourceRegistry,
+                protocolRegistry,
             ),
         });
     });
@@ -453,17 +496,31 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
             );
         }
 
-        const checkResult = runLocalConfigCheck(provider);
+        const checkedAt = formatCenterLocalDateTime();
+        const checkResult = await runProtocolCapabilityProbe({
+            provider,
+            centerDirectory: config.centerDirectory,
+            checkedAt,
+        });
+        repository.updateProvider({
+            providerId: provider.providerId,
+            capabilities: checkResult.capabilities,
+            now: checkedAt,
+        });
         const check = repository.appendCheck({
             providerId: provider.providerId,
-            checkType: normalizeOptionalString(body.checkType) ?? "local-config",
-            status: checkResult.errorMessage ? "failed" : "passed",
-            errorMessage: checkResult.errorMessage,
-            checkedAt: formatCenterLocalDateTime(),
+            checkType: normalizeOptionalString(body.checkType) ?? "protocol-capability",
+            status: checkResult.status,
+            errorMessage: checkResult.status === "passed" ? null : checkResult.message,
+            checkedAt,
         });
 
         return createSuccessResponse({
             check,
+            provider: toProviderView(
+                repository.requireProvider(provider.providerId),
+                protocolRegistry,
+            ),
         });
     });
 }
@@ -472,18 +529,18 @@ export function registerModelProviderRoutes(context: CenterApiRouteContext): voi
  * validateSavePayload：校验创建或更新供应商入参。
  *
  * @param body 请求体。
- * @param sourceRegistry 来源注册表。
+ * @param protocolRegistry 协议注册表。
  * @param partial 是否允许部分更新。
  * @returns 校验成功时返回规范化字段，失败时返回统一错误响应。
  */
 function validateSavePayload(
     body: ModelProviderSavePayload,
-    sourceRegistry: ModelProviderSourceRegistry,
+    protocolRegistry: ModelProtocolRegistry,
     partial: boolean,
 ): {
     ok: true;
     providerName: string;
-    providerSource: ModelProviderSource;
+    modelProtocol: ModelProtocol;
     apiBaseUrl: string | null;
     customHeadersJson: string;
     proxyMode: ModelProviderProxyMode;
@@ -504,20 +561,20 @@ function validateSavePayload(
         return invalidPayload("MODEL_PROVIDER_NAME_REQUIRED", "供应商名称不能为空。");
     }
 
-    if (!partial && !body.providerSource) {
-        return invalidPayload("MODEL_PROVIDER_SOURCE_REQUIRED", "模型来源不能为空。");
+    if (!partial && !body.modelProtocol) {
+        return invalidPayload("MODEL_PROVIDER_PROTOCOL_REQUIRED", "模型协议不能为空。");
     }
-    const providerSource = body.providerSource && sourceRegistry.isSupportedSource(body.providerSource)
-        ? body.providerSource
+    const modelProtocol = body.modelProtocol && protocolRegistry.isSupportedProtocol(body.modelProtocol)
+        ? body.modelProtocol
         : null;
-    if (body.providerSource !== undefined && !providerSource) {
-        return invalidPayload("MODEL_PROVIDER_SOURCE_INVALID", "模型来源不支持。");
+    if (body.modelProtocol !== undefined && !modelProtocol) {
+        return invalidPayload("MODEL_PROVIDER_PROTOCOL_INVALID", "模型协议不支持。");
     }
 
-    const definition = providerSource ? sourceRegistry.getSourceDefinition(providerSource) : null;
+    const definition = modelProtocol ? protocolRegistry.getProtocolDefinition(modelProtocol) : null;
     const apiBaseUrl = normalizeOptionalString(body.apiBaseUrl);
     if (definition?.requiresBaseUrl && !apiBaseUrl) {
-        return invalidPayload("MODEL_PROVIDER_BASE_URL_REQUIRED", "该模型来源必须填写 Base URL。");
+        return invalidPayload("MODEL_PROVIDER_BASE_URL_REQUIRED", "该模型协议必须填写 Base URL。");
     }
 
     const customHeadersJson = body.customHeadersJson === undefined
@@ -542,7 +599,7 @@ function validateSavePayload(
     return {
         ok: true,
         providerName: providerName ?? "",
-        providerSource: providerSource ?? "openai",
+        modelProtocol: modelProtocol ?? "openai",
         apiBaseUrl,
         customHeadersJson,
         proxyMode: proxyMode ?? "use-global-default",
@@ -560,27 +617,302 @@ function validateSavePayload(
 }
 
 /**
- * runLocalConfigCheck：执行本地配置完整性检测。
+ * runProtocolCapabilityProbe：按 Responses 优先、Chat Completions 兜底探测供应商协议能力。
  *
- * @param provider 供应商记录。
- * @returns 检测错误信息；null 表示通过。
+ * @param context 探测上下文。
+ * @returns 探测结果和可保存能力矩阵。
  */
-function runLocalConfigCheck(provider: ModelProviderRecord): {
-    errorMessage: string | null;
-} {
-    if (!provider.settings.defaultModelName) {
+async function runProtocolCapabilityProbe(context: ProviderProtocolProbeContext): Promise<ProviderProtocolProbeResult> {
+    const baseCapabilities = {
+        ...context.provider.capabilities,
+        responsesSupported: false,
+        chatCompletionsSupported: false,
+        responsesStreamSupported: false,
+        chatCompletionsStreamSupported: false,
+        streamToolCallsSupported: false,
+        selectedRuntimeMode: null,
+        lastTestStatus: "failed" as const,
+        lastTestMessage: "供应商协议探测尚未通过。",
+        lastTestedAt: context.checkedAt,
+    };
+    if (!context.provider.settings.defaultModelName) {
         return {
-            errorMessage: "供应商未配置默认模型。",
+            capabilities: {
+                ...baseCapabilities,
+                lastTestMessage: "供应商未配置默认模型。",
+            },
+            status: "failed",
+            message: "供应商未配置默认模型。",
         };
     }
-    if (!provider.apiKeySecretRef) {
+    const apiKey = readSecretValue(
+        context.centerDirectory,
+        context.provider.apiKeySecretRef,
+    );
+    if (!apiKey) {
         return {
-            errorMessage: "供应商未保存 API Key。",
+            capabilities: {
+                ...baseCapabilities,
+                lastTestMessage: "供应商未保存 API Key。",
+            },
+            status: "failed",
+            message: "供应商未保存 API Key。",
         };
     }
 
+    const responsesResult = await probeResponsesEndpoint(
+        context.provider,
+        apiKey,
+    );
+    if (responsesResult.passed) {
+        const message = "Responses 协议探测通过，运行时将直接使用 Responses。";
+        return {
+            capabilities: {
+                ...baseCapabilities,
+                supportsToolCalling: true,
+                supportsStreaming: responsesResult.streamSupported,
+                supportsReasoningEffort: responsesResult.reasoningSupported,
+                responsesSupported: true,
+                responsesStreamSupported: responsesResult.streamSupported,
+                streamToolCallsSupported: responsesResult.toolCallsSupported,
+                selectedRuntimeMode: "responses",
+                lastTestStatus: "passed",
+                lastTestMessage: message,
+            },
+            status: "passed",
+            message,
+        };
+    }
+
+    const chatCompletionsResult = await probeChatCompletionsEndpoint(
+        context.provider,
+        apiKey,
+    );
+    if (chatCompletionsResult.passed) {
+        const message = `Responses 不支持，Chat Completions 兼容探测通过：${responsesResult.message}`;
+        return {
+            capabilities: {
+                ...baseCapabilities,
+                supportsToolCalling: chatCompletionsResult.toolCallsSupported,
+                supportsStreaming: chatCompletionsResult.streamSupported,
+                supportsReasoningEffort: chatCompletionsResult.reasoningSupported,
+                chatCompletionsSupported: true,
+                chatCompletionsStreamSupported: chatCompletionsResult.streamSupported,
+                streamToolCallsSupported: chatCompletionsResult.toolCallsSupported,
+                selectedRuntimeMode: "chat_completions_to_responses",
+                lastTestStatus: "passed",
+                lastTestMessage: message,
+            },
+            status: "passed",
+            message,
+        };
+    }
+
+    const message = `Responses 探测失败：${responsesResult.message}；Chat Completions 探测失败：${chatCompletionsResult.message}`;
     return {
-        errorMessage: null,
+        capabilities: {
+            ...baseCapabilities,
+            lastTestMessage: message,
+        },
+        status: "failed",
+        message,
+    };
+}
+
+/**
+ * probeResponsesEndpoint：探测 OpenAI Responses 原生接口。
+ *
+ * @param provider 供应商记录。
+ * @param apiKey API Key 明文。
+ * @returns 探测结果。
+ */
+async function probeResponsesEndpoint(
+    provider: ModelProviderRecord,
+    apiKey: string,
+): Promise<{
+    /** passed: 是否通过 Responses 探测。 */
+    passed: boolean;
+    /** message: 探测摘要。 */
+    message: string;
+    /** toolCallsSupported: 是否支持工具调用。 */
+    toolCallsSupported: boolean;
+    /** streamSupported: 是否支持流式。 */
+    streamSupported: boolean;
+    /** reasoningSupported: 是否接受推理参数。 */
+    reasoningSupported: boolean;
+}> {
+    const model = provider.settings.defaultModelName;
+    if (!model) {
+        return {
+            passed: false,
+            message: "默认模型为空。",
+            toolCallsSupported: false,
+            streamSupported: false,
+            reasoningSupported: false,
+        };
+    }
+    const url = `${resolveApiBaseUrl(provider)}/responses`;
+    const headers = buildProbeHeaders(
+        provider,
+        apiKey,
+    );
+    const body = {
+        // model: 供应商默认模型，来源于 model_provider_settings.default_model_name。
+        model,
+        // input: Responses 最小输入，避免把用户提示词写入探测逻辑。
+        input: "Return the word ok.",
+        // tools: 使用无副作用函数工具验证 Responses 工具调用结构是否被接受。
+        tools: [
+            {
+                type: "function",
+                name: "zhixin_protocol_probe",
+                description: "Protocol probe tool.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        value: {
+                            type: "string",
+                        },
+                    },
+                    required: [
+                        "value",
+                    ],
+                    additionalProperties: false,
+                },
+            },
+        ],
+        // reasoning: OpenAI Responses 推理参数探测；不支持时会在失败信息中体现。
+        reasoning: provider.settings.reasoningEffort
+            ? {
+                effort: provider.settings.reasoningEffort,
+            }
+            : undefined,
+    };
+    const response = await postJsonProbe(
+        url,
+        headers,
+        body,
+    );
+    if (!response.ok) {
+        return {
+            passed: false,
+            message: response.message,
+            toolCallsSupported: false,
+            streamSupported: false,
+            reasoningSupported: false,
+        };
+    }
+    return {
+        passed: true,
+        message: "Responses 非流式请求通过。",
+        toolCallsSupported: JSON.stringify(response.data).includes("function_call"),
+        streamSupported: false,
+        reasoningSupported: true,
+    };
+}
+
+/**
+ * probeChatCompletionsEndpoint：探测 Chat Completions 兼容接口。
+ *
+ * @param provider 供应商记录。
+ * @param apiKey API Key 明文。
+ * @returns 探测结果。
+ */
+async function probeChatCompletionsEndpoint(
+    provider: ModelProviderRecord,
+    apiKey: string,
+): Promise<{
+    /** passed: 是否通过 Chat Completions 探测。 */
+    passed: boolean;
+    /** message: 探测摘要。 */
+    message: string;
+    /** toolCallsSupported: 是否支持工具调用。 */
+    toolCallsSupported: boolean;
+    /** streamSupported: 是否支持流式。 */
+    streamSupported: boolean;
+    /** reasoningSupported: 是否接受推理参数。 */
+    reasoningSupported: boolean;
+}> {
+    const model = provider.settings.defaultModelName;
+    if (!model) {
+        return {
+            passed: false,
+            message: "默认模型为空。",
+            toolCallsSupported: false,
+            streamSupported: false,
+            reasoningSupported: false,
+        };
+    }
+    const body = {
+        // model: 供应商默认模型，来源于 model_provider_settings.default_model_name。
+        model,
+        // messages: Chat Completions 最小消息。
+        messages: [
+            {
+                role: "user",
+                content: "Return the word ok.",
+            },
+        ],
+        // tools: 使用无副作用函数工具验证工具调用字段是否被接受。
+        tools: [
+            {
+                type: "function",
+                function: {
+                    name: "zhixin_protocol_probe",
+                    description: "Protocol probe tool.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            value: {
+                                type: "string",
+                            },
+                        },
+                        required: [
+                            "value",
+                        ],
+                        additionalProperties: false,
+                    },
+                },
+            },
+        ],
+        reasoning_effort: provider.settings.reasoningEffort ?? undefined,
+    };
+    const response = await postJsonProbe(
+        `${resolveApiBaseUrl(provider)}/chat/completions`,
+        buildProbeHeaders(
+            provider,
+            apiKey,
+        ),
+        body,
+    );
+    if (!response.ok) {
+        return {
+            passed: false,
+            message: response.message,
+            toolCallsSupported: false,
+            streamSupported: false,
+            reasoningSupported: false,
+        };
+    }
+    const text = JSON.stringify(response.data);
+    const hasMalformedTextToolCallBlock = text.includes("\"type\":\"text\"")
+        && text.includes("\"name\":\"")
+        && text.includes("\"args\"");
+    if (hasMalformedTextToolCallBlock) {
+        return {
+            passed: false,
+            message: "Chat Completions 返回 text content block 夹带工具字段。",
+            toolCallsSupported: false,
+            streamSupported: false,
+            reasoningSupported: false,
+        };
+    }
+    return {
+        passed: true,
+        message: "Chat Completions 非流式请求通过。",
+        toolCallsSupported: text.includes("tool_calls"),
+        streamSupported: false,
+        reasoningSupported: true,
     };
 }
 
@@ -588,18 +920,19 @@ function runLocalConfigCheck(provider: ModelProviderRecord): {
  * toProviderView：把仓储记录转换为 API 返回结构。
  *
  * @param provider 仓储供应商记录。
+ * @param protocolRegistry 模型协议注册表。
  * @returns API 安全展示结构。
  */
 function toProviderView(
     provider: ModelProviderRecord,
-    sourceRegistry: ModelProviderSourceRegistry,
+    protocolRegistry: ModelProtocolRegistry,
 ): ModelProviderView {
-    const sourceDefinition = sourceRegistry.getSourceDefinition(provider.providerSource);
+    const protocolDefinition = protocolRegistry.getProtocolDefinition(provider.modelProtocol);
     return {
         providerId: provider.providerId,
         providerName: provider.providerName,
-        providerSource: provider.providerSource,
-        providerSourceLabel: sourceDefinition.label,
+        modelProtocol: provider.modelProtocol,
+        modelProtocolLabel: protocolDefinition.label,
         apiBaseUrl: provider.apiBaseUrl,
         hasApiKey: typeof provider.apiKeySecretRef === "string",
         customHeadersJson: provider.customHeadersJson,
@@ -637,7 +970,126 @@ function normalizeCapabilities(
         supportsModelList: capabilities?.supportsModelList === true,
         supportsStreaming: capabilities?.supportsStreaming !== false,
         providesCacheUsage: capabilities?.providesCacheUsage === true,
+        responsesSupported: capabilities?.responsesSupported === true,
+        chatCompletionsSupported: capabilities?.chatCompletionsSupported === true,
+        responsesStreamSupported: capabilities?.responsesStreamSupported === true,
+        chatCompletionsStreamSupported: capabilities?.chatCompletionsStreamSupported === true,
+        streamToolCallsSupported: capabilities?.streamToolCallsSupported === true,
+        selectedRuntimeMode: capabilities?.selectedRuntimeMode === "responses"
+            || capabilities?.selectedRuntimeMode === "chat_completions_to_responses"
+            ? capabilities.selectedRuntimeMode
+            : null,
+        lastTestStatus: capabilities?.lastTestStatus === "passed" || capabilities?.lastTestStatus === "failed"
+            ? capabilities.lastTestStatus
+            : null,
+        lastTestMessage: normalizeOptionalString(capabilities?.lastTestMessage),
+        lastTestedAt: normalizeOptionalString(capabilities?.lastTestedAt),
     };
+}
+
+/**
+ * resolveApiBaseUrl：解析供应商 OpenAI 兼容基础地址。
+ *
+ * @param provider 供应商记录。
+ * @returns 不带结尾斜杠的基础地址。
+ */
+function resolveApiBaseUrl(provider: ModelProviderRecord): string {
+    const baseUrl = provider.apiBaseUrl ?? "https://api.openai.com/v1";
+    return baseUrl.replace(/\/$/u, "");
+}
+
+/**
+ * buildProbeHeaders：构造协议探测请求头。
+ *
+ * @param provider 供应商记录。
+ * @param apiKey API Key 明文。
+ * @returns 请求头。
+ */
+function buildProbeHeaders(
+    provider: ModelProviderRecord,
+    apiKey: string,
+): Record<string, string> {
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+    };
+    let customHeaders: Record<string, unknown>;
+    try {
+        customHeaders = JSON.parse(provider.customHeadersJson) as Record<string, unknown>;
+    } catch {
+        customHeaders = {};
+    }
+    for (const [
+        key,
+        value,
+    ] of Object.entries(customHeaders)) {
+        if (typeof value === "string") {
+            headers[key] = value;
+        }
+    }
+    return headers;
+}
+
+/**
+ * postJsonProbe：发送协议探测 JSON 请求。
+ *
+ * @param url 请求地址。
+ * @param headers 请求头。
+ * @param body JSON 请求体。
+ * @returns 探测响应摘要。
+ */
+async function postJsonProbe(
+    url: string,
+    headers: Record<string, string>,
+    body: Record<string, unknown>,
+): Promise<{
+    /** ok: HTTP 是否成功。 */
+    ok: boolean;
+    /** data: 成功时的 JSON 响应。 */
+    data: unknown;
+    /** message: 失败或成功摘要。 */
+    message: string;
+}> {
+    try {
+        const response = await fetch(
+            url,
+            {
+                method: "POST",
+                headers,
+                body: JSON.stringify(body),
+            },
+        );
+        const text = await response.text();
+        let data: unknown = null;
+        if (text.length > 0) {
+            try {
+                data = JSON.parse(text);
+            } catch {
+                data = text;
+            }
+        }
+        if (!response.ok) {
+            return {
+                ok: false,
+                data,
+                message: `HTTP ${response.status}: ${text.slice(
+                    0,
+                    300,
+                )}`,
+            };
+        }
+        return {
+            ok: true,
+            data,
+            message: "请求成功。",
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            data: null,
+            message: error instanceof Error ? error.message : "PROTOCOL_PROBE_REQUEST_FAILED",
+        };
+    }
 }
 
 /**
@@ -653,6 +1105,20 @@ function normalizeOptionalString(value: unknown): string | null {
 
     const normalized = value.trim();
     return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * normalizeStringList：规范化字符串数组。
+ *
+ * @param value 外部请求传入的字符串数组。
+ * @returns 去空并去重后的字符串数组。
+ */
+function normalizeStringList(value: string[]): string[] {
+    return Array.from(new Set(value.map((item) => {
+        return item.trim();
+    }).filter((item) => {
+        return item.length > 0;
+    })));
 }
 
 /**

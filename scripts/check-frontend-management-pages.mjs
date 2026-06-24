@@ -693,7 +693,7 @@ const expectations = [
  */
 const providerUpdatePayloadFields = [
   "providerName",
-  "providerSource",
+  "modelProtocol",
   "apiBaseUrl",
   "defaultModelName",
   "apiKey",

@@ -1,7 +1,8 @@
 import type {OpenAiToolCall} from "../openai-chat-protocol.js";
 import type {
     ModelProviderRuntimeRecord,
-    ModelProviderSource,
+    ModelProtocol,
+    ModelProviderRuntimeMode,
 } from "../data-access/ModelProviderRepository.js";
 
 /** ProviderModelGatewayUsage：模型调用用量归一化结构。 */
@@ -16,7 +17,7 @@ export interface ProviderModelGatewayUsage {
     cacheHitTokens: number | null;
     /** cacheMissTokens: 缓存未命中 token 数；供应商未返回时为 null。 */
     cacheMissTokens: number | null;
-    /** rawUsage: AI SDK 或供应商原始用量对象。 */
+    /** rawUsage: LangChain 或供应商原始用量对象。 */
     rawUsage: unknown;
 }
 
@@ -24,8 +25,8 @@ export interface ProviderModelGatewayUsage {
 export interface ProviderModelGatewayResult {
     /** providerId: 供应商 ID。 */
     providerId: string;
-    /** providerSource: 模型来源。 */
-    providerSource: ModelProviderSource;
+    /** modelProtocol: 模型协议。 */
+    modelProtocol: ModelProtocol;
     /** model: 实际请求模型。 */
     model: string;
     /** reasoningEffort: 推理深度。 */
@@ -57,4 +58,6 @@ export interface ResolvedModelProviderRuntime {
     apiKey: string;
     /** requestUrl: 日志用请求地址摘要。 */
     requestUrl: string;
+    /** runtimeMode: 协议探测后选择的运行时模式，未检测时为 null。 */
+    runtimeMode: ModelProviderRuntimeMode | null;
 }

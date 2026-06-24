@@ -23,6 +23,41 @@ export type {
 };
 
 /**
+ * ProviderSettingsExtraJson：供应商设置扩展字段结构。
+ *
+ * 来源：中心服务 `model_provider_settings.extra_json`。
+ * 含义：保存不影响模型调用主协议的 UI 候选数据。
+ */
+interface ProviderSettingsExtraJson {
+  /** reasoningEfforts: 供应商刷新得到的推理深度候选值列表。 */
+  reasoningEfforts: string[];
+}
+
+/**
+ * parseProviderSettingsExtraJson：解析供应商设置扩展 JSON。
+ *
+ * @param value 中心服务返回的扩展 JSON 字符串。
+ * @returns 规范化后的扩展设置；历史空值或非法值按空候选处理。
+ */
+export function parseProviderSettingsExtraJson(value: string): ProviderSettingsExtraJson {
+  try {
+    const parsed = JSON.parse(value);
+    const reasoningEfforts = Array.isArray(parsed.reasoningEfforts)
+      ? parsed.reasoningEfforts.filter((item: unknown): item is string => {
+        return typeof item === "string" && item.trim().length > 0;
+      })
+      : [];
+    return {
+      reasoningEfforts,
+    };
+  } catch {
+    return {
+      reasoningEfforts: [],
+    };
+  }
+}
+
+/**
  * 中心服务客户端配置。
  *
  * 来源：前端能力适配层、桌面壳和 IDE 插件本地配置。
@@ -324,7 +359,7 @@ export interface CommittedAttachmentResult {
 /**
  * ProviderCapabilityDeclaration：供应商模型能力声明。
  *
- * 来源：中心服务模型来源配置协议。
+ * 来源：中心服务模型协议配置协议。
  * 含义：描述供应商配置声明的模型能力开关。
  * 格式：布尔字段对象。
  * 默认值：创建表单默认全部 false。
@@ -345,35 +380,47 @@ export interface ProviderCapabilityDeclaration {
   supportsModelList: boolean;
   /** supportsStreaming: 是否支持流式输出。 */
   supportsStreaming: boolean;
+  /** responsesSupported: 是否支持 OpenAI Responses 接口。 */
+  responsesSupported: boolean;
+  /** chatCompletionsSupported: 是否支持 OpenAI Chat Completions 接口。 */
+  chatCompletionsSupported: boolean;
+  /** responsesStreamSupported: 是否支持 Responses 流式事件。 */
+  responsesStreamSupported: boolean;
+  /** chatCompletionsStreamSupported: 是否支持 Chat Completions 流式事件。 */
+  chatCompletionsStreamSupported: boolean;
+  /** streamToolCallsSupported: 是否支持流式工具调用。 */
+  streamToolCallsSupported: boolean;
+  /** selectedRuntimeMode: 自动探测选择的运行时模式。 */
+  selectedRuntimeMode: "responses" | "chat_completions_to_responses" | null;
+  /** lastTestStatus: 最近探测状态。 */
+  lastTestStatus: "passed" | "failed" | null;
+  /** lastTestMessage: 最近探测摘要。 */
+  lastTestMessage: string | null;
+  /** lastTestedAt: 最近探测时间。 */
+  lastTestedAt: string | null;
 }
 
-/** ModelProviderSource：模型来源稳定值，由中心服务映射到具体模型 SDK。 */
-export type ModelProviderSource =
+/** ModelProtocol：模型协议稳定值，由中心服务映射到 LangChain 模型协议能力。 */
+export type ModelProtocol =
   | "openai"
-  | "anthropic"
-  | "google"
-  | "deepseek"
-  | "qwen"
-  | "openrouter"
-  | "codex"
-  | "openai-compatible-custom";
+  | "anthropic";
 
 /**
- * ModelProviderSourceOption：模型来源下拉选项。
+ * ModelProtocolOption：模型协议下拉选项。
  *
- * 来源：`POST /api/model-provider/source-options`。
- * 含义：供应商页只展示业务来源，不暴露底层实现包或适配实现。
+ * 来源：`POST /api/model-provider/protocol-options`。
+ * 含义：供应商页只展示模型协议，不暴露底层 SDK 或适配实现。
  */
-export interface ModelProviderSourceOption {
-  /** providerSource: 模型来源稳定值。 */
-  providerSource: ModelProviderSource;
-  /** label: 模型来源展示名。 */
+export interface ModelProtocolOption {
+  /** modelProtocol: 模型协议稳定值，仅允许 openai 或 anthropic。 */
+  modelProtocol: ModelProtocol;
+  /** label: 模型协议展示名。 */
   label: string;
-  /** description: 模型来源说明。 */
+  /** description: 模型协议说明。 */
   description: string;
   /** defaultBaseUrl: 默认接口地址，没有默认值时为 null。 */
   defaultBaseUrl: string | null;
-  /** defaultCapabilities: 当前来源推荐的默认能力声明。 */
+  /** defaultCapabilities: 当前协议推荐的默认能力声明。 */
   defaultCapabilities: ProviderCapabilityDeclaration;
 }
 
@@ -471,10 +518,10 @@ export interface ProviderConfigView {
   providerId: string;
   /** providerName: 供应商名称。 */
   providerName: string;
-  /** providerSource: 模型来源稳定值。 */
-  providerSource: ModelProviderSource;
-  /** providerSourceLabel: 模型来源展示名，来源于中心服务来源注册表。 */
-  providerSourceLabel: string;
+  /** modelProtocol: 模型协议稳定值。 */
+  modelProtocol: ModelProtocol;
+  /** modelProtocolLabel: 模型协议展示名，来源于中心服务协议注册表。 */
+  modelProtocolLabel: string;
   /** apiBaseUrl: 供应商接口地址。 */
   apiBaseUrl: string | null;
   /** customHeadersJson: 自定义请求头 JSON 文本。 */
@@ -506,7 +553,7 @@ export interface ProviderConfigView {
 }
 
 /**
- * ModelProviderCheckView：模型来源检测结果。
+ * ModelProviderCheckView：模型协议检测结果。
  *
  * 来源：`model_provider_checks` 表或检测接口返回。
  * 含义：用于列表展示最近一次检测状态和失败原因。
@@ -530,13 +577,13 @@ export interface ModelProviderCheckView {
  * CreateModelProviderPayload：新增数据库化模型供应商入参。
  *
  * 来源：供应商管理页表单。
- * 含义：提交业务来源、连接信息、默认设置和能力声明。
+ * 含义：提交模型协议、连接信息、默认设置和能力声明。
  */
 export interface CreateModelProviderPayload {
   /** providerName: 供应商名称。 */
   providerName: string;
-  /** providerSource: 模型来源。 */
-  providerSource: ModelProviderSource;
+  /** modelProtocol: 模型协议。 */
+  modelProtocol: ModelProtocol;
   /** apiBaseUrl: 接口基础地址。 */
   apiBaseUrl?: string | null;
   /** apiKey: 新 API Key 明文，仅用于本次保存。 */
@@ -587,6 +634,8 @@ export interface SaveModelProviderModelsPayload {
   providerId: string;
   /** defaultModelName: 保存后同步使用的默认模型。 */
   defaultModelName?: string | null;
+  /** reasoningEfforts: 供应商可选推理深度列表，只作为下拉候选保存。 */
+  reasoningEfforts?: string[];
   /** models: 模型列表。 */
   models: Array<{
     /** modelName: 模型真实名称。 */
@@ -605,7 +654,7 @@ export interface SaveModelProviderModelsPayload {
 /**
  * ProviderModelListView：供应商模型列表展示结构。
  *
- * 来源：模型来源供应商详情。
+ * 来源：模型协议供应商详情。
  * 含义：返回中心服务已保存或刷新得到的模型与推理深度列表。
  * 格式：JSON 对象。
  * 默认值：未刷新时 models 和 reasoningEfforts 为空数组。
@@ -1168,7 +1217,7 @@ export class CenterApiClient {
   }
 
   /**
-   * listModelProviders：查询模型来源供应商列表。
+   * listModelProviders：查询模型协议供应商列表。
    *
    * @returns 供应商列表。
    */
@@ -1190,18 +1239,18 @@ export class CenterApiClient {
   }
 
   /**
-   * listModelProviderSourceOptions：查询模型来源下拉选项。
+   * listModelProtocolOptions：查询模型协议下拉选项。
    *
-   * @returns 模型来源选项。
+   * @returns 模型协议选项。
    */
-  listModelProviderSourceOptions(): Promise<{
-    sources: ModelProviderSourceOption[];
+  listModelProtocolOptions(): Promise<{
+    modelProtocolOptions: ModelProtocolOption[];
   }> {
-    return this.post("/api/model-provider/source-options", {});
+    return this.post("/api/model-provider/protocol-options", {});
   }
 
   /**
-   * createModelProvider：新增模型来源供应商配置。
+   * createModelProvider：新增模型协议供应商配置。
    *
    * @param payload 供应商配置表单。
    * @returns 新建供应商 ID 和密钥状态。
@@ -1213,7 +1262,7 @@ export class CenterApiClient {
   }
 
   /**
-   * updateModelProvider：修改模型来源供应商配置。
+   * updateModelProvider：修改模型协议供应商配置。
    *
    * @param payload 供应商更新字段。
    * @returns 更新结果。
@@ -1343,6 +1392,7 @@ export class CenterApiClient {
       if (!provider) {
         return null;
       }
+      const extraSettings = parseProviderSettingsExtraJson(provider.settings.extraJson);
       return {
         providerId: provider.providerId,
         models: provider.models.map((model) => {
@@ -1358,7 +1408,7 @@ export class CenterApiClient {
               contextWindowTokens: model.contextWindowTokens as number,
             };
           }),
-        reasoningEfforts: provider.settings.reasoningEffort ? [provider.settings.reasoningEffort] : [],
+        reasoningEfforts: extraSettings.reasoningEfforts,
         updatedAt: provider.settings.updatedAt || null,
       };
     });
@@ -1368,7 +1418,7 @@ export class CenterApiClient {
    * fetchProviderModels：兼容旧页面“获取模型”调用。
    *
    * @param payload 供应商 ID。
-   * @returns 当前已保存模型列表；真实上游获取由后续 AI SDK runtime 任务接入。
+   * @returns 当前已保存模型列表；真实上游获取由后续 LangChain 模型运行时任务接入。
    */
   fetchProviderModels(payload: {
     providerId: string;
@@ -1388,7 +1438,7 @@ export class CenterApiClient {
   }
 
   /**
-   * runModelProviderCheck：运行模型来源供应商检测。
+   * runModelProviderCheck：运行模型协议供应商检测。
    *
    * @param payload 供应商 ID 和检测类型。
    * @returns 检测结果。

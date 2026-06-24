@@ -238,8 +238,8 @@ export interface ProviderDraft {
     providerId: string | null;
     /** providerName: 供应商名称。 */
     providerName: string;
-    /** providerSource: 模型来源稳定值，由中心服务映射到具体模型 SDK。 */
-    providerSource: ModelProviderSource;
+    /** modelProtocol: 模型协议稳定值，仅允许 openai 或 anthropic。 */
+    modelProtocol: ModelProtocol;
     /** apiBaseUrl: 供应商接口地址。 */
     apiBaseUrl: string;
     /** apiKey: 本次提交的 API Key 明文，保存后清空。 */
@@ -258,7 +258,7 @@ export interface ProviderDraft {
     manualModelsText: string;
     /** manualModelContextText: 手动模型窗口配置，每行格式为 模型名=数字K。 */
     manualModelContextText: string;
-    /** reasoningEffortText: 手动推理深度的多行文本。 */
+    /** reasoningEffortText: 默认推理深度单值，必须来自候选列表或用户明确输入。 */
     reasoningEffortText: string;
 }
 
@@ -603,7 +603,7 @@ export interface ComposerSettings {
     /** contextTokenizerSource: tokenizer 来源，来自中心服务统计响应。 */
     contextTokenizerSource: "built-in" | "external" | "fallback" | "";
     /** reasoningEffort: 推理深度协议值。 */
-    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningEffort: "minimal" | "low" | "medium" | "high";
 }
 
 /**
@@ -767,7 +767,7 @@ export interface ActiveConversationAgentState {
 }
 
 import type {
-    ModelProviderSource,
+    ModelProtocol,
     ProviderCapabilityDeclaration,
     ProviderProxyPolicy,
 } from "@zhixin/api-client";

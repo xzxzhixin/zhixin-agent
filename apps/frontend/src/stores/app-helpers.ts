@@ -182,7 +182,7 @@ export function createProviderDraft(): ProviderDraft {
     return {
         providerId: null,
         providerName: "",
-        providerSource: "openai-compatible-custom",
+        modelProtocol: "openai",
         apiBaseUrl: "",
         apiKey: "",
         customHeadersText: formatJsonText({}),
@@ -196,6 +196,15 @@ export function createProviderDraft(): ProviderDraft {
             providesCacheUsage: false,
             supportsModelList: false,
             supportsStreaming: false,
+            responsesSupported: false,
+            chatCompletionsSupported: false,
+            responsesStreamSupported: false,
+            chatCompletionsStreamSupported: false,
+            streamToolCallsSupported: false,
+            selectedRuntimeMode: null,
+            lastTestStatus: null,
+            lastTestMessage: null,
+            lastTestedAt: null,
         },
         proxyPolicy: {
             mode: "use-global-default",
@@ -561,9 +570,7 @@ export function buildProviderModelRefreshDraft(
         contextWindows: isEditingCurrentProvider
             ? parseModelContextWindows(draft.manualModelContextText)
             : savedOptions?.contextWindows ?? [],
-        reasoningEfforts: isEditingCurrentProvider
-            ? splitLines(draft.reasoningEffortText)
-            : savedOptions?.reasoningEfforts ?? [],
+        reasoningEfforts: savedOptions?.reasoningEfforts ?? [],
     };
 }
 

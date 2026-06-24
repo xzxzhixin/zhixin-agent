@@ -2,12 +2,13 @@ import type {
     AgentConfigView,
     ConversationTokenUsageView,
     McpConfigView,
-    ModelProviderSourceOption,
+    ModelProtocolOption,
     PluginConfigView,
     ProviderConfigView,
     ProviderModelListView,
     ProxyConfigView,
     RuntimeConfigView,
+    SaveModelProviderModelsPayload,
     UsageFilters,
 } from "@zhixin/api-client";
 import {
@@ -77,12 +78,40 @@ function sortModelContextWindowsByModels(
  * @returns 排序和上下文窗口同步后的模型列表映射。
  */
 function normalizeProviderModelOptionsSnapshot(
-    snapshot: Record<string, ProviderModelListView>,
+    snapshot: Record<string, ProviderModelListView | ProviderConfigView["models"]>,
 ): Record<string, ProviderModelListView> {
     return Object.fromEntries(Object.entries(snapshot).map(([
         providerId,
         modelList,
     ]) => {
+        if (Array.isArray(modelList)) {
+            const models = modelList.map((model) => {
+                return model.modelName;
+            });
+            const contextWindows = modelList.filter((model) => {
+                return typeof model.contextWindowTokens === "number";
+            }).map((model) => {
+                return {
+                    model: model.modelName,
+                    contextWindowTokens: model.contextWindowTokens as number,
+                };
+            });
+            const sortedModels = sortProviderModelsByNumericVersion(models);
+            return [
+                providerId,
+                {
+                    providerId,
+                    models: sortedModels,
+                    // reasoningEfforts: 旧 WebSocket 快照只返回模型行数组，无法携带候选值；调用处会保留当前非空候选。
+                    reasoningEfforts: [],
+                    contextWindows: sortModelContextWindowsByModels(
+                        sortedModels,
+                        contextWindows,
+                    ),
+                    updatedAt: modelList[0]?.updatedAt ?? null,
+                },
+            ];
+        }
         // models/contextWindows/reasoningEfforts: 旧数据或刚创建的供应商可能还没有模型快照字段，前端管理页按空列表展示。
         const models = Array.isArray(modelList.models)
             ? modelList.models
@@ -139,7 +168,7 @@ export function createManagementActions() {
          */
         providerCustomHeadersDraftHasError(): boolean {
             try {
-                // customHeadersText: 新模型来源接口只接受 JSON 对象字符串，空对象是明确默认值。
+                // customHeadersText: 新模型协议接口只接受 JSON 对象字符串，空对象是明确默认值。
                 parseJsonObject(this.providerDraft.customHeadersText);
                 return false;
             } catch (error) {
@@ -220,11 +249,11 @@ export function createManagementActions() {
             try {
                 const [
                     providerResult,
-                    sourceResult,
+                    protocolResult,
                     agentSnapshot,
                 ] = await Promise.all([
                     this.api().listProviders(),
-                    this.api().listModelProviderSourceOptions(),
+                    this.api().listModelProtocolOptions(),
                     this.requireRealtimeRequest<{
                         /** agents: 主智能体和长期智能体索引。 */
                         agents: AgentConfigView[];
@@ -233,8 +262,8 @@ export function createManagementActions() {
                     }>("chat.bootstrap.snapshot", {}),
                 ]);
                 this.providers = providerResult.providers;
-                this.providerSourceOptions = sourceResult.sources;
-                this.syncProviderDraftWithSourceOptions(sourceResult.sources);
+                this.modelProtocolOptions = protocolResult.modelProtocolOptions;
+                this.syncProviderDraftWithProtocolOptions(protocolResult.modelProtocolOptions);
                 this.providerModelOptions = normalizeProviderModelOptionsSnapshot(agentSnapshot.providerModelOptions);
                 this.agents = agentSnapshot.agents;
                 this.applyDefaultComposerModelSettings();
@@ -246,46 +275,46 @@ export function createManagementActions() {
         },
 
         /**
-         * syncProviderDraftWithSourceOptions：根据模型来源列表修正供应商草稿。
+         * syncProviderDraftWithProtocolOptions：根据模型协议列表修正供应商草稿。
          *
-         * @param sourceOptions 中心服务返回的模型来源选项。
+         * @param protocolOptions 中心服务返回的模型协议选项。
          * @returns 没有返回值。
          */
-        syncProviderDraftWithSourceOptions(sourceOptions: ModelProviderSourceOption[]): void {
-            // currentSource: 草稿只能保存中心服务声明的模型来源，避免前端热状态保留旧来源值。
-            const currentSource = sourceOptions.find((option) => {
-                return option.providerSource === this.providerDraft.providerSource;
-            }) ?? sourceOptions[0];
-            if (!currentSource) {
+        syncProviderDraftWithProtocolOptions(protocolOptions: ModelProtocolOption[]): void {
+            // currentProtocol: 草稿只能保存中心服务声明的模型协议，避免前端热状态保留旧协议值。
+            const currentProtocol = protocolOptions.find((option) => {
+                return option.modelProtocol === this.providerDraft.modelProtocol;
+            }) ?? protocolOptions[0];
+            if (!currentProtocol) {
                 return;
             }
-            this.providerDraft.providerSource = currentSource.providerSource;
+            this.providerDraft.modelProtocol = currentProtocol.modelProtocol;
             this.providerDraft.capabilities = {
-                ...currentSource.defaultCapabilities,
+                ...currentProtocol.defaultCapabilities,
                 ...this.providerDraft.capabilities,
             };
         },
 
         /**
-         * selectProviderSource：用户切换模型来源时同步默认能力和默认接口地址。
+         * selectModelProtocol：用户切换模型协议时同步默认能力和默认接口地址。
          *
-         * @param providerSource 模型来源稳定值。
+         * @param modelProtocol 模型协议稳定值。
          * @returns 没有返回值。
          */
-        selectProviderSource(providerSource: string): void {
-            const selectedSource = this.providerSourceOptions.find((option) => {
-                return option.providerSource === providerSource;
+        selectModelProtocol(modelProtocol: string): void {
+            const selectedProtocol = this.modelProtocolOptions.find((option) => {
+                return option.modelProtocol === modelProtocol;
             });
-            if (!selectedSource) {
+            if (!selectedProtocol) {
                 return;
             }
-            this.providerDraft.providerSource = selectedSource.providerSource;
+            this.providerDraft.modelProtocol = selectedProtocol.modelProtocol;
             this.providerDraft.capabilities = {
-                ...selectedSource.defaultCapabilities,
+                ...selectedProtocol.defaultCapabilities,
             };
-            if (this.providerDraft.apiBaseUrl.trim().length === 0 && selectedSource.defaultBaseUrl) {
-                // apiBaseUrl: 只在用户尚未填写时使用来源默认地址，避免切换来源覆盖用户已输入地址。
-                this.providerDraft.apiBaseUrl = selectedSource.defaultBaseUrl;
+            if (this.providerDraft.apiBaseUrl.trim().length === 0 && selectedProtocol.defaultBaseUrl) {
+                // apiBaseUrl: 只在用户尚未填写时使用协议默认地址，避免切换协议覆盖用户已输入地址。
+                this.providerDraft.apiBaseUrl = selectedProtocol.defaultBaseUrl;
             }
         },
 
@@ -303,7 +332,15 @@ export function createManagementActions() {
                 }>("chat.bootstrap.snapshot", {});
                 const nextOptions = normalizeProviderModelOptionsSnapshot(snapshot.providerModelOptions);
                 if (nextOptions[providerId]) {
-                    this.providerModelOptions[providerId] = nextOptions[providerId];
+                    const currentOptions = this.providerModelOptions[providerId];
+                    const nextProviderOptions = nextOptions[providerId];
+                    this.providerModelOptions[providerId] = {
+                        ...nextProviderOptions,
+                        // reasoningEfforts: 旧快照没有候选时保留编辑入口从供应商详情解析出的候选，避免下拉被空数组覆盖。
+                        reasoningEfforts: nextProviderOptions.reasoningEfforts.length > 0
+                            ? nextProviderOptions.reasoningEfforts
+                            : currentOptions?.reasoningEfforts ?? [],
+                    };
                 }
             } catch (error) {
                 // 模型列表失败不阻断供应商主列表，页面会显示手动填写兜底说明。
@@ -324,7 +361,7 @@ export function createManagementActions() {
             this.providerDraft = {
                 providerId: provider.providerId,
                 providerName: provider.providerName,
-                providerSource: provider.providerSource,
+                modelProtocol: provider.modelProtocol,
                 apiBaseUrl: provider.apiBaseUrl ?? "",
                 apiKey: "",
                 customHeadersText: provider.customHeadersJson,
@@ -339,7 +376,7 @@ export function createManagementActions() {
                 },
                 manualModelsText: provider.settings.defaultModelName ?? "",
                 manualModelContextText: formatModelContextWindowsForDraft(this.providerModelOptions[provider.providerId]?.contextWindows ?? []),
-                reasoningEffortText: "",
+                reasoningEffortText: provider.settings.reasoningEffort ?? "",
             };
             void this.loadProviderModelOptions(provider.providerId);
         },
@@ -372,7 +409,10 @@ export function createManagementActions() {
                 };
                 this.providerDraft.manualModelsText = sortedModels.join("\n");
                 this.providerDraft.manualModelContextText = formatModelContextWindowsForDraft(sortedContextWindows);
-                this.providerDraft.reasoningEffortText = result.reasoningEfforts.join("\n");
+                if (result.reasoningEfforts.length > 0 && !this.providerDraft.reasoningEffortText) {
+                    // 默认推理深度：获取结果只在当前没有单值时选第一个候选，避免把候选列表整体写入调用参数。
+                    this.providerDraft.reasoningEffortText = result.reasoningEfforts[0];
+                }
                 if (sortedModels.length > 0) {
                     // 默认模型：用户确认获取后使用数字版本排序后的第一项，例如 gpt-5.5 优先于 gpt-5.4。
                     this.providerDraft.defaultModelName = sortedModels[0];
@@ -413,7 +453,7 @@ export function createManagementActions() {
                     await this.api().updateModelProvider({
                         providerId: this.providerDraft.providerId,
                         providerName: this.providerDraft.providerName,
-                        providerSource: this.providerDraft.providerSource,
+                        modelProtocol: this.providerDraft.modelProtocol,
                         apiBaseUrl: this.providerDraft.apiBaseUrl,
                         apiKey: this.providerDraft.apiKey,
                         customHeadersJson: this.providerDraft.customHeadersText,
@@ -428,9 +468,9 @@ export function createManagementActions() {
                         await this.saveProviderDraftModels(editingProvider);
                     }
                 } else {
-                    await this.api().createModelProvider({
+                    const result = await this.api().createModelProvider({
                         providerName: this.providerDraft.providerName,
-                        providerSource: this.providerDraft.providerSource,
+                        modelProtocol: this.providerDraft.modelProtocol,
                         apiBaseUrl: this.providerDraft.apiBaseUrl,
                         apiKey: this.providerDraft.apiKey,
                         customHeadersJson: this.providerDraft.customHeadersText,
@@ -441,6 +481,7 @@ export function createManagementActions() {
                         enabled: this.providerDraft.enabled,
                         capabilities: this.providerDraft.capabilities,
                     });
+                    await this.saveProviderDraftModels(result.provider);
                 }
                 this.providerDraft.apiKey = "";
                 this.clearManagementError("providers");
@@ -462,7 +503,7 @@ export function createManagementActions() {
                 this.providerModelOptions[provider.providerId],
                 this.providerDraft,
             );
-            await this.api().saveModelProviderModels({
+            const payload: SaveModelProviderModelsPayload = {
                 providerId: provider.providerId,
                 defaultModelName: this.providerDraft.defaultModelName,
                 models: refreshDraft.models.map((modelName, index) => {
@@ -477,7 +518,16 @@ export function createManagementActions() {
                         sortOrder: index,
                     };
                 }),
-            });
+            };
+            if (refreshDraft.reasoningEfforts.length > 0) {
+                Object.assign(
+                    payload,
+                    {
+                        reasoningEfforts: refreshDraft.reasoningEfforts,
+                    },
+                );
+            }
+            await this.api().saveModelProviderModels(payload);
         },
 
         /**
@@ -533,7 +583,7 @@ export function createManagementActions() {
                     this.providerModelOptions[provider.providerId],
                     this.providerDraft,
                 );
-                await this.api().saveModelProviderModels({
+                const payload: SaveModelProviderModelsPayload = {
                     providerId: provider.providerId,
                     defaultModelName: this.providerDraft.providerId === provider.providerId
                         ? this.providerDraft.defaultModelName
@@ -550,7 +600,16 @@ export function createManagementActions() {
                             sortOrder: index,
                         };
                     }),
-                });
+                };
+                if (refreshDraft.reasoningEfforts.length > 0) {
+                    Object.assign(
+                        payload,
+                        {
+                            reasoningEfforts: refreshDraft.reasoningEfforts,
+                        },
+                    );
+                }
+                await this.api().saveModelProviderModels(payload);
                 await this.loadProviderModelOptions(provider.providerId);
                 this.clearManagementError("providers");
                 await this.loadProviders();

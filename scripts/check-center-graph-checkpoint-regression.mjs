@@ -73,7 +73,7 @@ const toolRuntime = [
   readProjectFile("services/center/src/StructuredTool/McpToolResultNormalizer.ts"),
   readProjectFile("services/center/src/StructuredTool/mcp-tool-specs.ts"),
 ].join("\n");
-const aiSdkChatModelAdapter = readProjectFile("services/center/src/model-provider/AiSdkChatModelAdapter.ts");
+const modelProviderRuntimeFactory = readProjectFile("services/center/src/model-provider/ModelProviderRuntimeFactory.ts");
 const sharedTypes = readProjectFile("packages/shared/src/index.ts");
 const chatHelpers = readProjectFile("apps/frontend/src/views/Chat/chat-view-helpers.ts");
 
@@ -173,7 +173,7 @@ for (const signal of [
   "model.tool.result.appended",
 ]) {
   assertIncludes(
-    toolRuntime + aiSdkChatModelAdapter,
+    toolRuntime + modelProviderRuntimeFactory,
     signal,
     `模型工具结果回填缺少 graph/checkpoint：${signal}`,
   );

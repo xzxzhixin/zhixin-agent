@@ -11,7 +11,7 @@ import {
     type AgentConfigView,
     type HealthResponse,
     type McpConfigView,
-    type ModelProviderSourceOption,
+    type ModelProtocolOption,
     type PluginConfigView,
     type ProviderConfigView,
     type ProviderModelListView,
@@ -210,9 +210,9 @@ export const useAppStore = defineStore("app", {
         providers: [] as ProviderConfigView[],
 
         /**
-         * providerSourceOptions: 中心服务返回的模型来源列表。
+         * modelProtocolOptions: 中心服务返回的模型协议列表。
          */
-        providerSourceOptions: [] as ModelProviderSourceOption[],
+        modelProtocolOptions: [] as ModelProtocolOption[],
 
         /**
          * providerDraft: 供应商编辑表单草稿。

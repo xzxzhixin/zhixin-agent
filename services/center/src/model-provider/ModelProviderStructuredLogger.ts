@@ -13,8 +13,8 @@ interface ModelProviderStructuredLoggerInput {
     taskId: string;
     /** providerId: 供应商 ID。 */
     providerId: string;
-    /** providerSource: 模型来源。 */
-    providerSource: string;
+    /** modelProtocol: 模型协议。 */
+    modelProtocol: string;
     /** modelName: 模型名。 */
     modelName: string;
     /** requestUrl: 请求地址摘要。 */
@@ -22,9 +22,9 @@ interface ModelProviderStructuredLoggerInput {
 }
 
 /**
- * ModelProviderStructuredLogger：AI SDK 模型调用结构化日志。
+ * ModelProviderStructuredLogger：LangChain 模型调用结构化日志。
  *
- * 用途：记录新供应商运行时的模型来源、工具调用、用量和错误摘要。
+ * 用途：记录新供应商运行时的模型协议、工具调用、用量和错误摘要。
  */
 export class ModelProviderStructuredLogger {
     /** base: 当前模型调用公共日志字段。 */
@@ -48,18 +48,18 @@ export class ModelProviderStructuredLogger {
      * @param payload 响应、工具调用和用量摘要。
      */
     public async logCompleted(payload: {
-        /** aiSdkResponseSummary: AI SDK 响应摘要。 */
-        aiSdkResponseSummary: unknown;
+        /** providerResponseSummary: 供应商响应摘要。 */
+        providerResponseSummary: unknown;
         /** rawToolCallSummary: 工具调用摘要。 */
         rawToolCallSummary: unknown;
         /** usage: 用量摘要。 */
         usage: ProviderModelGatewayUsage | null;
     }): Promise<void> {
         await this.logger.info(
-            "AI SDK 模型调用完成",
+            "LangChain 模型调用完成",
             {
                 ...this.base,
-                eventType: "model.provider.ai_sdk.completed",
+                eventType: "model.provider.langchain.completed",
                 status: "completed",
                 ...payload,
             },
@@ -73,10 +73,10 @@ export class ModelProviderStructuredLogger {
      */
     public async logFailed(error: unknown): Promise<void> {
         await this.logger.error(
-            "AI SDK 模型调用失败",
+            "LangChain 模型调用失败",
             {
                 ...this.base,
-                eventType: "model.provider.ai_sdk.failed",
+                eventType: "model.provider.langchain.failed",
                 status: "failed",
                 errorKind: error instanceof Error ? error.name : typeof error,
                 errorMessage: error instanceof Error ? error.message : String(error),
