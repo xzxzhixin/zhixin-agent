@@ -36,13 +36,24 @@ export class OpenAiToolCallNamePreservingCompletions extends ChatOpenAICompletio
         options: this["ParsedCallOptions"],
         runManager?: CallbackManagerForLLMRun,
     ): AsyncGenerator<ChatGenerationChunk> {
-        this.toolNamesByIndex.clear();
-        this.toolNamesById.clear();
+        this.resetToolCallNameCache();
         yield* super._streamResponseChunks(
             messages,
             options,
             runManager,
         );
+    }
+
+    /**
+     * resetToolCallNameCache：开始一次新的手动流式转换前清空工具名缓存。
+     *
+     * 用途：OpenAI Responses 兼容层可能绕过本类 `_streamResponseChunks` 手动转换
+     * Chat Completions 分片；每轮流式响应必须隔离缓存，避免上一轮已出现的工具名污染
+     * 下一轮空工具名分片。
+     */
+    public resetToolCallNameCache(): void {
+        this.toolNamesByIndex.clear();
+        this.toolNamesById.clear();
     }
 
     /**
@@ -63,6 +74,43 @@ export class OpenAiToolCallNamePreservingCompletions extends ChatOpenAICompletio
             normalizedDelta,
             rawResponse,
             defaultRole,
+        );
+    }
+
+    /**
+     * convertDeltaToBaseMessageChunk：供 OpenAI 内部 Responses 兼容层复用流式转换。
+     *
+     * @param delta OpenAI Chat Completions 流式 delta。
+     * @param rawResponse OpenAI 原始流式响应分片。
+     * @param defaultRole LangChain 上游维护的默认角色。
+     * @returns LangChain 消息分片。
+     */
+    public convertDeltaToBaseMessageChunk(
+        delta: Record<string, unknown>,
+        rawResponse: OpenAI.Chat.Completions.ChatCompletionChunk,
+        defaultRole?: OpenAI.Chat.ChatCompletionRole,
+    ): BaseMessageChunk {
+        return this._convertCompletionsDeltaToBaseMessageChunk(
+            delta,
+            rawResponse,
+            defaultRole,
+        );
+    }
+
+    /**
+     * convertMessageToBaseMessage：供 OpenAI 内部 Responses 兼容层复用非流式转换。
+     *
+     * @param message OpenAI Chat Completions 完整消息。
+     * @param rawResponse OpenAI Chat Completions 原始响应。
+     * @returns LangChain 消息。
+     */
+    public convertMessageToBaseMessage(
+        message: OpenAI.Chat.Completions.ChatCompletionMessage,
+        rawResponse: OpenAI.Chat.Completions.ChatCompletion,
+    ): BaseMessage {
+        return this._convertCompletionsMessageToBaseMessage(
+            message,
+            rawResponse,
         );
     }
 

@@ -2,16 +2,13 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {ChatAnthropic} from "@langchain/anthropic";
-import {
-    ChatOpenAI,
-    ChatOpenAIResponses,
-} from "@langchain/openai";
 import type {BaseChatModel} from "@langchain/core/language_models/chat_models";
 
 import type {CenterDatabase} from "../database.js";
 import {createDataAccess} from "../data-access/index.js";
 import {ModelProviderRepository} from "../data-access/ModelProviderRepository.js";
 import type {ModelProviderRuntimeRecord} from "../data-access/ModelProviderRepository.js";
+import {OpenAiResponsesCompatibleChatModel} from "./OpenAiResponsesCompatibleChatModel.js";
 import {OpenAiToolCallNamePreservingCompletions} from "./OpenAiToolCallNamePreservingCompletions.js";
 import type {ResolvedModelProviderRuntime} from "./ModelProviderRuntimeTypes.js";
 
@@ -118,7 +115,7 @@ export class ModelProviderRuntimeFactory {
  * @param runtime 已解析的供应商运行时。
  * @returns OpenAI ChatModel。
  */
-function createOpenAiChatModel(runtime: ResolvedModelProviderRuntime): ChatOpenAI {
+function createOpenAiChatModel(runtime: ResolvedModelProviderRuntime): OpenAiResponsesCompatibleChatModel {
     const openAiFields = {
         apiKey: runtime.apiKey,
         model: runtime.modelSelection.model,
@@ -129,12 +126,9 @@ function createOpenAiChatModel(runtime: ResolvedModelProviderRuntime): ChatOpenA
         },
         modelKwargs: buildOpenAiModelKwargs(runtime),
     };
-    return new ChatOpenAI({
-        ...openAiFields,
-        // useResponsesApi：保存前协议探测通过 Responses 时强制走 Responses；未探测或兼容模式继续交给 Chat Completions。
-        useResponsesApi: runtime.runtimeMode === "responses",
-        // responses：显式注入 Responses 底层实现，避免 ChatOpenAI 因模型名启发式和探测能力不一致。
-        responses: new ChatOpenAIResponses(openAiFields),
+    return new OpenAiResponsesCompatibleChatModel({
+        // responsesFields：显式以 Responses 参数初始化兼容模型，避免 ChatOpenAI 因模型名启发式和探测能力不一致。
+        responsesFields: openAiFields,
         // completions：OpenAI Chat Completions 兼容供应商统一入口，补齐流式分片中同一工具调用的非空名称保持。
         completions: new OpenAiToolCallNamePreservingCompletions({
             apiKey: runtime.apiKey,
@@ -146,6 +140,8 @@ function createOpenAiChatModel(runtime: ResolvedModelProviderRuntime): ChatOpenA
             },
             modelKwargs: buildOpenAiModelKwargs(runtime),
         }),
+        // runtimeMode：外部请求路径仍按能力矩阵选择；内部统一归一化为 Responses 语义。
+        runtimeMode: runtime.runtimeMode,
     });
 }
 
