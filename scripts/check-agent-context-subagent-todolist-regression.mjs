@@ -70,7 +70,7 @@ function assertNotIncludes(
 
 // requirementDoc: 产品需求事实源，必须记录本轮智能体上下文和 todoList 口径。
 const requirementDoc = readText("需求.md");
-// architectureDoc: 架构事实源，必须记录运行时 agentId 边界和子智能体继承规则。
+// architectureDoc: 架构事实源，必须记录运行时 agentId 边界和 Deep Agents 原生子智能体规则。
 const architectureDoc = readText("架构.md");
 // planDoc: 计划事实源，必须记录本轮实现阶段。
 const planDoc = readText("计划.md");
@@ -80,12 +80,14 @@ const appManagementActions = readText("apps/frontend/src/stores/app-management-a
 const appTypes = readText("apps/frontend/src/stores/app-types.ts");
 // centerTypes: 中心服务运行时类型来源。
 const centerTypes = readText("services/center/src/types.ts");
-// createSubAgentTool: 子智能体创建工具来源。
-const createSubAgentTool = readText("services/center/src/StructuredTool/create-sub-agent-tool.ts");
 // workflowDomain: 子智能体运行记录创建来源。
 const workflowDomain = readText("services/center/src/domain/workflow-domain.ts");
 // baseAgent: 智能体基类来源。
 const baseAgent = readText("services/center/src/agents/base-agent.ts");
+// toolRegistry: 中心服务模型工具注册表。
+const toolRegistry = readText("services/center/src/StructuredTool/tool-capability-registry.ts");
+// deepAgentsTypes: Deep Agents 包类型定义，用于确认原生 task 子智能体工具存在。
+const deepAgentsTypes = readText("node_modules/deepagents/dist/index.d.ts");
 
 assertIncludes(
   requirementDoc,
@@ -99,8 +101,8 @@ assertIncludes(
 );
 assertIncludes(
   architectureDoc,
-  "创建子智能体工具必须接收并保存父级当前实际模型调用配置",
-  "架构.md 必须明确子智能体继承父级模型调用配置。",
+  "Deep Agents 原生 `task` 工具",
+  "架构.md 必须明确短期子智能体委派由 Deep Agents 原生 task 工具承载。",
 );
 assertIncludes(
   planDoc,
@@ -145,24 +147,24 @@ assertIncludes(
   "SubAgentRuntimeRecord 必须保存父级决定的推理深度。",
 );
 assertIncludes(
-  createSubAgentTool,
-  "parentProviderId",
-  "创建子智能体工具输入必须携带父级当前供应商 ID。",
-);
-assertIncludes(
-  createSubAgentTool,
-  "parentModelId",
-  "创建子智能体工具输入必须携带父级当前模型 ID。",
-);
-assertIncludes(
-  createSubAgentTool,
-  "parentReasoningEffort",
-  "创建子智能体工具输入必须携带父级决定的推理深度。",
-);
-assertIncludes(
   workflowDomain,
   "parentProviderId",
   "子智能体运行记录创建时必须写入父级当前供应商 ID。",
+);
+assertIncludes(
+  deepAgentsTypes,
+  "\"task\"",
+  "Deep Agents 依赖必须提供原生 task 子智能体工具。",
+);
+assertIncludes(
+  deepAgentsTypes,
+  "createSubAgentMiddleware",
+  "Deep Agents 依赖必须提供原生子智能体 middleware。",
+);
+assertNotIncludes(
+  toolRegistry,
+  "builtin.agent.createSubAgent",
+  "中心服务统一工具注册表不能继续暴露创建子智能体工具。",
 );
 
 assertNotIncludes(

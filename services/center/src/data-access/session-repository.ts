@@ -17,6 +17,27 @@ type TaskStepRow = Omit<TaskStepRecord, "dependsOn"> & {
     dependsOnJson: string;
 };
 
+type EventRow = {
+    /** eventId: 事件记录 ID。 */
+    eventId: string;
+    /** eventType: 中心服务事件类型。 */
+    eventType: string;
+    /** turnId: 事件所属轮次 ID。 */
+    turnId: string | null;
+    /** taskId: 事件所属任务 ID。 */
+    taskId: string | null;
+    /** sequence: 同一轮次内事件序号。 */
+    sequence: number;
+    /** occurredAt: 事件发生时间。 */
+    occurredAt: string;
+    /** summary: 事件摘要。 */
+    summary: string;
+    /** payloadJson: 事件 payload 原始 JSON 字符串。 */
+    payloadJson: string;
+    /** traceId: 排查链路 ID。 */
+    traceId: string;
+};
+
 /**
  * SessionRepository：会话、任务和事件 SQLite 访问层。
  *
@@ -58,6 +79,26 @@ export class SessionRepository {
             summary: row.summary,
             supersededBy: row.supersededBy,
             supersededReason: row.supersededReason,
+        };
+    }
+
+    /**
+     * mapEventRow：把 SQLite 事件行映射为共享事件协议。
+     *
+     * @param row SQLite 查询出的事件行。
+     * @returns 已解析 payload 的事件记录。
+     */
+    private mapEventRow(row: EventRow): EventRecord {
+        return {
+            eventId: row.eventId,
+            eventType: row.eventType,
+            turnId: row.turnId,
+            taskId: row.taskId,
+            sequence: row.sequence,
+            occurredAt: row.occurredAt,
+            summary: row.summary,
+            payload: JSON.parse(row.payloadJson),
+            traceId: row.traceId,
         };
     }
 
@@ -1238,6 +1279,25 @@ export class SessionRepository {
     }
 
     /**
+     * hasAssistantMessageForTurn：判断当前轮次是否已经写入助手消息。
+     *
+     * @param turnId 轮次 ID。
+     * @returns 存在助手消息时返回 true。
+     */
+    hasAssistantMessageForTurn(turnId: string): boolean {
+        const row = this.database.connection()
+            .prepare(`
+                SELECT 1
+                FROM messages
+                WHERE turn_id = ?
+                  AND role = 'assistant'
+                LIMIT 1
+            `)
+            .get(turnId);
+        return Boolean(row);
+    }
+
+    /**
      * updateSessionTitle：更新会话标题和更新时间。
      *
      * @param input 会话标题字段。
@@ -1364,17 +1424,9 @@ export class SessionRepository {
             traceId: string;
         }>;
 
-        return rows.map((row) => ({
-            eventId: row.eventId,
-            eventType: row.eventType,
-            turnId: row.turnId,
-            taskId: row.taskId,
-            sequence: row.sequence,
-            occurredAt: row.occurredAt,
-            summary: row.summary,
-            payload: JSON.parse(row.payloadJson),
-            traceId: row.traceId,
-        }));
+        return rows.map((row) => {
+            return this.mapEventRow(row);
+        });
     }
 
     /**
@@ -1400,33 +1452,50 @@ export class SessionRepository {
                 ORDER BY sequence DESC
                 LIMIT 1
             `)
-            .get(turnId) as {
-            eventId: string;
-            eventType: string;
-            turnId: string | null;
-            taskId: string | null;
-            sequence: number;
-            occurredAt: string;
-            summary: string;
-            payloadJson: string;
-            traceId: string;
-        } | undefined;
+            .get(turnId) as EventRow | undefined;
 
         if (!row) {
             return null;
         }
 
-        return {
-            eventId: row.eventId,
-            eventType: row.eventType,
-            turnId: row.turnId,
-            taskId: row.taskId,
-            sequence: row.sequence,
-            occurredAt: row.occurredAt,
-            summary: row.summary,
-            payload: JSON.parse(row.payloadJson),
-            traceId: row.traceId,
-        };
+        return this.mapEventRow(row);
+    }
+
+    /**
+     * listTurnEventsForFailureSummary：读取失败收尾摘要可消费的当前轮次事件。
+     *
+     * @param turnId 轮次 ID。
+     * @param limit 最大读取数量，避免失败消息携带过多过程数据。
+     * @returns 按事件序号升序排列的事件记录。
+     */
+    listTurnEventsForFailureSummary(
+        turnId: string,
+        limit: number,
+    ): EventRecord[] {
+        const rows = this.database.connection()
+            .prepare(`
+                SELECT id           AS eventId,
+                       event_type   AS eventType,
+                       turn_id      AS turnId,
+                       task_id      AS taskId,
+                       sequence,
+                       occurred_at  AS occurredAt,
+                       summary,
+                       payload_json AS payloadJson,
+                       trace_id     AS traceId
+                FROM events
+                WHERE turn_id = ?
+                ORDER BY sequence DESC
+                LIMIT ?
+            `)
+            .all(
+                turnId,
+                limit,
+            ) as EventRow[];
+
+        return rows.reverse().map((row) => {
+            return this.mapEventRow(row);
+        });
     }
 
     /**

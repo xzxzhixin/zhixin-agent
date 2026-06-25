@@ -51,9 +51,6 @@ export {
     CreateLongTermAgentStructuredTool,
 } from "./CreateLongTermAgentStructuredTool.js";
 export {
-    CreateSubAgentStructuredTool,
-} from "./CreateSubAgentStructuredTool.js";
-export {
     DisbandAgentTeamStructuredTool,
 } from "./DisbandAgentTeamStructuredTool.js";
 export {
@@ -61,7 +58,6 @@ export {
 } from "./RemoveAgentTeamMemberStructuredTool.js";
 export {
     executeCreateLongTermAgentForTool,
-    executeCreateSubAgentForTool,
 } from "./agent-creation-tool-executors.js";
 export {
     createMcpAdapterClient,

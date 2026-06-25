@@ -654,9 +654,9 @@ assertPathExists(
   "services/center/src/StructuredTool/CreateLongTermAgentStructuredTool.ts",
   "创建长期智能体工具必须是 StructuredTool 下独立文件。",
 );
-assertPathExists(
+assertPathNotExists(
   "services/center/src/StructuredTool/CreateSubAgentStructuredTool.ts",
-  "创建子智能体工具必须是 StructuredTool 下独立文件。",
+  "Deep Agents 原生 task 已承载短期子智能体委派，中心服务不能再保留创建子智能体 StructuredTool。",
 );
 for (const agentFile of [
   "services/center/src/agents/base-agent.ts",
@@ -695,16 +695,6 @@ assertRegex(
 );
 assertRegex(
   agentSources,
-  /MainAgent[\s\S]*create-sub-agent|MainAgent[\s\S]*createSubAgent/iu,
-  "主智能体必须注入创建子智能体工具。",
-);
-assertRegex(
-  agentSources,
-  /LongTermAgent[\s\S]*create-sub-agent|LongTermAgent[\s\S]*createSubAgent/iu,
-  "长期智能体必须注入创建子智能体工具。",
-);
-assertRegex(
-  agentSources,
   /SubAgent[\s\S]*(forbid|禁止|withoutCreation|creationTools:\s*\[\])/iu,
   "子智能体必须明确禁止创建任何智能体工具。",
 );
@@ -713,10 +703,10 @@ assertIncludes(
   "builtin.agent.createLongTerm",
   "创建长期智能体工具必须进入统一工具注册表。",
 );
-assertIncludes(
+assertNotIncludes(
   toolRuntime,
   "builtin.agent.createSubAgent",
-  "创建子智能体工具必须进入统一工具注册表。",
+  "中心服务统一工具注册表不能继续保留创建子智能体工具。",
 );
 for (const forbiddenPluginRuntimeSignal of [
   "builtin.plugin.call",
@@ -736,9 +726,9 @@ assertIncludes(
   "模型请求创建长期智能体后必须进入真实执行链路。",
 );
 assertIncludes(
-  sessionTurnEffects,
-  "executeCreateSubAgentTool",
-  "模型请求创建子智能体后必须进入真实执行链路。",
+  readText("node_modules/deepagents/dist/index.d.ts"),
+  "\"task\"",
+  "Deep Agents 必须提供原生 task 子智能体工具。",
 );
 
 if (failures.length > 0) {

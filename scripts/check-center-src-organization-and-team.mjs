@@ -203,7 +203,6 @@ assertExists(
   "McpToolResultNormalizer.ts",
   "StdioMcpSession.ts",
   "CreateLongTermAgentStructuredTool.ts",
-  "CreateSubAgentStructuredTool.ts",
   "CreateAgentTeamStructuredTool.ts",
   "DisbandAgentTeamStructuredTool.ts",
   "AddAgentTeamMemberStructuredTool.ts",
@@ -214,6 +213,14 @@ assertExists(
     `services/center/src/StructuredTool/${fileName}: 工具目录缺少确认后的工具模块。`,
   );
 });
+assertNotExists(
+  "services/center/src/StructuredTool/CreateSubAgentStructuredTool.ts",
+  "Deep Agents 已原生提供 task 子智能体工具，中心服务不能再保留额外创建子智能体 StructuredTool。",
+);
+assertNotExists(
+  "services/center/src/StructuredTool/create-sub-agent-tool.ts",
+  "Deep Agents 已原生提供 task 子智能体工具，中心服务不能再保留额外创建子智能体执行器。",
+);
 
 [
   "mcp-tool-executor.ts",

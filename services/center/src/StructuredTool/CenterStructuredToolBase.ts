@@ -94,11 +94,6 @@ export abstract class CenterStructuredToolBase<
             toolCallId,
         );
         throwIfTurnRuntimeAborted(this.context.runtimeSignal);
-        this.throwIfRepeatedToolFailure(
-            arg,
-            result,
-            toolCallId,
-        );
 
         this.context.input.events.append({
             eventType: "model.tool.result.appended",
@@ -120,61 +115,6 @@ export abstract class CenterStructuredToolBase<
         });
 
         return result.outputText;
-    }
-
-    /**
-     * throwIfRepeatedToolFailure：阻断同一轮次内同一工具、同一参数、同一错误的重复失败。
-     *
-     * @param arg 工具参数。
-     * @param result 工具执行结果。
-     * @param toolCallId 当前工具调用 ID。
-     * @returns 没有返回值；重复失败时抛出错误让轮次失败收尾。
-     */
-    private throwIfRepeatedToolFailure(
-        arg: ToolInputSchemaOutputType<SchemaT>,
-        result: DeepAgentsToolExecutionResult,
-        toolCallId: string,
-    ): void {
-        if (result.status !== "failed") {
-            return;
-        }
-        const failureFingerprint = createToolFailureFingerprint(
-            this.name,
-            arg as Record<string, unknown>,
-            result.outputText,
-        );
-        const failureCount = (this.context.toolFailureCounts.get(failureFingerprint) ?? 0) + 1;
-        this.context.toolFailureCounts.set(
-            failureFingerprint,
-            failureCount,
-        );
-        if (failureCount < 2) {
-            return;
-        }
-        const failureReason = `TOOL_REPEATED_FAILURE:${this.name}`;
-        this.context.input.events.append({
-            eventType: "model.tool.repeated_failure_blocked",
-            scopeType: "tool",
-            scopeId: this.context.input.sent.taskId,
-            sessionId: this.context.input.sent.sessionId,
-            turnId: this.context.input.sent.turnId,
-            taskId: this.context.input.sent.taskId,
-            status: "failed",
-            title: "工具重复失败阻断",
-            summary: "同一工具使用相同参数返回相同错误，已终止本轮以避免循环重试。",
-            payload: {
-                toolId: this.internalToolId,
-                toolCallId,
-                toolName: this.name,
-                failureCount,
-                failureReason,
-                resultSummary: result.outputText.slice(
-                    0,
-                    240,
-                ),
-            },
-        });
-        throw new Error(failureReason);
     }
 
     /**
@@ -243,24 +183,4 @@ function readNestedString(
     return typeof currentValue === "string" && currentValue.length > 0
         ? currentValue
         : "";
-}
-
-/**
- * createToolFailureFingerprint：创建轮次内工具失败指纹。
- *
- * @param toolName 模型可见工具名。
- * @param arg 工具参数。
- * @param outputText 工具错误输出。
- * @returns 可用于 Map 计数的稳定字符串。
- */
-function createToolFailureFingerprint(
-    toolName: string,
-    arg: Record<string, unknown>,
-    outputText: string,
-): string {
-    return JSON.stringify({
-        toolName,
-        arg,
-        outputText,
-    });
 }

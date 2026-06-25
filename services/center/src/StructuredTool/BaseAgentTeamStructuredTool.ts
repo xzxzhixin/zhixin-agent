@@ -28,14 +28,24 @@ export abstract class BaseAgentTeamStructuredTool<
     protected override async executeTool(
         arg: ToolInputSchemaOutputType<SchemaT>,
     ): Promise<DeepAgentsToolExecutionResult> {
-        const result = this.executeAgentTeamTool(
-            this.createAgentTeamToolScope(),
-            arg,
-        );
-        return {
-            outputText: JSON.stringify(result),
-            status: "completed",
-        };
+        try {
+            const result = this.executeAgentTeamTool(
+                this.createAgentTeamToolScope(),
+                arg,
+            );
+            return {
+                outputText: JSON.stringify(result),
+                status: "completed",
+            };
+        } catch (error) {
+            const failureReason = error instanceof Error
+                ? error.message
+                : "AGENT_TEAM_TOOL_FAILED";
+            return {
+                outputText: failureReason,
+                status: "failed",
+            };
+        }
     }
 
     /**

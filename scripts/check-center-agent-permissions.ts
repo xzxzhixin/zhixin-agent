@@ -54,9 +54,10 @@ async function main(): Promise<void> {
   assert(mainAgent.canUseToolCapability("builtin.agent.createLongTerm"), "主智能体必须可使用创建长期智能体工具");
   assert(mainAgent.canUseToolCapability("create-agent-team"), "主智能体必须可使用 team 管理工具");
   assert(!longTermAgent.canUseToolCapability("builtin.agent.createLongTerm"), "长期智能体不能创建长期智能体");
-  assert(longTermAgent.canUseToolCapability("builtin.agent.createSubAgent"), "长期智能体必须可创建子智能体");
+  assert(!mainAgent.canUseToolCapability("builtin.agent.createSubAgent"), "主智能体不能再注入中心服务创建子智能体工具，短期委派交给 Deep Agents 原生 task");
+  assert(!longTermAgent.canUseToolCapability("builtin.agent.createSubAgent"), "长期智能体不能再注入中心服务创建子智能体工具，短期委派交给 Deep Agents 原生 task");
   assert(!longTermAgent.canUseToolCapability("create-agent-team"), "长期智能体不能管理 team");
-  assert(!subAgent.canUseToolCapability("builtin.agent.createSubAgent"), "子智能体不能继续创建子智能体");
+  assert(!subAgent.canUseToolCapability("builtin.agent.createSubAgent"), "子智能体不能注入中心服务创建子智能体工具");
   assert(!mainAgent.canUseTool("todo-list"), "主智能体不能再暴露旧 todoList 工具权限");
   assert(!longTermAgent.canUseTool("todo-list"), "长期智能体不能再暴露旧 todoList 工具权限");
   assert(!subAgent.canUseTool("todo-list"), "子智能体不能再暴露旧 todoList 工具权限");
@@ -68,6 +69,9 @@ async function main(): Promise<void> {
   assert(!listUnifiedToolCapabilities().some((capability) => {
     return capability.toolId === "builtin.todo.list";
   }), "统一工具注册表不能继续保留旧 builtin.todo.list 能力");
+  assert(!listUnifiedToolCapabilities().some((capability) => {
+    return capability.toolId === "builtin.agent.createSubAgent";
+  }), "统一工具注册表不能继续保留中心服务创建子智能体工具，Deep Agents 原生 task 已承载短期委派");
 
   const formattedTime = formatCenterLocalDateTime(new Date(2026, 5, 11, 9, 8, 7));
   assert(formattedTime === "2026-06-11 09:08:07", `中心服务本机时间格式错误：${formattedTime}`);

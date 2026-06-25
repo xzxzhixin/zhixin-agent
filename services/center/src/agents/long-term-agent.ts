@@ -8,7 +8,7 @@ import {
 /**
  * LongTermAgent：长期智能体执行对象。
  *
- * 用途：承载用户或主智能体创建的长期角色，只允许继续创建当前任务内子智能体。
+ * 用途：承载用户或主智能体创建的长期角色；短期子智能体委派使用 Deep Agents 原生 task 工具。
  */
 export class LongTermAgent extends BaseAgent {
     /**
@@ -30,13 +30,11 @@ export class LongTermAgent extends BaseAgent {
     }
 
     /**
-     * getCreationTools：长期智能体只能创建当前任务内子智能体。
+     * getCreationTools：长期智能体不注入中心服务创建类工具。
      *
      * @returns 创建工具列表。
      */
     getCreationTools(): AgentToolName[] {
-        return [
-            "create-sub-agent",
-        ];
+        return [];
     }
 }

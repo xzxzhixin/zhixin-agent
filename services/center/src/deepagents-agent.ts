@@ -8,11 +8,6 @@ import {
     CenterModelCallLogMiddleware,
     CenterToolChoiceMiddleware,
 } from "./AgentMiddleware/index.js";
-import {
-    type AgentRunCandidate,
-    type AgentSupervisorBudget,
-    DeepAgentTurnSupervisor,
-} from "./agent-runtime/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
 import {
     recordModelUsageAfterTurn,
@@ -83,6 +78,13 @@ type DeepAgentsWriteTodosTaskStepInput = {
     stepOrder: number;
 };
 
+type DeepAgentRunResult = {
+    /** assistantText: Deep Agents 最终 AIMessage 文本。 */
+    assistantText: string;
+    /** modelResult: 本轮模型运行结果，用于用量和记忆收尾。 */
+    modelResult: ProviderModelGatewayResult | null;
+};
+
 /**
  * runDeepAgentsAgentTurn：直接用 Deep Agents 原生 agent 执行当前轮次。
  *
@@ -101,31 +103,12 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
             runtimeInput.events,
             runtimeInput.sent.taskId,
         );
-        const supervisor = new DeepAgentTurnSupervisor({
-            input: runtimeInput,
-            budget: createDefaultSupervisorBudget(),
-            runCandidate: async (request) => {
-                return runSingleDeepAgentCandidate(
-                    runtimeInput,
-                    request.attemptIndex,
-                    request.internalPrompt,
-                );
-            },
-            finalize: async (candidate) => {
-                await finalizeDeepAgentTurn(
-                    runtimeInput,
-                    candidate.visibleText,
-                    candidate.modelResult,
-                );
-            },
-            fail: async (_candidate, decision) => {
-                await failDeepAgentTurn(
-                    runtimeInput,
-                    new Error(decision.reason),
-                );
-            },
-        });
-        await supervisor.run();
+        const result = await runSingleDeepAgentCandidate(runtimeInput);
+        await finalizeDeepAgentTurn(
+            runtimeInput,
+            result.assistantText,
+            result.modelResult,
+        );
     } catch (error) {
         if (isTurnRuntimeAbortLikeError(
             error,
@@ -146,37 +129,17 @@ export async function runDeepAgentsAgentTurn(input: DeepAgentsAgentRunInput): Pr
 }
 
 /**
- * createDefaultSupervisorBudget：创建当前轮次监督循环默认预算。
- *
- * @returns 监督循环预算。
- */
-function createDefaultSupervisorBudget(): AgentSupervisorBudget {
-    return {
-        maxSupervisorAttempts: 6,
-        continuationRetryBudget: 6,
-        toolFailureRetryBudget: 6,
-    };
-}
-
-/**
  * runSingleDeepAgentCandidate：执行一次 Deep Agents graph 并返回候选终态。
  *
  * @param input 当前轮次运行输入。
- * @param attemptIndex 监督循环尝试序号。
- * @param internalPrompt 内部续跑提示，不写入用户可见消息。
- * @returns Deep Agents 单次运行候选结果。
+ * @returns Deep Agents 单次运行结果。
  */
-async function runSingleDeepAgentCandidate(
-    input: DeepAgentsAgentRunInput,
-    attemptIndex: number,
-    internalPrompt: string | null,
-): Promise<AgentRunCandidate> {
+async function runSingleDeepAgentCandidate(input: DeepAgentsAgentRunInput): Promise<DeepAgentRunResult> {
     let context: DeepAgentsToolExecutionContext | null = null;
     let messageCollector: Promise<string> | null = null;
     let toolCollector: Promise<ProviderModelGatewayResult> | null = null;
     let outputCollector: Promise<DeepAgentOutputState | null> | null = null;
     try {
-        const startedAfterSequence = readLatestTurnEventSequence(input);
         context = await createDeepAgentsToolExecutionContext(input);
         throwIfTurnRuntimeAborted(input.runtimeSignal);
         appendToolVisibilityEvents(
@@ -193,10 +156,7 @@ async function runSingleDeepAgentCandidate(
                 messages: [
                     {
                         role: "user",
-                        content: buildDeepAgentUserContent(
-                            input.userText,
-                            internalPrompt,
-                        ),
+                        content: input.userText,
                     },
                 ],
             },
@@ -224,18 +184,12 @@ async function runSingleDeepAgentCandidate(
         throwIfTurnRuntimeAborted(input.runtimeSignal);
         const assistantText = resolveFinalAssistantText(
             output ?? {},
-            streamedAssistantText,
         );
         throwIfTurnRuntimeAborted(input.runtimeSignal);
-        return buildAgentRunCandidate(
-            input,
-            context,
-            attemptIndex,
-            startedAfterSequence,
+        return {
             assistantText,
-            streamedAssistantText,
-            finalModelResult,
-        );
+            modelResult: finalModelResult,
+        };
     } catch (error) {
         if (isTurnRuntimeAbortLikeError(
             error,
@@ -263,28 +217,6 @@ async function runSingleDeepAgentCandidate(
             context,
         );
     }
-}
-
-/**
- * buildDeepAgentUserContent：拼接用户输入和内部续跑提示。
- *
- * @param userText 用户原始输入。
- * @param internalPrompt 中心服务内部续跑提示。
- * @returns 本次 Deep Agents 输入正文。
- */
-function buildDeepAgentUserContent(
-    userText: string,
-    internalPrompt: string | null,
-): string {
-    if (!internalPrompt) {
-        return userText;
-    }
-    return [
-        userText,
-        "",
-        "中心服务内部续跑提示：",
-        internalPrompt,
-    ].join("\n");
 }
 
 /**
@@ -626,9 +558,7 @@ async function recordToolCallLifecycle(
             output,
         );
     }
-    if (status !== "finished") {
-        throw new Error(error ?? `DEEPAGENTS_TOOL_PLAN_FAILED:${toolCall.name}`);
-    }
+    // 普通工具失败已经作为工具结果回填模型，观测层只记录事件，让 Deep Agents 原生循环继续判断下一步。
 }
 
 /**
@@ -869,24 +799,28 @@ async function resolveToolCallValueWhenActive<T>(
  * resolveFinalAssistantText：按 LangChain ReAct 语义提取最终 AIMessage 正文。
  *
  * @param output Deep Agents 最终输出。
- * @param fallbackText 流式累积正文；仅在最终状态缺少消息时作为兼容文本。
  * @returns 最终助手文本。
  */
 function resolveFinalAssistantText(
     output: {
         messages?: DeepAgentOutputMessage[];
     },
-    fallbackText: string,
 ): string {
     const assistantMessages = Array.isArray(output.messages)
         ? output.messages.filter((message) => {
             return isDeepAgentAssistantMessage(message);
         })
         : [];
-    const finalAssistantText = assistantMessages.length > 0
-        ? extractDeepAgentMessageText(assistantMessages[assistantMessages.length - 1]?.content)
-        : fallbackText;
-    return finalAssistantText.trim();
+    if (assistantMessages.length === 0) {
+        throw new Error("DEEPAGENTS_FINAL_ASSISTANT_MESSAGE_MISSING");
+    }
+    const finalAssistantText = extractDeepAgentMessageText(
+        assistantMessages[assistantMessages.length - 1]?.content,
+    ).trim();
+    if (finalAssistantText.length === 0) {
+        throw new Error("DEEPAGENTS_FINAL_ASSISTANT_MESSAGE_EMPTY");
+    }
+    return finalAssistantText;
 }
 
 /**
@@ -922,168 +856,6 @@ function readDeepAgentMessageType(message: DeepAgentOutputMessage): string {
         }
     }
     return "";
-}
-
-/**
- * buildAgentRunCandidate：组装 Deep Agents 单次运行候选结果。
- *
- * @param input 当前轮次运行输入。
- * @param context 当前工具执行上下文。
- * @param attemptIndex 监督循环尝试序号。
- * @param startedAfterSequence 本次候选开始前的事件序号，用于判断本次是否产生工具结果。
- * @param assistantText Deep Agents 最终 AIMessage 文本。
- * @param streamedAssistantText 流式累计文本。
- * @param modelResult 模型运行结果。
- * @returns 单次运行候选结果。
- */
-function buildAgentRunCandidate(
-    input: DeepAgentsAgentRunInput,
-    context: DeepAgentsToolExecutionContext,
-    attemptIndex: number,
-    startedAfterSequence: number,
-    assistantText: string,
-    streamedAssistantText: string,
-    modelResult: ProviderModelGatewayResult | null,
-): AgentRunCandidate {
-    const task = new SessionRepository(input.database).findTask(input.sent.taskId);
-    return {
-        attemptIndex,
-        visibleText: assistantText || streamedAssistantText.trim(),
-        streamedText: streamedAssistantText,
-        modelResult,
-        lastModelMessageDiagnostics: context.lastModelMessageDiagnostics,
-        hasStructuredToolCall: hasStructuredToolCall(context),
-        hasToolExecutionEvents: hasTurnToolExecutionEvents(input),
-        hasRecentToolResult: hasTurnEventType(
-            input,
-            "model.tool.result.appended",
-            startedAfterSequence,
-        ),
-        hasPendingTaskState: task?.status === "running" || task?.status === "queued",
-        hasToolFailureEvents: hasTurnToolFailureEvents(
-            input,
-            startedAfterSequence,
-        ),
-        cancelled: Boolean(input.runtimeSignal?.aborted),
-        budget: createDefaultSupervisorBudget(),
-        continuationRetryCount: 0,
-        toolFailureRetryCount: 0,
-    };
-}
-
-/**
- * readLatestTurnEventSequence：读取当前轮次已有事件最大序号。
- *
- * @param input 当前轮次运行输入。
- * @returns 当前轮次最新事件序号；没有事件时返回 0。
- */
-function readLatestTurnEventSequence(input: DeepAgentsAgentRunInput): number {
-    const row = input.database.connection().prepare(`
-        SELECT COALESCE(MAX(sequence), 0) AS sequence
-        FROM events
-        WHERE turn_id = ?
-    `).get(input.sent.turnId) as {
-        /** sequence: 当前轮次最大事件序号。 */
-        sequence: number;
-    };
-    return row.sequence;
-}
-
-/**
- * hasStructuredToolCall：判断最后模型诊断是否包含结构化工具调用。
- *
- * @param context 当前工具执行上下文。
- * @returns 存在结构化工具调用时返回 true。
- */
-function hasStructuredToolCall(context: DeepAgentsToolExecutionContext): boolean {
-    const toolCalls = context.lastModelMessageDiagnostics?.toolCalls ?? [];
-    return toolCalls.some((toolCall) => {
-        return typeof toolCall.name === "string" && toolCall.name.length > 0;
-    });
-}
-
-/**
- * hasTurnToolExecutionEvents：判断当前轮次是否已经出现真实工具执行或回填事件。
- *
- * @param input 当前轮次运行输入。
- * @returns 已存在工具请求、工具完成或工具结果回填时返回 true。
- */
-function hasTurnToolExecutionEvents(input: DeepAgentsAgentRunInput): boolean {
-    const row = input.database.connection().prepare(`
-        SELECT 1
-        FROM events
-        WHERE turn_id = ?
-          AND event_type IN (
-                             'model.tool.requested',
-                             'model.tool.result.appended',
-                             'tool.command.started',
-                             'tool.command.completed',
-                             'tool.mcp.started',
-                             'tool.mcp.completed',
-                             'tool.plan.created',
-                             'tool.plan.completed'
-            )
-            LIMIT 1
-    `).get(input.sent.turnId);
-    return Boolean(row);
-}
-
-/**
- * hasTurnToolFailureEvents：判断当前轮次是否出现工具失败事件。
- *
- * @param input 当前轮次运行输入。
- * @param startedAfterSequence 本次候选开始前的事件序号，避免读取旧失败事件。
- * @returns 存在工具失败事件时返回 true。
- */
-function hasTurnToolFailureEvents(
-    input: DeepAgentsAgentRunInput,
-    startedAfterSequence: number,
-): boolean {
-    const row = input.database.connection().prepare(`
-        SELECT 1
-        FROM events
-        WHERE turn_id = ?
-          AND sequence > ?
-          AND event_type IN (
-                             'tool.plan.failed',
-                             'tool.mcp.failed',
-                             'tool.call.failed',
-                             'model.tool.repeated_failure_blocked',
-                             'model.tool_call.name_missing'
-            )
-            LIMIT 1
-    `).get(
-        input.sent.turnId,
-        startedAfterSequence,
-    );
-    return Boolean(row);
-}
-
-/**
- * hasTurnEventType：判断当前轮次是否存在指定事件类型。
- *
- * @param input 当前轮次运行输入。
- * @param eventType 事件类型。
- * @param startedAfterSequence 本次候选开始前的事件序号，默认 0 表示检查全轮次。
- * @returns 存在时返回 true。
- */
-function hasTurnEventType(
-    input: DeepAgentsAgentRunInput,
-    eventType: string,
-    startedAfterSequence = 0,
-): boolean {
-    const row = input.database.connection().prepare(`
-        SELECT 1
-        FROM events
-        WHERE turn_id = ?
-          AND event_type = ?
-          AND sequence > ? LIMIT 1
-    `).get(
-        input.sent.turnId,
-        eventType,
-        startedAfterSequence,
-    );
-    return Boolean(row);
 }
 
 /**
@@ -1226,6 +998,7 @@ async function failDeepAgentTurn(
     const errorMessage = error instanceof Error
         ? error.message
         : "DEEPAGENT_TURN_FAILED";
+    // 外部失败总结会打断 Deep Agents 原生 ReAct loop，异常只写入失败事件和终态。
     input.events.append({
         eventType: "message.turn.failed",
         scopeType: "turn",

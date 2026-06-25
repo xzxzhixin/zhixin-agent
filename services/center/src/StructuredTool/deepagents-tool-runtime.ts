@@ -55,8 +55,6 @@ export interface DeepAgentsToolExecutionContext {
     runtime: ResolvedModelProviderRuntime;
     /** subAgents: 当前轮次运行期子智能体表。 */
     subAgents: Map<string, SubAgentRuntimeRecord>;
-    /** toolFailureCounts: 轮次内工具失败指纹计数，用于阻断同一错误无限重试。 */
-    toolFailureCounts: Map<string, number>;
     /** lastModelMessageDiagnostics: 最近一次模型返回诊断，来源于 CenterToolChoiceMiddleware，仅用于监督层判断。 */
     lastModelMessageDiagnostics: ModelMessageDiagnostics | null;
     /** runtimeSignal: 当前轮次运行期取消信号，供工具执行边界检查用户停止。 */
@@ -98,7 +96,6 @@ export async function createDeepAgentsToolExecutionContext(
         executionAgent: createAgentForTask(task),
         runtime: new ModelProviderRuntimeFactory(input.database).resolveRuntime(input.sent.taskId),
         subAgents: new Map<string, SubAgentRuntimeRecord>(),
-        toolFailureCounts: new Map<string, number>(),
         lastModelMessageDiagnostics: null,
         runtimeSignal: input.runtimeSignal,
         cleanupCallbacks: [],

@@ -18,7 +18,7 @@
 - `CenterStructuredToolBase` 继续把工具结果通过 `model.tool.result.appended` 回填模型；失败文本也是模型可见工具结果。
 - `deepagents-agent.ts` 的 `recordToolCallLifecycle` 只作为 Deep Agents 工具调用流观测层：写入 `tool.plan.created`、`tool.plan.completed` 或 `tool.plan.failed`，不再因为普通工具计划失败直接抛错终止轮次。
 - Deep Agents 最终是否失败由 `run.output` 或 Deep Agents 原生执行异常决定；真实执行异常仍进入现有 `failDeepAgentTurn`。
-- 用户取消、中心服务运行时中止和重复同工具同参数同错误失败阻断仍允许终止轮次。
+- 用户取消、中心服务运行时中止和 Deep Agents 原生运行异常仍允许终止轮次；重复工具失败不再由中心服务额外阻断。
 - `write_todos` 到 `task_steps` 的桥接继续只在工具计划完成且输出可解析时执行。
 
 ## 数据流
@@ -34,9 +34,9 @@
 
 - 普通 MCP 工具失败：展示失败过程卡片，回填模型，轮次继续。
 - 普通内联工具失败：按工具自己的返回语义处理；观测层不额外提升为整轮失败。
-- 重复失败阻断：同一轮次内同一工具、同一参数、同一错误第二次出现时，`CenterStructuredToolBase` 继续抛出 `TOOL_REPEATED_FAILURE`，避免无限循环。
+- 重复工具失败：继续作为普通工具失败结果回填模型，不由 `CenterStructuredToolBase` 做指纹判断或额外抛错；循环边界交给 Deep Agents / LangGraph 原生限制、取消和运行时预算。
 - 取消或中止：`throwIfTurnRuntimeAborted` 继续让当前轮次退出，不回填迟到工具结果。
-- Deep Agents 原生运行异常：仍由 `failDeepAgentTurn` 创建失败总结并写入终态。
+- Deep Agents 原生运行异常：只由 `failDeepAgentTurn` 写入失败事件和终态，不创建外部失败总结。
 
 ## 验收口径
 
@@ -44,8 +44,8 @@
 - 页面能展示 `new_page` 对应 MCP 失败卡片。
 - 模型能继续调用后续 Chrome DevTools 工具，并有机会复用已创建页面完成查询。
 - 代码中不出现针对 `new_page`、Chrome DevTools 工具名或导航超时文本的硬编码恢复分支。
-- 重复同工具同参数同错误失败仍会阻断，避免循环重试。
-- Deep Agents 真正运行异常时，现有失败总结和轮次终态仍正常写入。
+- 重复同工具同参数同错误失败不会被中心服务额外阻断，模型仍可基于工具结果自行调整；无限循环由 Deep Agents / LangGraph 原生边界处理。
+- Deep Agents 真正运行异常时，只写入失败事件和轮次终态，不写入失败总结助手消息或兜底说明。
 
 ## 文档同步
 

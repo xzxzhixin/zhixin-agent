@@ -9,9 +9,6 @@ import {
 import {
     CreateLongTermAgentStructuredTool,
 } from "./CreateLongTermAgentStructuredTool.js";
-import {
-    CreateSubAgentStructuredTool,
-} from "./CreateSubAgentStructuredTool.js";
 import {CommandStructuredTool} from "./CommandStructuredTool.js";
 import type {
     DeepAgentsStructuredToolFactory,
@@ -60,9 +57,6 @@ export class DeepAgentsToolFactory implements DeepAgentsStructuredToolFactory {
 
         if (this.context.executionAgent.canUseToolCapability("builtin.agent.createLongTerm")) {
             tools.push(new CreateLongTermAgentStructuredTool(this.context));
-        }
-        if (this.context.executionAgent.canUseToolCapability("builtin.agent.createSubAgent")) {
-            tools.push(new CreateSubAgentStructuredTool(this.context));
         }
         if (this.context.executionAgent.canUseToolCapability("create-agent-team")) {
             tools.push(new CreateAgentTeamStructuredTool(this.context));

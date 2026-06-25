@@ -1168,7 +1168,7 @@ function resolveProcessSummary(event: EventRecord): string {
     ) || readEventText(
         event,
         "reason",
-    );
+    ) || event.summary;
 }
 
 /**

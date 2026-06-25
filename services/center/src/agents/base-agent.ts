@@ -4,7 +4,6 @@
 export type AgentToolName =
     | "command-run"
     | "create-long-term-agent"
-    | "create-sub-agent"
     | "create-agent-team"
     | "disband-agent-team"
     | "add-agent-team-member"
@@ -24,8 +23,6 @@ const TOOL_CAPABILITY_AGENT_TOOL_MAP: Readonly<Record<string, AgentToolName>> = 
     "builtin.command.run": "command-run",
     /** builtin.agent.createLongTerm: 主智能体专属长期智能体创建工具。 */
     "builtin.agent.createLongTerm": "create-long-term-agent",
-    /** builtin.agent.createSubAgent: 主智能体和长期智能体可用的子智能体创建工具。 */
-    "builtin.agent.createSubAgent": "create-sub-agent",
     /** create-agent-team: 主智能体专属 team 创建工具。 */
     "create-agent-team": "create-agent-team",
     /** disband-agent-team: 主智能体专属 team 解散工具。 */

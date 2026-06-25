@@ -86,44 +86,6 @@ export const UNIFIED_TOOL_CAPABILITY_REGISTRY: UnifiedToolCapability[] = [
         displayText: "创建长期智能体",
     },
     {
-        toolId: "builtin.agent.createSubAgent",
-        toolKind: "agent",
-        displayName: "创建子智能体",
-        requiredPermission: "project.read",
-        availability: "available",
-        unavailableReason: null,
-        description: "由主智能体或长期智能体创建当前任务内的一次性子智能体，子智能体不会固化为长期定义。",
-        inputSchema: {
-            type: "object",
-            required: [
-                "name",
-            ],
-            properties: {
-                name: {
-                    type: "string",
-                    description: "子智能体展示名称。",
-                },
-                parentAgentId: {
-                    type: "string",
-                    description: "创建者智能体 ID，缺省时按主智能体 main 处理。",
-                },
-                parentAgentKind: {
-                    type: "string",
-                    enum: [
-                        "main",
-                        "long-term",
-                        "sub",
-                    ],
-                    description: "创建者类型，子智能体类型会被中心服务拒绝。",
-                },
-            },
-        },
-        riskLevel: "low",
-        scope: "session",
-        approvalRequired: false,
-        displayText: "创建子智能体",
-    },
-    {
         toolId: "create-agent-team",
         toolKind: "agent",
         displayName: "创建 team",
