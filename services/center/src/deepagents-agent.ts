@@ -183,7 +183,8 @@ async function runSingleDeepAgentCandidate(input: DeepAgentsAgentRunInput): Prom
 
         throwIfTurnRuntimeAborted(input.runtimeSignal);
         const assistantText = resolveFinalAssistantText(
-            output ?? {},
+            output,
+            streamedAssistantText,
         );
         throwIfTurnRuntimeAborted(input.runtimeSignal);
         return {
@@ -239,8 +240,43 @@ async function resolveDeepAgentOutputWhenActive(
         )) {
             return null;
         }
-        throw error;
+        recordDeepAgentOutputObservationError(
+            input,
+            error,
+        );
+        return null;
     }
+}
+
+/**
+ * recordDeepAgentOutputObservationError：记录 Deep Agents 最终输出投影异常。
+ *
+ * @param input 当前轮次输入。
+ * @param error 最终输出投影抛出的异常。
+ * @returns 没有返回值。
+ */
+function recordDeepAgentOutputObservationError(
+    input: DeepAgentsAgentRunInput,
+    error: unknown,
+): void {
+    const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+    // 最终输出投影失败只说明 Deep Agents 观测通道异常；已有流式文本仍可作为本轮可见回复。
+    input.events.append({
+        eventType: "model.output.observer.failed",
+        scopeType: "model",
+        scopeId: input.sent.taskId,
+        sessionId: input.sent.sessionId,
+        turnId: input.sent.turnId,
+        taskId: input.sent.taskId,
+        status: "failed",
+        title: "模型最终输出观测失败",
+        summary: errorMessage,
+        payload: {
+            errorMessage,
+        },
+    });
 }
 
 /**
@@ -838,23 +874,27 @@ async function resolveToolCallValueWhenActive<T>(
 function resolveFinalAssistantText(
     output: {
         messages?: DeepAgentOutputMessage[];
-    },
+    } | null,
+    streamedAssistantText: string,
 ): string {
-    const assistantMessages = Array.isArray(output.messages)
+    const assistantMessages = output && Array.isArray(output.messages)
         ? output.messages.filter((message) => {
             return isDeepAgentAssistantMessage(message);
         })
         : [];
-    if (assistantMessages.length === 0) {
-        throw new Error("DEEPAGENTS_FINAL_ASSISTANT_MESSAGE_MISSING");
+    if (assistantMessages.length > 0) {
+        const finalAssistantText = extractDeepAgentMessageText(
+            assistantMessages[assistantMessages.length - 1]?.content,
+        ).trim();
+        if (finalAssistantText.length > 0) {
+            return finalAssistantText;
+        }
     }
-    const finalAssistantText = extractDeepAgentMessageText(
-        assistantMessages[assistantMessages.length - 1]?.content,
-    ).trim();
-    if (finalAssistantText.length === 0) {
-        throw new Error("DEEPAGENTS_FINAL_ASSISTANT_MESSAGE_EMPTY");
+    const visibleStreamText = streamedAssistantText.trim();
+    if (visibleStreamText.length > 0) {
+        return visibleStreamText;
     }
-    return finalAssistantText;
+    throw new Error("DEEPAGENTS_FINAL_ASSISTANT_MESSAGE_MISSING");
 }
 
 /**

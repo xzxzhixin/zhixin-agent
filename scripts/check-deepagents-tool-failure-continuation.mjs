@@ -88,6 +88,21 @@ assertIncludes(
     "工具观测流失败不代表 Deep Agents ReAct loop 结束",
     "工具观测流错误处理必须注释说明不能打断 Deep Agents 原生循环。",
 );
+assertIncludes(
+    deepAgentsAgent,
+    "recordDeepAgentOutputObservationError",
+    "Deep Agents 最终输出投影异常必须只记录观测失败，不能直接升级为整轮失败。",
+);
+assertIncludes(
+    deepAgentsAgent,
+    "model.output.observer.failed",
+    "Deep Agents 最终输出投影异常必须有独立事件，便于和真实轮次失败区分。",
+);
+assertIncludes(
+    deepAgentsAgent,
+    "visibleStreamText",
+    "Deep Agents 最终输出缺失时必须复用已流出的助手文本，避免空回复触发失败收尾。",
+);
 assertNotIncludes(
     deepAgentsAgent,
     `        throw error;\n    }\n    throwIfTurnRuntimeAborted(context.runtimeSignal);`,
