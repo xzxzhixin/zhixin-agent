@@ -461,13 +461,10 @@ async function collectDeepAgentToolCalls(
             );
         }
     } catch (error) {
-        if (isTurnRuntimeAbortLikeError(
+        handleDeepAgentToolStreamError(
+            context,
             error,
-            context.runtimeSignal,
-        )) {
-            throwIfTurnRuntimeAborted(context.runtimeSignal);
-        }
-        throw error;
+        );
     }
     throwIfTurnRuntimeAborted(context.runtimeSignal);
 
@@ -481,6 +478,43 @@ async function collectDeepAgentToolCalls(
         toolCall: null,
         toolCalls: [],
     };
+}
+
+/**
+ * handleDeepAgentToolStreamError：处理 Deep Agents 工具观测流异常。
+ *
+ * @param context 当前工具执行上下文。
+ * @param error 工具观测流抛出的异常。
+ * @returns 没有返回值。
+ */
+function handleDeepAgentToolStreamError(
+    context: DeepAgentsToolExecutionContext,
+    error: unknown,
+): void {
+    if (isTurnRuntimeAbortLikeError(
+        error,
+        context.runtimeSignal,
+    )) {
+        throwIfTurnRuntimeAborted(context.runtimeSignal);
+    }
+    const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+    // 工具观测流失败不代表 Deep Agents ReAct loop 结束；普通工具失败应作为工具结果交回模型自行决策。
+    context.input.events.append({
+        eventType: "tool.observer.failed",
+        scopeType: "tool-plan",
+        scopeId: context.input.sent.taskId,
+        sessionId: context.input.sent.sessionId,
+        turnId: context.input.sent.turnId,
+        taskId: context.input.sent.taskId,
+        status: "failed",
+        title: "工具观测流失败",
+        summary: errorMessage,
+        payload: {
+            errorMessage,
+        },
+    });
 }
 
 /**
