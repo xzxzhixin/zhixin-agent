@@ -6,6 +6,11 @@ import type {
     EventRecord,
     ProjectRecord,
 } from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
@@ -31,14 +36,14 @@ export function deleteSession(
     new SessionRepository(database).deleteSessionFacts(session.sessionId);
 
     events.append({
-        eventType: "session.deleted",
-        scopeType: "session",
+        eventType: EVENT_TYPES.SESSION_DELETED,
+        scopeType: EVENT_SCOPE_TYPES.SESSION,
         scopeId: session.sessionId,
         sessionId: session.sessionId,
         turnId: null,
         taskId: null,
         projectId: session.projectId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "会话删除",
         summary: session.title,
         payload: {
@@ -71,14 +76,14 @@ export function deleteProject(
     const deletedSessionCount = new SessionRepository(database).deleteProjectFacts(project.projectId);
 
     events.append({
-        eventType: "project.deleted",
-        scopeType: "project",
+        eventType: EVENT_TYPES.PROJECT_DELETED,
+        scopeType: EVENT_SCOPE_TYPES.PROJECT,
         scopeId: project.projectId,
         sessionId: null,
         turnId: null,
         taskId: null,
         projectId: project.projectId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "项目删除",
         summary: project.displayName,
         payload: {
@@ -126,7 +131,7 @@ export function savePendingMessage(
     });
     return {
         pendingMessageId,
-        status: "waiting_user",
+        status: TASK_STATUSES.WAITING_USER,
     };
 }
 

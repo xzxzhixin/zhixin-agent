@@ -1,4 +1,10 @@
-import type {ClientType, ConversationSession, EventRecord, WebSocketEnvelope} from "@zhixin/shared";
+import {
+    EVENT_TYPES,
+    type ClientType,
+    type ConversationSession,
+    type EventRecord,
+    type WebSocketEnvelope,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import {createDataAccess} from "./data-access/index.js";
@@ -70,12 +76,12 @@ export function broadcastDomainEnvelopeForEvent(
     event: EventRecord,
 ): void {
     // task.updated: 任务状态需要独立协议包，前端可以不解析通用事件就刷新任务卡片。
-    if (event.eventType === "task.updated") {
+    if (event.eventType === EVENT_TYPES.TASK_UPDATED) {
         safeSendRealtimeEnvelope(
             clients,
             client,
             {
-                type: "task.updated",
+                type: EVENT_TYPES.TASK_UPDATED,
                 payload: event.payload,
                 traceId: event.traceId,
             },
@@ -84,12 +90,12 @@ export function broadcastDomainEnvelopeForEvent(
     }
 
     // agent.state.changed: 智能体状态栏使用专项协议，避免 UI 从事件类型猜测运行状态。
-    if (event.eventType === "agent.state.changed") {
+    if (event.eventType === EVENT_TYPES.AGENT_STATE_CHANGED) {
         safeSendRealtimeEnvelope(
             clients,
             client,
             {
-                type: "agent.state.changed",
+                type: EVENT_TYPES.AGENT_STATE_CHANGED,
                 payload: event.payload,
                 traceId: event.traceId,
             },
@@ -98,12 +104,12 @@ export function broadcastDomainEnvelopeForEvent(
     }
 
     // notification.created: 通知需要直接触发浏览器或页面内提醒，不能只依赖审计事件列表。
-    if (event.eventType === "notification.created") {
+    if (event.eventType === EVENT_TYPES.NOTIFICATION_CREATED) {
         safeSendRealtimeEnvelope(
             clients,
             client,
             {
-                type: "notification.created",
+                type: EVENT_TYPES.NOTIFICATION_CREATED,
                 payload: event.payload,
                 traceId: event.traceId,
             },
@@ -112,12 +118,12 @@ export function broadcastDomainEnvelopeForEvent(
     }
 
     // session.updated: 会话标题等列表字段需要专项推送，浏览器端收到后刷新列表和当前详情。
-    if (event.eventType === "session.updated") {
+    if (event.eventType === EVENT_TYPES.SESSION_UPDATED) {
         safeSendRealtimeEnvelope(
             clients,
             client,
             {
-                type: "session.updated",
+                type: EVENT_TYPES.SESSION_UPDATED,
                 payload: event.payload,
                 traceId: event.traceId,
             },
@@ -126,12 +132,12 @@ export function broadcastDomainEnvelopeForEvent(
     }
 
     // session.deleted: 会话删除会影响导航和当前详情，必须用专项包让前端立即迁移到草稿或其他会话。
-    if (event.eventType === "session.deleted") {
+    if (event.eventType === EVENT_TYPES.SESSION_DELETED) {
         safeSendRealtimeEnvelope(
             clients,
             client,
             {
-                type: "session.deleted",
+                type: EVENT_TYPES.SESSION_DELETED,
                 payload: event.payload,
                 traceId: event.traceId,
             },

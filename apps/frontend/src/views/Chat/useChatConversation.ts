@@ -13,6 +13,9 @@ import type {
     EventRecord,
     TaskRecord,
 } from "@zhixin/shared";
+import {
+    ACTIVE_TURN_STATE_STATUSES,
+} from "@zhixin/shared";
 
 import {
     createGroupedProcessRows,
@@ -511,13 +514,13 @@ function resolveCurrentTurnNotice(
     if (!activeTurn) {
         return "当前对话没有运行中的轮次。";
     }
-    if (activeTurn.status === "queued") {
+    if (activeTurn.status === ACTIVE_TURN_STATE_STATUSES.QUEUED) {
         return "当前对话当前轮次排队中：仅等待本对话上一项处理，不影响其他对话。";
     }
-    if (activeTurn.status === "waiting_user") {
+    if (activeTurn.status === ACTIVE_TURN_STATE_STATUSES.WAITING_USER) {
         return "当前对话当前轮次等待用户引导、审批或确认。";
     }
-    if (activeTurn.status === "running") {
+    if (activeTurn.status === ACTIVE_TURN_STATE_STATUSES.RUNNING) {
         return "当前对话当前轮次正在执行。";
     }
     return "当前对话当前轮次状态已由中心服务更新。";

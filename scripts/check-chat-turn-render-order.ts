@@ -622,3 +622,130 @@ assert(
   streamingAssistantRow?.rowId === "streaming-assistant-turn-order",
   "临时助手回复必须使用稳定轮次 ID，避免流式更新时整条消息重新挂载。",
 );
+
+const continuedMessages: ConversationMessage[] = [
+  {
+    messageId: "message-turn-1-user",
+    sessionId: "session-continue-order",
+    turnId: "turn-1",
+    role: "user",
+    contentMarkdown: "用浏览器查 GitHub 今日 AI 新技术。",
+    createdAt: "2026-06-26T08:00:00.000Z",
+  },
+  {
+    messageId: "message-turn-2-user",
+    sessionId: "session-continue-order",
+    turnId: "turn-2",
+    role: "user",
+    contentMarkdown: "继续",
+    createdAt: "2026-06-26T08:10:00.000Z",
+  },
+  {
+    messageId: "message-turn-2-assistant",
+    sessionId: "session-continue-order",
+    turnId: "turn-2",
+    role: "assistant",
+    contentMarkdown: "我会沿着上一轮失败原因继续说明。",
+    createdAt: "2026-06-26T08:10:30.000Z",
+  },
+];
+const firstTurnLateProcessRows = createGroupedProcessRows([
+  {
+    eventId: "event-turn-1-failed-late",
+    eventType: "tool.call.failed",
+    scopeType: "tool",
+    scopeId: "task-turn-1",
+    sessionId: "session-continue-order",
+    turnId: "turn-1",
+    taskId: "task-turn-1",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 22,
+    status: "failed",
+    occurredAt: "2026-06-26T08:03:00.000Z",
+    title: "模型调用失败",
+    summary: "502 Upstream request failed",
+    payload: {
+      toolKind: "model",
+      toolCallId: "tool-call-turn-1-failed",
+      errorMessage: "502 Upstream request failed",
+    },
+    errorCode: null,
+    traceId: "trace-turn-1-failed-late",
+  },
+]);
+const continuedRows = createConversationRenderRows(
+  continuedMessages,
+  [],
+  firstTurnLateProcessRows,
+);
+const continuedOrder = continuedRows.map((row) => {
+  if (row.rowKind === "message") {
+    return `${row.message.role}:${row.message.turnId}`;
+  }
+  return `${row.rowKind}:${row.process.turnId}`;
+});
+const firstTurnProcessIndex = continuedOrder.indexOf("process:turn-1");
+const secondTurnAssistantIndex = continuedOrder.indexOf("assistant:turn-2");
+
+assert(
+  firstTurnProcessIndex > -1,
+  "第一轮失败过程必须仍然可见。",
+);
+assert(
+  firstTurnProcessIndex < secondTurnAssistantIndex,
+  `第一轮过程不能漂移到第二轮助手回复后面，当前顺序为 ${continuedOrder.join(">")}`,
+);
+
+const orphanProcessRows = createGroupedProcessRows([
+  {
+    eventId: "event-orphan-turn-process",
+    eventType: "tool.call.failed",
+    scopeType: "tool",
+    scopeId: "task-orphan",
+    sessionId: "session-continue-order",
+    turnId: "turn-orphan",
+    taskId: "task-orphan",
+    stepId: null,
+    agentId: null,
+    projectId: null,
+    clientId: null,
+    sequence: 12,
+    status: "failed",
+    occurredAt: "2026-06-26T08:05:00.000Z",
+    title: "孤立历史过程",
+    summary: "历史轮次缺少消息锚点。",
+    payload: {
+      toolKind: "command",
+      toolCallId: "tool-call-orphan",
+      command: "node -v",
+      errorMessage: "历史轮次缺少消息锚点。",
+    },
+    errorCode: null,
+    traceId: "trace-orphan-turn-process",
+  },
+]);
+const orphanRows = createConversationRenderRows(
+  continuedMessages,
+  [],
+  orphanProcessRows,
+);
+const orphanOrder = orphanRows.map((row) => {
+  if (row.rowKind === "message") {
+    return `${row.message.role}:${row.message.turnId}`;
+  }
+  return `${row.rowKind}:${row.process.turnId}`;
+});
+const orphanProcessIndex = orphanOrder.indexOf("process:turn-orphan");
+const latestAssistantIndex = orphanOrder.indexOf("assistant:turn-2");
+
+assert(
+  orphanProcessIndex > -1,
+  "缺少消息锚点的带 turnId 历史过程必须保留为审计可见。",
+);
+assert(
+  orphanProcessIndex < latestAssistantIndex,
+  `缺少消息锚点的历史过程不能追加到最新回复后面，当前顺序为 ${orphanOrder.join(">")}`,
+);

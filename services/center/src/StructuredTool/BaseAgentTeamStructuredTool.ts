@@ -3,6 +3,10 @@ import type {
     ToolInputSchemaOutputType,
 } from "@langchain/core/tools";
 
+import {
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {AgentTeamToolScope} from "./agent-team-tool-shared.js";
 import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
 import type {
@@ -35,7 +39,7 @@ export abstract class BaseAgentTeamStructuredTool<
             );
             return {
                 outputText: JSON.stringify(result),
-                status: "completed",
+                status: TASK_STATUSES.COMPLETED,
             };
         } catch (error) {
             const failureReason = error instanceof Error
@@ -43,7 +47,7 @@ export abstract class BaseAgentTeamStructuredTool<
                 : "AGENT_TEAM_TOOL_FAILED";
             return {
                 outputText: failureReason,
-                status: "failed",
+                status: TASK_STATUSES.FAILED,
             };
         }
     }

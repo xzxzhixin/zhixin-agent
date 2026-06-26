@@ -1,5 +1,9 @@
 import {z} from "zod/v3";
 
+import {
+    EVENT_TYPES,
+} from "@zhixin/shared";
+
 import {createDataAccess} from "../data-access/index.js";
 import {
     type AgentTeamToolScope,
@@ -105,7 +109,7 @@ function executeAddAgentTeamMemberInStructuredTool(
     appendAgentTeamToolEvent(
         scope,
         {
-            eventType: "agent.team.member.added",
+            eventType: EVENT_TYPES.AGENT_TEAM_MEMBER_ADDED,
             title: `加入智能体：${agentName}`,
             summary: exists
                 ? "该长期智能体已经在 team 中。"

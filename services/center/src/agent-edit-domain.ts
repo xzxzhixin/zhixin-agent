@@ -4,6 +4,11 @@ import {randomUUID} from "node:crypto";
 import type {
     PendingEditRecord,
 } from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import type {CenterEventStore} from "./events.js";
@@ -87,15 +92,15 @@ export function recordPendingFileEdit(
 
     if (events) {
         events.append({
-            eventType: "edit.pending.created",
-            scopeType: "file",
+            eventType: EVENT_TYPES.EDIT_PENDING_CREATED,
+            scopeType: EVENT_SCOPE_TYPES.FILE,
             scopeId: record.filePath,
             sessionId: record.sessionId,
             turnId: null,
             taskId: null,
             agentId: record.agentId,
             projectId: null,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "待确认编辑已创建",
             summary: record.filePath,
             payload: {

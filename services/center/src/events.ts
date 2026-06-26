@@ -1,6 +1,12 @@
 import {randomUUID} from "node:crypto";
 
-import type {EventRecord} from "@zhixin/shared";
+import {
+    EVENT_TYPE_SUFFIXES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+    type EventRecord,
+    type EventScopeType,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "./database.js";
 import {createDataAccess} from "./data-access";
@@ -74,7 +80,7 @@ export class CenterEventStore {
      */
     append(input: {
         eventType: string;
-        scopeType: string;
+        scopeType: EventScopeType;
         scopeId: string | null;
         sessionId: string | null;
         turnId: string | null;
@@ -235,13 +241,13 @@ async function writeCenterEventToLog(
  * @returns 日志等级。
  */
 function resolveCenterEventLogLevel(event: EventRecord): CenterLogLevel {
-    if (event.status === "failed" || event.errorCode) {
+    if (event.status === TASK_STATUSES.FAILED || event.errorCode) {
         return "error";
     }
     if (isStreamingCenterEvent(event)) {
         return "debug";
     }
-    if (event.status === "running" || event.eventType.endsWith(".started")) {
+    if (event.status === TASK_STATUSES.RUNNING || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.STARTED)) {
         return "debug";
     }
     return "info";
@@ -254,9 +260,9 @@ function resolveCenterEventLogLevel(event: EventRecord): CenterLogLevel {
  * @returns 属于流式输出时返回 true。
  */
 function isStreamingCenterEvent(event: EventRecord): boolean {
-    return event.eventType === "model.stream.delta"
-        || event.eventType === "thinking.delta"
-        || event.eventType === "tool.command.output"
-        || event.eventType.endsWith(".delta")
-        || event.eventType.endsWith(".output");
+    return event.eventType === EVENT_TYPES.MODEL_STREAM_DELTA
+        || event.eventType === EVENT_TYPES.THINKING_DELTA
+        || event.eventType === EVENT_TYPES.TOOL_COMMAND_OUTPUT
+        || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.DELTA)
+        || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.OUTPUT);
 }

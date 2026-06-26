@@ -1,3 +1,7 @@
+import {
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import {executeCreateLongTermAgentTool} from "./create-long-term-agent-tool.js";
 import type {
     DeepAgentsToolExecutionContext,
@@ -28,6 +32,6 @@ export function executeCreateLongTermAgentForTool(
                 arg,
             ),
         ),
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
     };
 }

@@ -1,6 +1,11 @@
 import {spawn} from "node:child_process";
 
-import type {UnifiedToolCapability} from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+    type UnifiedToolCapability,
+} from "@zhixin/shared";
 
 import type {CenterEventStore} from "../events.js";
 import {
@@ -52,7 +57,7 @@ export interface CommandToolExecutionResult {
     /** command: 展示用命令摘要。 */
     command: string;
     /** status: 命令状态。 */
-    status: "completed" | "failed";
+    status: typeof TASK_STATUSES.COMPLETED | typeof TASK_STATUSES.FAILED;
     /** outputSummary: 命令输出摘要。 */
     outputSummary: string;
     /** failureReason: 失败原因，成功时为 null。 */
@@ -95,13 +100,13 @@ export async function executeCommandTool(
     }
     const command = execution.displayCommand;
     events.append({
-        eventType: "tool.command.started",
-        scopeType: "tool",
+        eventType: EVENT_TYPES.TOOL_COMMAND_STARTED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "命令工具开始",
         summary: request.inputSummary,
         payload: withOptionalGraphCheckpoint({
@@ -191,13 +196,13 @@ export async function executeCommandTool(
             }
             chunks.push(normalizedChunk);
             events.append({
-                eventType: "tool.command.output",
-                scopeType: "tool",
+                eventType: EVENT_TYPES.TOOL_COMMAND_OUTPUT,
+                scopeType: EVENT_SCOPE_TYPES.TOOL,
                 scopeId: taskId,
                 sessionId,
                 turnId,
                 taskId,
-                status: "running",
+                status: TASK_STATUSES.RUNNING,
                 title: "命令工具输出",
                 summary: normalizedChunk,
                 payload: withOptionalGraphCheckpoint({
@@ -293,13 +298,13 @@ function resolveCommandToolCancelledResult(
     const outputSummary = chunks.join("\n").trim();
     const failureReason = `COMMAND_CANCELLED: ${reason}`;
     const event = events.append({
-        eventType: "tool.command.cancelled",
-        scopeType: "tool",
+        eventType: EVENT_TYPES.TOOL_COMMAND_CANCELLED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
-        status: "cancelled",
+        status: TASK_STATUSES.CANCELLED,
         title: "命令工具已取消",
         summary: failureReason,
         payload: withOptionalGraphCheckpoint({
@@ -317,7 +322,7 @@ function resolveCommandToolCancelledResult(
     resolve({
         toolKind: "command",
         command,
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         outputSummary,
         failureReason,
         traceId: event.traceId,
@@ -617,13 +622,13 @@ function resolveCommandToolInputFailure(
     // failureReason: 模型没有给出可执行命令时属于工具参数错误，不能继续传空字符串给 spawn。
     const failureReason = "COMMAND_INPUT_EMPTY: 命令工具缺少 shellCommand 或 executablePath。";
     const event = events.append({
-        eventType: "tool.call.failed",
-        scopeType: "tool",
+        eventType: EVENT_TYPES.TOOL_CALL_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         title: "命令工具失败",
         summary: failureReason,
         payload: withOptionalGraphCheckpoint({
@@ -640,7 +645,7 @@ function resolveCommandToolInputFailure(
     return {
         toolKind: "command",
         command: "",
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         outputSummary: "",
         failureReason,
         traceId: event.traceId,
@@ -677,16 +682,16 @@ function resolveCommandToolResult(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     const outputSummary = chunks.join("\n").trim();
-    const status = exitCode === 0 ? "completed" : "failed";
+    const status = exitCode === 0 ? TASK_STATUSES.COMPLETED : TASK_STATUSES.FAILED;
     const event = events.append({
-        eventType: status === "completed" ? "tool.command.completed" : "tool.call.failed",
-        scopeType: "tool",
+        eventType: status === TASK_STATUSES.COMPLETED ? EVENT_TYPES.TOOL_COMMAND_COMPLETED : EVENT_TYPES.TOOL_CALL_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
         status,
-        title: status === "completed" ? "命令工具完成" : "命令工具失败",
+        title: status === TASK_STATUSES.COMPLETED ? "命令工具完成" : "命令工具失败",
         summary: outputSummary || "命令没有输出。",
         payload: withOptionalGraphCheckpoint({
             toolId: capability?.toolId ?? "builtin.command.run",
@@ -696,7 +701,7 @@ function resolveCommandToolResult(
             command,
             outputSummary,
             exitCode,
-            failureReason: status === "completed" ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
+            failureReason: status === TASK_STATUSES.COMPLETED ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
         }, graphCheckpoint),
     });
 
@@ -705,7 +710,7 @@ function resolveCommandToolResult(
         command,
         status,
         outputSummary,
-        failureReason: status === "completed" ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
+        failureReason: status === TASK_STATUSES.COMPLETED ? null : outputSummary || "COMMAND_EXIT_NON_ZERO",
         traceId: event.traceId,
     });
 }

@@ -367,6 +367,7 @@ export class SessionRepository {
             .prepare(`
                 SELECT id               AS messageId,
                        session_id       AS sessionId,
+                       'main'           AS agentId,
                        turn_id          AS turnId,
                        role,
                        content_markdown AS contentMarkdown,
@@ -376,6 +377,48 @@ export class SessionRepository {
                 ORDER BY created_at ASC
             `)
             .all(sessionId) as ConversationMessage[];
+    }
+
+    /**
+     * listRecentMessagesForContinuation：读取续接上下文最近历史消息。
+     *
+     * @param input 会话 ID、当前轮次 ID 和读取数量。
+     * @returns 按创建时间升序排列的最近历史消息，不包含当前轮次消息。
+     */
+    listRecentMessagesForContinuation(input: {
+        sessionId: string;
+        currentTurnId: string;
+        limit: number;
+    }): ConversationMessage[] {
+        return this.database.connection()
+            .prepare(`
+                SELECT id               AS messageId,
+                       session_id       AS sessionId,
+                       'main'           AS agentId,
+                       turn_id          AS turnId,
+                       role,
+                       content_markdown AS contentMarkdown,
+                       created_at       AS createdAt
+                FROM (
+                    SELECT id,
+                           session_id,
+                           turn_id,
+                           role,
+                           content_markdown,
+                           created_at
+                    FROM messages
+                    WHERE session_id = ?
+                      AND (turn_id IS NULL OR turn_id <> ?)
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                )
+                ORDER BY created_at ASC
+            `)
+            .all(
+                input.sessionId,
+                input.currentTurnId,
+                input.limit,
+            ) as ConversationMessage[];
     }
 
     /**

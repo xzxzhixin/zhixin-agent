@@ -1,5 +1,10 @@
 import {AIMessage} from "@langchain/core/messages";
 
+import {
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import {CenterLogger} from "../logger.js";
 import type {DeepAgentsToolExecutionContext} from "../StructuredTool/index.js";
 import {CenterAgentMiddleware} from "./CenterAgentMiddleware.js";
@@ -76,8 +81,8 @@ export class CenterModelCallLogMiddleware extends CenterAgentMiddleware {
     private buildBasePayload(extraPayload: Record<string, unknown>): Record<string, unknown> {
         const provider = this.context.runtime.provider;
         return {
-            eventType: "model.call.raw_response",
-            status: "completed",
+            eventType: EVENT_TYPES.MODEL_CALL_RAW_RESPONSE,
+            status: TASK_STATUSES.COMPLETED,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,

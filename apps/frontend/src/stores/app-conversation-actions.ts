@@ -18,9 +18,17 @@ import {
 } from "@zhixin/ui";
 import type {
     AgentSubConversationDetail,
+    AgentRuntimeStatus,
     EventRecord,
     PendingEditRecord,
     SessionDetailResult,
+} from "@zhixin/shared";
+import {
+    AGENT_RUNTIME_STATUSES,
+    ACTIVE_TURN_STATE_STATUSES,
+    EVENT_TYPE_PREFIXES,
+    EVENT_TYPES,
+    FINAL_TURN_STATUSES,
 } from "@zhixin/shared";
 
 import {
@@ -57,10 +65,9 @@ interface TaskUpdatedPayload {
  * @returns 命中执行态收敛状态时返回 true。
  */
 function isTerminalExecutionStatus(status: string | undefined): boolean {
-    return status === "completed"
-        || status === "failed"
-        || status === "cancelled"
-        || status === "waiting_user";
+    return FINAL_TURN_STATUSES.some((terminalStatus) => {
+        return terminalStatus === status;
+    });
 }
 
 /**
@@ -90,6 +97,27 @@ function isCompletedEvent(event: EventRecord): boolean {
     const payload = event.payload as {status?: string};
     return isTerminalExecutionStatus(event.status)
         || isTerminalExecutionStatus(payload.status);
+}
+
+/**
+ * resolveEventSessionId：解析实时事件所属会话。
+ *
+ * 关键逻辑：EventRecord 协议没有顶层 sessionId 字段，部分终态事件会把明确 sessionId 放在 payload；
+ * 前端必须使用这个明确字段判断归属，否则会丢弃 turn.state.changed 并让停止按钮残留。
+ *
+ * @param event 中心服务实时事件。
+ * @returns 事件明确所属会话；无法确定时返回 null。
+ */
+function resolveEventSessionId(event: EventRecord): string | null {
+    const topLevelSessionId = (event as EventRecord & {sessionId?: string}).sessionId;
+    if (typeof topLevelSessionId === "string" && topLevelSessionId.length > 0) {
+        return topLevelSessionId;
+    }
+    const payload = event.payload as {sessionId?: string};
+    if (typeof payload.sessionId === "string" && payload.sessionId.length > 0) {
+        return payload.sessionId;
+    }
+    return null;
 }
 
 /**
@@ -146,8 +174,8 @@ function isRecoverableTurnRunning(turn: {
         return false;
     }
     if (
-        turn.status !== "queued"
-        && turn.status !== "running"
+        turn.status !== ACTIVE_TURN_STATE_STATUSES.QUEUED
+        && turn.status !== ACTIVE_TURN_STATE_STATUSES.RUNNING
     ) {
         return false;
     }
@@ -586,7 +614,7 @@ export function createConversationActions() {
                 /** taskId: 被停止的当前任务 ID；没有运行任务时为 null。 */
                 taskId: string | null;
                 /** status: 停止后的状态。 */
-                status: "cancelled" | "idle";
+                status: typeof ACTIVE_TURN_STATE_STATUSES.CANCELLED | typeof ACTIVE_TURN_STATE_STATUSES.IDLE;
                 /** cancelledStepCount: 本次同步取消的运行中步骤数量。 */
                 cancelledStepCount: number;
             }>("session.turn.cancel", {
@@ -642,7 +670,7 @@ export function createConversationActions() {
                         sessionId,
                         turnNumber: this.sessionDetail.turns.length + 1,
                         userMessageId: sent.messageId,
-                        status: "running",
+                        status: ACTIVE_TURN_STATE_STATUSES.RUNNING,
                         startedAt: now,
                         endedAt: null,
                         durationMs: null,
@@ -656,7 +684,7 @@ export function createConversationActions() {
                         taskId: sent.taskId,
                         turnId: sent.turnId,
                         sessionId,
-                        status: "running",
+                        status: ACTIVE_TURN_STATE_STATUSES.RUNNING,
                         title: "正在生成回复",
                         createdAt: now,
                         updatedAt: now,
@@ -778,12 +806,15 @@ export function createConversationActions() {
                 requestTurnState: async (sessionId) => {
                     return this.requestActiveTurnState(sessionId);
                 },
-                getLocalLastSequence: () => {
+                getLocalLastSequence: (turnId) => {
                     return this.events.reduce(
                         (
                             maxSequence,
                             event,
                         ) => {
+                            if (event.turnId !== turnId) {
+                                return maxSequence;
+                            }
                             return Math.max(
                                 maxSequence,
                                 event.sequence,
@@ -1068,14 +1099,15 @@ export function createConversationActions() {
                     this.connectionState = state;
                 },
                 onMessage: (message) => {
-                    if (message.type === "event.appended") {
+                        if (message.type === "event.appended") {
                         const event = message.payload as EventRecord;
-                        if (event.sessionId !== this.activeSessionId) {
+                        const eventSessionId = resolveEventSessionId(event);
+                        if (eventSessionId !== this.activeSessionId) {
                             return;
                         }
                         this.replaceRealtimeEvent(event);
                         this.turnStateReconciler?.markRealtimeActivity(
-                            event.sessionId,
+                            eventSessionId,
                             event.turnId,
                             event.occurredAt,
                             event.sequence,
@@ -1083,16 +1115,16 @@ export function createConversationActions() {
                         if (shouldRefreshComposerContextUsage(event)) {
                             void this.updateComposerContextUsageFromExecution();
                         }
-                        if (event.eventType === "message.created"
+                        if (event.eventType === EVENT_TYPES.MESSAGE_CREATED
                             && (event.payload as {role?: string}).role === "assistant") {
                             // 助手消息固化后必须刷新当前会话快照，否则漏掉流式片段时只能靠停止按钮触发刷新。
                             void this.loadActiveSessionSnapshot();
                         }
-                        if (event.eventType === "model.stream.completed") {
+                        if (event.eventType === EVENT_TYPES.MODEL_STREAM_COMPLETED) {
                             // 模型流完成后先做一次快照兜底；如果后续消息固化或轮次完成事件漏收，UI 也不会长期停在流式运行态。
                             void this.loadActiveSessionSnapshot();
                         }
-                        if (event.eventType.startsWith("task.step.")) {
+                        if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TASK_STEP)) {
                             // task.step.* 事件只提示 task_steps 事实源变化；延后一拍读取快照，避免实时事件先到而步骤表读取仍为空。
                             window.setTimeout(
                                 () => {
@@ -1101,32 +1133,32 @@ export function createConversationActions() {
                                 100,
                             );
                         }
-                        if (event.eventType === "turn.updated"
+                        if (event.eventType === EVENT_TYPES.TURN_UPDATED
                             && isCompletedEvent(event)) {
                             // 轮次完成状态来自事件载荷；被动端即使未 tracking 当前轮次，也必须强制收敛运行态。
                             void this.forceTerminalTurnRecovery(
-                                event.sessionId,
+                                eventSessionId,
                                 event.turnId,
                             );
                         }
-                        if (event.eventType === "turn.state.changed"
+                        if (event.eventType === EVENT_TYPES.TURN_STATE_CHANGED
                             && isCompletedEvent(event)) {
                             // 轻量轮次状态事件是状态收敛器的统一终态信号，优先按中心服务事实清理本地运行态。
                             void this.forceTerminalTurnRecovery(
-                                event.sessionId,
+                                eventSessionId,
                                 event.turnId,
                             );
                         }
-                        if (event.eventType === "task.updated"
+                        if (event.eventType === EVENT_TYPES.TASK_UPDATED
                             && isCompletedEvent(event)) {
                             // 任务终态事件也可能先于轮次终态到达；有明确 turnId 时先清理本地运行态。
                             void this.forceTerminalTurnRecovery(
-                                event.sessionId,
+                                eventSessionId,
                                 event.turnId,
                             );
                         }
                     }
-                    if (message.type === "task.updated") {
+                    if (message.type === EVENT_TYPES.TASK_UPDATED) {
                         const taskUpdate = message.payload as TaskUpdatedPayload;
                         const activeTaskIds = new Set(
                             this.sessionDetail?.tasks.map((task) => task.taskId) ?? [],
@@ -1144,7 +1176,7 @@ export function createConversationActions() {
                             );
                         }
                     }
-                    if (message.type === "agent.state.changed") {
+                    if (message.type === EVENT_TYPES.AGENT_STATE_CHANGED) {
                         this.applyAgentRuntimeState(message.payload as {
                             agentId: string;
                             status: string;
@@ -1152,10 +1184,10 @@ export function createConversationActions() {
                             updatedAt: string;
                         });
                     }
-                    if (message.type === "session.updated") {
+                    if (message.type === EVENT_TYPES.SESSION_UPDATED) {
                         void this.handleSessionUpdated(message.payload as SessionUpdatedPayload);
                     }
-                    if (message.type === "session.deleted") {
+                    if (message.type === EVENT_TYPES.SESSION_DELETED) {
                         void this.handleSessionDeleted(message.payload as {
                             sessionId: string;
                             sessionType: "normal" | "project";
@@ -1285,15 +1317,20 @@ export function createConversationActions() {
          * @returns 中文状态。
          */
         formatAgentRuntimeStatus(status: string): string {
-            const labels: Record<string, string> = {
-                idle: "空闲",
-                working: "工作中",
-                queued: "排队中",
-                waiting_user: "等待用户",
-                ended: "已结束",
-                failed: "失败",
+            const labels: Record<AgentRuntimeStatus, string> = {
+                [AGENT_RUNTIME_STATUSES.IDLE]: "空闲",
+                [AGENT_RUNTIME_STATUSES.WORKING]: "工作中",
+                [AGENT_RUNTIME_STATUSES.QUEUED]: "排队中",
+                [AGENT_RUNTIME_STATUSES.WAITING_USER]: "等待用户",
+                [AGENT_RUNTIME_STATUSES.ENDED]: "已结束",
+                [AGENT_RUNTIME_STATUSES.FAILED]: "失败",
             };
-            return labels[status] ?? "未知状态";
+            return Object.prototype.hasOwnProperty.call(
+                labels,
+                status,
+            )
+                ? labels[status as AgentRuntimeStatus]
+                : "未知状态";
         },
     };
 }
@@ -1350,10 +1387,10 @@ function mapPendingEditToComposerFile(record: PendingEditRecord) {
  * @returns 需要刷新输入框当前窗口 token 总览时返回 true。
  */
 function shouldRefreshComposerContextUsage(event: EventRecord): boolean {
-    return event.eventType === "model.stream.started"
-        || event.eventType === "model.stream.delta"
-        || event.eventType === "model.stream.completed"
-        || event.eventType === "model.tool.result.appended"
-        || event.eventType === "message.created"
-        || event.eventType === "message.assistant.created";
+    return event.eventType === EVENT_TYPES.MODEL_STREAM_STARTED
+        || event.eventType === EVENT_TYPES.MODEL_STREAM_DELTA
+        || event.eventType === EVENT_TYPES.MODEL_STREAM_COMPLETED
+        || event.eventType === EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED
+        || event.eventType === EVENT_TYPES.MESSAGE_CREATED
+        || event.eventType === EVENT_TYPES.MESSAGE_ASSISTANT_CREATED;
 }

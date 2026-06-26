@@ -1,5 +1,9 @@
 import {z} from "zod/v3";
 
+import {
+    EVENT_TYPES,
+} from "@zhixin/shared";
+
 import {createDataAccess} from "../data-access/index.js";
 import {
     type AgentTeamToolScope,
@@ -79,7 +83,7 @@ function executeDisbandAgentTeamInStructuredTool(
     appendAgentTeamToolEvent(
         scope,
         {
-            eventType: "agent.team.disbanded",
+            eventType: EVENT_TYPES.AGENT_TEAM_DISBANDED,
             title: "解散协作 team",
             summary: deletedCount > 0
                 ? "已物理删除 team 记录和成员关系。"

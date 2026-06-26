@@ -1,5 +1,9 @@
 import {z} from "zod/v3";
 
+import {
+    EVENT_TYPES,
+} from "@zhixin/shared";
+
 import {createDataAccess} from "../data-access/index.js";
 import {
     type AgentTeamToolScope,
@@ -91,7 +95,7 @@ function executeRemoveAgentTeamMemberInStructuredTool(
     appendAgentTeamToolEvent(
         scope,
         {
-            eventType: "agent.team.member.removed",
+            eventType: EVENT_TYPES.AGENT_TEAM_MEMBER_REMOVED,
             title: `移除智能体：${agentName}`,
             summary: removedCount > 0
                 ? "已从 team 移除该成员。"

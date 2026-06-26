@@ -1,5 +1,11 @@
 import {AIMessage} from "@langchain/core/messages";
 
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {DeepAgentsToolExecutionContext} from "../StructuredTool/index.js";
 import {CenterAgentMiddleware} from "./CenterAgentMiddleware.js";
 
@@ -93,13 +99,13 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
         this.lastModelMessageDiagnostics = buildModelMessageDiagnostics(lastMessage);
         this.context.lastModelMessageDiagnostics = this.lastModelMessageDiagnostics;
         this.context.input.events.append({
-            eventType: "model.tool_calls.received",
-            scopeType: "model",
+            eventType: EVENT_TYPES.MODEL_TOOL_CALLS_RECEIVED,
+            scopeType: EVENT_SCOPE_TYPES.MODEL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "模型工具调用结果",
             summary: lastMessage.tool_calls && lastMessage.tool_calls.length > 0
                 ? "模型返回了结构化工具调用。"
@@ -123,13 +129,13 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
             const argumentKeys = Object.keys(request.toolCall.args ?? {});
             const failureReason = `MODEL_TOOL_NAME_MISSING:${argumentKeys.join(",")}`;
             this.context.input.events.append({
-                eventType: "model.tool_call.name_missing",
-                scopeType: "tool",
+                eventType: EVENT_TYPES.MODEL_TOOL_CALL_NAME_MISSING,
+                scopeType: EVENT_SCOPE_TYPES.TOOL,
                 scopeId: this.context.input.sent.taskId,
                 sessionId: this.context.input.sent.sessionId,
                 turnId: this.context.input.sent.turnId,
                 taskId: this.context.input.sent.taskId,
-                status: "failed",
+                status: TASK_STATUSES.FAILED,
                 title: "工具名缺失",
                 summary: "模型返回了空工具名，中心服务按协议错误处理，不恢复工具名。",
                 payload: {
@@ -160,13 +166,13 @@ export class CenterToolChoiceMiddleware extends CenterAgentMiddleware {
             return message.getType() === "tool";
         });
         this.context.input.events.append({
-            eventType: "model.tool_choice.evaluated",
-            scopeType: "model",
+            eventType: EVENT_TYPES.MODEL_TOOL_CHOICE_EVALUATED,
+            scopeType: EVENT_SCOPE_TYPES.MODEL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "工具选择策略",
             summary: "Deep Agents 使用模型自主结构化工具选择。",
             payload: {

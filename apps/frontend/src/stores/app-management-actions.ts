@@ -12,6 +12,7 @@ import type {
     UsageFilters,
 } from "@zhixin/api-client";
 import {
+    ACTIVE_TURN_STATE_STATUSES,
     isRecord,
 } from "@zhixin/shared";
 
@@ -627,8 +628,8 @@ export function createManagementActions() {
             // 窗口失焦后 token 用量保持：该状态写入 composerContextUsageState 和 composerSettings，不绑定 hover 弹层或 DOM 生命周期。
             const activeTurnId = this.sessionDetail?.turns.findLast((turn) => {
                 return turn.endedAt === null
-                    || turn.status === "running"
-                    || turn.status === "waiting_user";
+                    || turn.status === ACTIVE_TURN_STATE_STATUSES.RUNNING
+                    || turn.status === ACTIVE_TURN_STATE_STATUSES.WAITING_USER;
             })?.turnId ?? this.sessionDetail?.turns.at(-1)?.turnId ?? null;
             const contextUsageWindowKey = JSON.stringify({
                 sessionId: this.activeSessionId,

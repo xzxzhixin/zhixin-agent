@@ -1,5 +1,10 @@
 import {randomUUID} from "node:crypto";
 
+import {
+    EVENT_SCOPE_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
@@ -82,7 +87,7 @@ export function appendAgentTeamToolEvent(
 ): void {
     scope.events.append({
         eventType: input.eventType,
-        scopeType: "agent-team",
+        scopeType: EVENT_SCOPE_TYPES.AGENT_TEAM,
         scopeId: typeof input.payload.teamId === "string"
             ? input.payload.teamId
             : scope.taskId,
@@ -90,7 +95,7 @@ export function appendAgentTeamToolEvent(
         turnId: scope.turnId,
         taskId: scope.taskId,
         agentId: scope.creatorAgentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: input.title,
         summary: input.summary,
         payload: {

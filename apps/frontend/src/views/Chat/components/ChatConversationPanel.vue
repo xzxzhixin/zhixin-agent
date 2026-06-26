@@ -19,6 +19,9 @@ import type {
   ConversationTurn,
 } from "@zhixin/shared";
 import {
+  ACTIVE_TURN_STATE_STATUSES,
+} from "@zhixin/shared";
+import {
   createConversationRenderRows,
   createMessageTimelineNodes,
   flattenAgentTreeRows,
@@ -278,8 +281,8 @@ const activeRunningTurn = computed(() => {
       return false;
     }
     if (
-      turn.status !== "queued"
-      && turn.status !== "running"
+      turn.status !== ACTIVE_TURN_STATE_STATUSES.QUEUED
+      && turn.status !== ACTIVE_TURN_STATE_STATUSES.RUNNING
     ) {
       return false;
     }

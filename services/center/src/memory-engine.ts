@@ -5,6 +5,12 @@ import {
 
 import {Memory} from "mem0ai/oss";
 
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {CenterEventStore} from "./events.js";
 import type {AttachmentMemorySource} from "./domain/AttachmentMemoryService.js";
 
@@ -228,15 +234,15 @@ export async function syncTurnMemoryToMem0(
                 },
             );
             events.append({
-                eventType: "memory.mem0.synced",
-                scopeType: "memory",
+                eventType: EVENT_TYPES.MEMORY_MEM0_SYNCED,
+                scopeType: EVENT_SCOPE_TYPES.MEMORY,
                 scopeId: source.sourceTurnId,
                 sessionId: source.sourceSessionId,
                 turnId: source.sourceTurnId,
                 taskId: null,
                 agentId: source.agentId,
                 projectId: source.projectId,
-                status: "completed",
+                status: TASK_STATUSES.COMPLETED,
                 title: "Mem0 语义记忆同步完成",
                 summary: "Markdown 长期记忆已同步到 Mem0 本地索引。",
                 payload: {
@@ -255,15 +261,15 @@ export async function syncTurnMemoryToMem0(
                 ? error.message
                 : "MEM0_SYNC_FAILED";
             events.append({
-                eventType: "memory.mem0.failed",
-                scopeType: "memory",
+                eventType: EVENT_TYPES.MEMORY_MEM0_FAILED,
+                scopeType: EVENT_SCOPE_TYPES.MEMORY,
                 scopeId: source.sourceTurnId,
                 sessionId: source.sourceSessionId,
                 turnId: source.sourceTurnId,
                 taskId: null,
                 agentId: source.agentId,
                 projectId: source.projectId,
-                status: "failed",
+                status: TASK_STATUSES.FAILED,
                 title: "Mem0 语义记忆同步失败",
                 summary: errorMessage,
                 payload: {
@@ -279,15 +285,15 @@ export async function syncTurnMemoryToMem0(
         }
     }
     events.append({
-        eventType: "memory.mem0.skipped",
-        scopeType: "memory",
+        eventType: EVENT_TYPES.MEMORY_MEM0_SKIPPED,
+        scopeType: EVENT_SCOPE_TYPES.MEMORY,
         scopeId: source.sourceTurnId,
         sessionId: source.sourceSessionId,
         turnId: source.sourceTurnId,
         taskId: null,
         agentId: source.agentId,
         projectId: source.projectId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "Mem0 语义记忆同步跳过",
         summary: "Mem0 OSS 适配层已初始化本地目录，当前未配置中心服务供应商网关，避免绕过中心服务直接调用外部 LLM/Embedding。",
         payload: {

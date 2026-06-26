@@ -1,3 +1,9 @@
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import type {SendMessageResponse} from "../types.js";
@@ -49,14 +55,14 @@ export async function commitMainAgentMemoryAfterTurn(
         )
     ) {
         events.append({
-            eventType: "memory.write.skipped",
-            scopeType: "agent",
+            eventType: EVENT_TYPES.MEMORY_WRITE_SKIPPED,
+            scopeType: EVENT_SCOPE_TYPES.AGENT,
             scopeId: "main",
             sessionId: sent.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             agentId: "main",
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "记忆写入跳过",
             summary: "本轮回复不满足主智能体长期记忆固化条件，已跳过写入。",
             payload: withOptionalGraphCheckpoint({
@@ -86,14 +92,14 @@ export async function commitMainAgentMemoryAfterTurn(
         memoryInput,
     );
     events.append({
-        eventType: "memory.write.graph_checkpoint",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.MEMORY_WRITE_GRAPH_CHECKPOINT,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: memoryInput.agentId,
         sessionId: sent.sessionId,
         turnId: sent.turnId,
         taskId: sent.taskId,
         agentId: memoryInput.agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "记忆图检查点",
         summary: "主智能体记忆写入已绑定当前 LangGraph 节点。",
         payload: withOptionalGraphCheckpoint({
@@ -105,14 +111,14 @@ export async function commitMainAgentMemoryAfterTurn(
     });
     if (attachmentSources.length > 0) {
         events.append({
-            eventType: "memory.attachment.summary.skipped",
-            scopeType: "memory",
+            eventType: EVENT_TYPES.MEMORY_ATTACHMENT_SUMMARY_SKIPPED,
+            scopeType: EVENT_SCOPE_TYPES.MEMORY,
             scopeId: sent.turnId,
             sessionId: sent.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             agentId: memoryInput.agentId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "附件摘要跳过",
             summary: "本轮已保存附件来源，真实附件解析和摘要追加不在当前任务实现。",
             payload: withOptionalGraphCheckpoint({

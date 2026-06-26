@@ -1,4 +1,7 @@
-import {type TaskRecord} from "@zhixin/shared";
+import type {
+    ConversationTurnStatus,
+    TaskRecord,
+} from "@zhixin/shared";
 import {createErrorResponse, createSuccessResponse} from "../helpers.js";
 import {
     createTaskStep,
@@ -80,7 +83,7 @@ export function registerTaskRoutes(context: CenterApiRouteContext): void {
     app.post("/api/turn/update-status", async (request) => {
             const body = request.body as {
                 turnId?: string;
-                status?: "waiting_user" | "completed" | "failed" | "cancelled";
+                status?: ConversationTurnStatus;
             };
     
             if (!body.turnId || !body.status) {

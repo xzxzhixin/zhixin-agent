@@ -10,6 +10,13 @@ import type {
     TurnGraphCheckpoint,
 } from "@zhixin/shared";
 import {
+    EVENT_TYPE_PREFIXES,
+    EVENT_TYPE_SUFFIXES,
+    EVENT_TYPES,
+    FINAL_TASK_STATUSES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+import {
     CircleCheck,
     CircleClose,
     Clock,
@@ -310,14 +317,14 @@ export function resolveProcessEventStatus(event: EventRecord): ProcessEventStatu
         };
     }
 
-    if (event.eventType.endsWith(".delta") || event.eventType.endsWith(".started")) {
+    if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.DELTA) || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.STARTED)) {
         return {
             status: "running",
             label: "生成中",
         };
     }
 
-    if (event.eventType.endsWith(".completed")) {
+    if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.COMPLETED)) {
         return {
             status: "completed",
             label: "已完成",
@@ -384,10 +391,10 @@ function readPayloadStatus(event: EventRecord): ProcessEventStatusMeta | null {
  * @returns 是否属于失败事件。
  */
 function isFailedEventType(eventType: string): boolean {
-    return eventType.endsWith(".failed")
-        || eventType.endsWith(".error")
-        || eventType.includes(".failed.")
-        || eventType.includes(".error.");
+    return eventType.endsWith(EVENT_TYPE_SUFFIXES.FAILED)
+        || eventType.endsWith(EVENT_TYPE_SUFFIXES.ERROR)
+        || eventType.includes(`${EVENT_TYPE_SUFFIXES.FAILED}.`)
+        || eventType.includes(`${EVENT_TYPE_SUFFIXES.ERROR}.`);
 }
 
 /**
@@ -398,7 +405,7 @@ function isFailedEventType(eventType: string): boolean {
  */
 export function createProcessMessageRow(event: EventRecord): ProcessMessageRow {
     const statusMeta = resolveProcessEventStatus(event);
-    if (event.eventType.startsWith("thinking.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.THINKING)) {
         return {
             rowId: event.eventId,
             kind: "thinking",
@@ -572,7 +579,7 @@ function resolveLaterFinalTaskStatus(
         return null;
     }
     const finalTaskEvent = events.find((event) => {
-        if (event.eventType !== "task.updated"
+        if (event.eventType !== EVENT_TYPES.TASK_UPDATED
             || event.turnId !== latestEvent.turnId
             || event.sequence <= latestEvent.sequence) {
             return false;
@@ -659,9 +666,9 @@ function resolveTaskUpdatedEventStatus(event: EventRecord): string {
  * @returns 是完成、失败或取消时返回 true。
  */
 function isFinalTaskStatus(status: string): status is TaskStatus {
-    return status === "completed"
-        || status === "failed"
-        || status === "cancelled";
+    return FINAL_TASK_STATUSES.some((finalStatus) => {
+        return finalStatus === status;
+    });
 }
 
 /**
@@ -674,7 +681,7 @@ function resolveProcessGroupKey(event: EventRecord): string {
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
-    if (event.eventType.startsWith("graph.node.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.GRAPH_NODE)) {
         const graphCheckpoint = readEventGraphCheckpoint(event);
         return [
             event.turnId ?? "no-turn",
@@ -707,7 +714,7 @@ function resolveProcessGroupKey(event: EventRecord): string {
             commandGroupId,
         ].join(":");
     }
-    if (event.eventType.startsWith("tool.mcp.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP)) {
         const toolCallId = typeof payload.toolCallId === "string" && payload.toolCallId.length > 0
             ? payload.toolCallId
             : [
@@ -721,7 +728,7 @@ function resolveProcessGroupKey(event: EventRecord): string {
             toolCallId || event.eventId,
         ].join(":");
     }
-    if (event.eventType.startsWith("model.tool.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.MODEL_TOOL)) {
         const toolCallId = typeof payload.toolCallId === "string" && payload.toolCallId.length > 0
             ? payload.toolCallId
             : "";
@@ -732,7 +739,7 @@ function resolveProcessGroupKey(event: EventRecord): string {
             toolCallId || event.eventType,
         ].join(":");
     }
-    if (event.eventType.startsWith("agent.loop.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_LOOP)) {
         return [
             event.turnId ?? "no-turn",
             event.taskId ?? "no-task",
@@ -762,18 +769,18 @@ function resolveProcessGroupKey(event: EventRecord): string {
  */
 function isVisibleProcessEvent(event: EventRecord): boolean {
     if ([
-        "model.failed",
-        "message.turn.failed",
-        "worker.task.failed",
-        "model.tool.requested",
-        "model.tool.rejected",
-        "model.tool.result.appended",
-        "agent.loop.batch_limit_reached",
+        EVENT_TYPES.MODEL_FAILED,
+        EVENT_TYPES.MESSAGE_TURN_FAILED,
+        EVENT_TYPES.WORKER_TASK_FAILED,
+        EVENT_TYPES.MODEL_TOOL_REQUESTED,
+        EVENT_TYPES.MODEL_TOOL_REJECTED,
+        EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED,
+        `${EVENT_TYPE_PREFIXES.AGENT_LOOP}batch_limit_reached`,
     ].includes(event.eventType)) {
         return true;
     }
     return isVisibleToolProcessEvent(event)
-        || event.eventType.startsWith("agent.team.");
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_TEAM);
 }
 
 /**
@@ -783,15 +790,15 @@ function isVisibleProcessEvent(event: EventRecord): boolean {
  * @returns 可以进入消息流过程卡片时返回 true。
  */
 function isVisibleToolProcessEvent(event: EventRecord): boolean {
-    if (event.eventType.endsWith(".unavailable")) {
+    if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.UNAVAILABLE)) {
         return false;
     }
-    return event.eventType.startsWith("tool.command.")
-        || event.eventType.startsWith("tool.mcp.")
-        || event.eventType.startsWith("tool.call.")
-        || event.eventType.startsWith("tool.skill.")
-        || event.eventType.startsWith("tool.plugin.")
-        || event.eventType.startsWith("tool.agent.");
+    return event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_CALL)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_SKILL)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_PLUGIN)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_AGENT);
 }
 
 /**
@@ -830,9 +837,9 @@ function resolveCommandProcessGroupId(
     event: EventRecord,
     payload: Record<string, unknown>,
 ): string {
-    const isCommandEvent = event.eventType.startsWith("tool.command.")
+    const isCommandEvent = event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND)
         || (
-            event.eventType === "tool.call.failed"
+            event.eventType === EVENT_TYPES.TOOL_CALL_FAILED
             && payload.toolKind === "command"
         );
     if (!isCommandEvent) {
@@ -863,14 +870,14 @@ function resolveToolCallProcessGroupId(
     payload: Record<string, unknown>,
 ): string {
     if (![
-        "model.tool.requested",
-        "model.tool.rejected",
-        "model.tool.result.appended",
-        "tool.plan.created",
+        EVENT_TYPES.MODEL_TOOL_REQUESTED,
+        EVENT_TYPES.MODEL_TOOL_REJECTED,
+        EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED,
+        EVENT_TYPES.TOOL_PLAN_CREATED,
     ].includes(event.eventType)
-        && !event.eventType.startsWith("tool.command.")
-        && !event.eventType.startsWith("tool.mcp.")
-        && !event.eventType.startsWith("tool.call.")) {
+        && !event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND)
+        && !event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP)
+        && !event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_CALL)) {
         return "";
     }
     const toolCallId = payload.toolCallId;
@@ -887,25 +894,25 @@ function resolveToolCallProcessGroupId(
  */
 function shouldHideProcessGroup(sortedEvents: EventRecord[]): boolean {
     const hasRealExecutionEvent = sortedEvents.some((event) => {
-        return event.eventType.startsWith("tool.command.")
-            || event.eventType.startsWith("tool.mcp.")
-            || event.eventType.startsWith("tool.call.")
-            || event.eventType.startsWith("tool.skill.")
-            || event.eventType.startsWith("tool.plugin.")
-            || event.eventType.startsWith("tool.agent.")
-            || event.eventType.startsWith("agent.team.");
+        return event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_CALL)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_SKILL)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_PLUGIN)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_AGENT)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_TEAM);
     });
     if (hasRealExecutionEvent) {
         return false;
     }
     // 请求和计划阶段本身也是用户可见事实；如果真实执行后续没有到达，仍要保留卡片用于排查卡住原因。
     const hasVisibleRequestOrPlanEvent = sortedEvents.some((event) => {
-        return event.eventType === "model.tool.requested"
-            || event.eventType === "model.tool.rejected"
-            || event.eventType === "model.tool.result.appended"
-            || event.eventType === "tool.plan.created"
-            || event.eventType === "tool.plan.completed"
-            || event.eventType === "tool.plan.failed";
+        return event.eventType === EVENT_TYPES.MODEL_TOOL_REQUESTED
+            || event.eventType === EVENT_TYPES.MODEL_TOOL_REJECTED
+            || event.eventType === EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED
+            || event.eventType === EVENT_TYPES.TOOL_PLAN_CREATED
+            || event.eventType === EVENT_TYPES.TOOL_PLAN_COMPLETED
+            || event.eventType === EVENT_TYPES.TOOL_PLAN_FAILED;
     });
     if (hasVisibleRequestOrPlanEvent) {
         return false;
@@ -937,10 +944,10 @@ function resolveProcessGroupTitle(event: EventRecord): string {
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
-    if (event.eventType === "message.turn.failed" || event.eventType === "worker.task.failed") {
+    if (event.eventType === EVENT_TYPES.MESSAGE_TURN_FAILED || event.eventType === EVENT_TYPES.WORKER_TASK_FAILED) {
         return "对话执行失败";
     }
-    if (event.eventType.startsWith("tool.command.") || payload.toolKind === "command") {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND) || payload.toolKind === "command") {
         const command = readEventText(
             event,
             "command",
@@ -949,16 +956,16 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             ? command
             : "命令";
     }
-    if (event.eventType.startsWith("model.tool.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.MODEL_TOOL)) {
         return readEventText(
             event,
             "toolName",
         ) || event.title || "模型工具请求";
     }
-    if (event.eventType.startsWith("agent.loop.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_LOOP)) {
         return event.title || "智能体自动续跑";
     }
-    if (event.eventType.startsWith("tool.agent.") || event.eventType.startsWith("agent.team.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_AGENT) || event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_TEAM)) {
         return readEventText(
             event,
             "agentName",
@@ -967,13 +974,13 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             "teamName",
         ) || event.title || "智能体协作";
     }
-    if (event.eventType.startsWith("tool.call.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_CALL)) {
         return readEventText(
             event,
             "toolName",
         ) || "工具";
     }
-    if (event.eventType.startsWith("tool.mcp.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP)) {
         const toolName = readEventText(
             event,
             "toolName",
@@ -981,7 +988,7 @@ function resolveProcessGroupTitle(event: EventRecord): string {
         // MCP 过程卡片标题直接使用模型实际调用的安全工具名，和命令卡片一样展示真实工具入口。
         return toolName || "MCP";
     }
-    if (event.eventType.startsWith("tool.plugin.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_PLUGIN)) {
         const pluginName = readEventText(
             event,
             "pluginName",
@@ -990,7 +997,7 @@ function resolveProcessGroupTitle(event: EventRecord): string {
             ? `插件：${pluginName}`
             : "插件";
     }
-    if (event.eventType.startsWith("tool.skill.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_SKILL)) {
         const skillName = readEventText(
             event,
             "skillName",
@@ -1015,7 +1022,7 @@ function resolveProcessResponseText(
 ): string {
     if (resolveProcessKind(latestEvent) === "command") {
         const commandOutputChunks = sortedEvents.filter((event) => {
-            return event.eventType === "tool.command.output";
+            return event.eventType === EVENT_TYPES.TOOL_COMMAND_OUTPUT;
         }).map((event) => {
             return readEventText(
                 event,
@@ -1030,17 +1037,17 @@ function resolveProcessResponseText(
     }
 
     const responseParts = sortedEvents.map((event) => {
-        if (event.eventType === "tool.command.output") {
+        if (event.eventType === EVENT_TYPES.TOOL_COMMAND_OUTPUT) {
             return resolveProcessLogText(event);
         }
-        if (event.eventType.endsWith(".failed")) {
+        if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.FAILED)) {
             return resolveProcessSummary(event);
         }
-        if (event.eventType.endsWith(".completed")) {
+        if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.COMPLETED)) {
             return resolveProcessSummary(event);
         }
         // 非 started 的过程事件本身已经携带“正在做什么”，需要直接展示，避免卡片只有等待文案。
-        if (isVisibleProcessEvent(event) && !event.eventType.endsWith(".started")) {
+        if (isVisibleProcessEvent(event) && !event.eventType.endsWith(EVENT_TYPE_SUFFIXES.STARTED)) {
             return resolveProcessSummary(event) || resolveProcessLogText(event);
         }
         return "";
@@ -1073,9 +1080,9 @@ function resolveProcessTerminalText(
 ): string {
     if (processKind === "command") {
         const commandProcessParts = sortedEvents.map((event) => {
-            if (event.eventType === "tool.command.output"
-                || event.eventType.endsWith(".failed")
-                || event.eventType.endsWith(".completed")) {
+            if (event.eventType === EVENT_TYPES.TOOL_COMMAND_OUTPUT
+                || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.FAILED)
+                || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.COMPLETED)) {
                 return resolveProcessLogText(event);
             }
             return "";
@@ -1092,7 +1099,7 @@ function resolveProcessTerminalText(
     }
 
     const toolExecutionTextParts = sortedEvents.map((event) => {
-        if (event.eventType === "model.tool.result.appended") {
+        if (event.eventType === EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED) {
             return "";
         }
         return resolveProcessLogText(event);
@@ -1178,25 +1185,25 @@ function resolveProcessSummary(event: EventRecord): string {
  * @returns 面向用户的短标签。
  */
 function resolveProcessLogLabel(event: EventRecord): string {
-    if (event.eventType === "model.tool.requested") {
+    if (event.eventType === EVENT_TYPES.MODEL_TOOL_REQUESTED) {
         return "请求";
     }
-    if (event.eventType === "tool.plan.created") {
+    if (event.eventType === EVENT_TYPES.TOOL_PLAN_CREATED) {
         return "计划";
     }
-    if (event.eventType.endsWith(".started")) {
+    if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.STARTED)) {
         return "开始";
     }
-    if (event.eventType === "tool.command.output") {
+    if (event.eventType === EVENT_TYPES.TOOL_COMMAND_OUTPUT) {
         return "输出";
     }
-    if (event.eventType.endsWith(".completed")) {
+    if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.COMPLETED)) {
         return "完成";
     }
-    if (event.eventType === "model.tool.result.appended") {
+    if (event.eventType === EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED) {
         return "回填";
     }
-    if (event.eventType.endsWith(".failed") || event.eventType.endsWith(".rejected")) {
+    if (event.eventType.endsWith(EVENT_TYPE_SUFFIXES.FAILED) || event.eventType.endsWith(EVENT_TYPE_SUFFIXES.REJECTED)) {
         return "失败";
     }
     return "过程";
@@ -1229,6 +1236,9 @@ function resolveProcessLogText(event: EventRecord): string {
         "failureReason",
     ) || readEventText(
         event,
+        "errorMessage",
+    ) || readEventText(
+        event,
         "nextPlan",
     ) || readEventText(
         event,
@@ -1248,12 +1258,12 @@ function resolveProcessRepresentativeEvent(
     latestEvent: EventRecord,
 ): EventRecord {
     const toolEvent = sortedEvents.find((event) => {
-        return event.eventType.startsWith("tool.command.")
-            || event.eventType.startsWith("tool.mcp.")
-            || event.eventType.startsWith("tool.agent.")
-            || event.eventType.startsWith("tool.call.")
-            || event.eventType.startsWith("tool.skill.")
-            || event.eventType.startsWith("tool.plugin.");
+        return event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_AGENT)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_CALL)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_SKILL)
+            || event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_PLUGIN);
     });
     return toolEvent ?? latestEvent;
 }
@@ -1285,7 +1295,7 @@ export function readEventText(
 export function createThinkingProcessRows(events: EventRecord[]): ThinkingProcessRow[] {
     const groups = new Map<string, EventRecord[]>();
     for (const event of events) {
-        if (!event.eventType.startsWith("thinking.")) {
+        if (!event.eventType.startsWith(EVENT_TYPE_PREFIXES.THINKING)) {
             continue;
         }
         // groupKey: 优先使用 thinkingId，确保同一轮里的多次思考过程分别展示为独立卡片。
@@ -1369,28 +1379,28 @@ function resolveProcessKind(event: EventRecord): ProcessMessageGroupRow["process
     const payload = typeof event.payload === "object" && event.payload !== null
         ? event.payload as Record<string, unknown>
         : {};
-    if (event.eventType.startsWith("tool.command.") || payload.toolKind === "command") {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_COMMAND) || payload.toolKind === "command") {
         return "command";
     }
-    if (event.eventType.startsWith("tool.mcp.") || payload.toolKind === "mcp") {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_MCP) || payload.toolKind === "mcp") {
         return "mcp";
     }
-    if (event.eventType.startsWith("tool.plugin.") || payload.toolKind === "plugin") {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_PLUGIN) || payload.toolKind === "plugin") {
         return "plugin";
     }
-    if (event.eventType.startsWith("tool.skill.") || payload.toolKind === "skill") {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_SKILL) || payload.toolKind === "skill") {
         return "skill";
     }
-    if (event.eventType.startsWith("task.")
-        || event.eventType === "worker.task.failed") {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TASK)
+        || event.eventType === EVENT_TYPES.WORKER_TASK_FAILED) {
         return "task";
     }
-    if (event.eventType.startsWith("tool.agent.")
-        || event.eventType.startsWith("agent.team.")
-        || event.eventType.startsWith("agent.loop.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.TOOL_AGENT)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_TEAM)
+        || event.eventType.startsWith(EVENT_TYPE_PREFIXES.AGENT_LOOP)) {
         return "agent";
     }
-    if (event.eventType.startsWith("model.")) {
+    if (event.eventType.startsWith(EVENT_TYPE_PREFIXES.MODEL)) {
         return "model";
     }
     return "tool";
@@ -1596,7 +1606,7 @@ function createStreamingAssistantRows(
     const groups = new Map<string, EventRecord[]>();
 
     for (const event of events) {
-        if (event.eventType !== "model.stream.delta"
+        if (event.eventType !== EVENT_TYPES.MODEL_STREAM_DELTA
             || !event.turnId
             || assistantTurnIds.has(event.turnId)
             || isConsumedByModelInterimRow(
@@ -1677,7 +1687,7 @@ function createModelInterimMarkdownRows(
 
     const groups = new Map<string, EventRecord[]>();
     for (const event of events) {
-        if (event.eventType !== "model.stream.delta" || !event.turnId) {
+        if (event.eventType !== EVENT_TYPES.MODEL_STREAM_DELTA || !event.turnId) {
             continue;
         }
         const laterProcessSequence = resolveNextProcessSequence(
@@ -1936,7 +1946,7 @@ function appendUnconsumedProcessRows(
         if (consumedThinkingRowIds.has(thinking.rowId)) {
             continue;
         }
-        rows.push({
+        insertUnanchoredRenderRow(rows, {
             rowKind: "thinking",
             rowId: thinking.rowId,
             thinking,
@@ -1947,7 +1957,7 @@ function appendUnconsumedProcessRows(
             if (consumedModelInterimRowIds.has(interim.rowId)) {
                 continue;
             }
-            rows.push({
+            insertUnanchoredRenderRow(rows, {
                 rowKind: "model_interim",
                 rowId: interim.rowId,
                 interim,
@@ -1959,7 +1969,7 @@ function appendUnconsumedProcessRows(
             if (consumedStreamingAssistantRowIds.has(assistant.rowId)) {
                 continue;
             }
-            rows.push({
+            insertUnanchoredRenderRow(rows, {
                 rowKind: "message",
                 rowId: assistant.rowId,
                 message: assistant.message,
@@ -1971,12 +1981,89 @@ function appendUnconsumedProcessRows(
         if (consumedProcessRowIds.has(process.rowId)) {
             continue;
         }
-        rows.push({
+        insertUnanchoredRenderRow(rows, {
             rowKind: "process",
             rowId: process.rowId,
             process,
         });
     }
+}
+
+/**
+ * insertUnanchoredRenderRow：把缺少消息锚点的过程行按时间语义插回会话。
+ *
+ * 关键逻辑：带 turnId 的历史过程不能追加到最新回复后面；能按顺序定位时插入到第一个更晚行之前。
+ * @param rows 当前渲染行数组。
+ * @param row 待插入的孤立过程、思考或临时消息行。
+ * @returns 没有返回值。
+ */
+function insertUnanchoredRenderRow(
+    rows: ConversationRenderRow[],
+    row: ConversationRenderRow,
+): void {
+    const rowTurnId = resolveRenderRowTurnId(row);
+    const rowOrder = resolveRenderRowOrder(row);
+    if (!rowTurnId) {
+        rows.push(row);
+        return;
+    }
+    const targetIndex = rows.findIndex((existingRow) => {
+        const existingTurnId = resolveRenderRowTurnId(existingRow);
+        const existingOrder = resolveRenderRowOrder(existingRow);
+        if (existingTurnId === rowTurnId) {
+            return false;
+        }
+        return existingOrder !== null
+            && rowOrder !== null
+            && existingOrder > rowOrder;
+    });
+    if (targetIndex === -1) {
+        rows.unshift(row);
+        return;
+    }
+    rows.splice(
+        targetIndex,
+        0,
+        row,
+    );
+}
+
+/**
+ * resolveRenderRowTurnId：读取渲染行所属轮次。
+ *
+ * @param row 渲染行。
+ * @returns 轮次 ID；没有轮次时返回 null。
+ */
+function resolveRenderRowTurnId(row: ConversationRenderRow): string | null {
+    if (row.rowKind === "message") {
+        return row.message.turnId;
+    }
+    if (row.rowKind === "thinking") {
+        return row.thinking.turnId;
+    }
+    if (row.rowKind === "process") {
+        return row.process.turnId;
+    }
+    return row.interim.turnId;
+}
+
+/**
+ * resolveRenderRowOrder：读取渲染行排序锚点。
+ *
+ * @param row 渲染行。
+ * @returns 事件序号；固化消息没有事件序号时返回 null。
+ */
+function resolveRenderRowOrder(row: ConversationRenderRow): number | null {
+    if (row.rowKind === "thinking") {
+        return row.thinking.orderSequence;
+    }
+    if (row.rowKind === "process") {
+        return row.process.orderSequence;
+    }
+    if (row.rowKind === "model_interim") {
+        return row.interim.orderSequence;
+    }
+    return null;
 }
 
 /**
@@ -2014,12 +2101,12 @@ export function formatContextUsageTooltip(input: {
  */
 export function formatTaskStatus(status: string): string {
     const labels: Record<string, string> = {
-        queued: "排队中",
-        running: "执行中",
-        waiting_user: "等待用户",
-        completed: "已完成",
-        failed: "失败",
-        cancelled: "已取消",
+        [TASK_STATUSES.QUEUED]: "排队中",
+        [TASK_STATUSES.RUNNING]: "执行中",
+        [TASK_STATUSES.WAITING_USER]: "等待用户",
+        [TASK_STATUSES.COMPLETED]: "已完成",
+        [TASK_STATUSES.FAILED]: "失败",
+        [TASK_STATUSES.CANCELLED]: "已取消",
     };
 
     return labels[status] ?? "未知状态";
@@ -2032,35 +2119,35 @@ export function formatTaskStatus(status: string): string {
  * @returns 状态图标元信息。
  */
 export function resolveTaskStatusMeta(status: TaskStatus | undefined): NavigationStatusMeta {
-    if (status === "running") {
+    if (status === TASK_STATUSES.RUNNING) {
         return {
             icon: Loading,
             title: "执行中",
             tone: "running",
         };
     }
-    if (status === "queued") {
+    if (status === TASK_STATUSES.QUEUED) {
         return {
             icon: Clock,
             title: "排队中：仅表示当前对话内等待上一项处理，多个对话框可并发执行",
             tone: "queued",
         };
     }
-    if (status === "waiting_user") {
+    if (status === TASK_STATUSES.WAITING_USER) {
         return {
             icon: Warning,
             title: "等待用户：引导/审批/需要用户确认归属当前对话当前轮次",
             tone: "waiting",
         };
     }
-    if (status === "failed" || status === "cancelled") {
+    if (status === TASK_STATUSES.FAILED || status === TASK_STATUSES.CANCELLED) {
         return {
             icon: CircleClose,
-            title: status === "failed" ? "失败" : "已取消",
+            title: status === TASK_STATUSES.FAILED ? "失败" : "已取消",
             tone: "failed",
         };
     }
-    if (status === "completed") {
+    if (status === TASK_STATUSES.COMPLETED) {
         return {
             icon: CircleCheck,
             title: "已完成",

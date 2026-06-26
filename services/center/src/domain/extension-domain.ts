@@ -1,7 +1,12 @@
 import {randomUUID} from "node:crypto";
 import {appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync} from "node:fs";
 import {dirname, join} from "node:path";
-import {isRecord} from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+    isRecord,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
@@ -26,13 +31,13 @@ export function installPlugin(
         updatedAt: new Date().toISOString(),
     });
     events.append({
-        eventType: "plugin.installed",
-        scopeType: "plugin",
+        eventType: EVENT_TYPES.PLUGIN_INSTALLED,
+        scopeType: EVENT_SCOPE_TYPES.PLUGIN,
         scopeId: pluginInstallId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "插件安装",
         summary: String(manifest.name ?? pluginInstallId),
         payload: {
@@ -60,13 +65,13 @@ export function setPluginEnabled(
         new Date().toISOString(),
     );
     events.append({
-        eventType: enabled ? "plugin.enabled" : "plugin.disabled",
-        scopeType: "plugin",
+        eventType: enabled ? EVENT_TYPES.PLUGIN_ENABLED : EVENT_TYPES.PLUGIN_DISABLED,
+        scopeType: EVENT_SCOPE_TYPES.PLUGIN,
         scopeId: pluginId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: enabled ? "插件启用" : "插件停用",
         summary: pluginId,
         payload: {
@@ -99,13 +104,13 @@ export function configurePlugin(
         new Date().toISOString(),
     );
     events.append({
-        eventType: "plugin.configured",
-        scopeType: "plugin",
+        eventType: EVENT_TYPES.PLUGIN_CONFIGURED,
+        scopeType: EVENT_SCOPE_TYPES.PLUGIN,
         scopeId: pluginId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "插件配置",
         summary: pluginId,
         payload: {pluginId}
@@ -126,13 +131,13 @@ export function deletePlugin(
 } {
     const deleted = createDataAccess(database).extensions.deleteUserPlugin(pluginId);
     events.append({
-        eventType: deleted ? "plugin.deleted" : "plugin.delete.skipped",
-        scopeType: "plugin",
+        eventType: deleted ? EVENT_TYPES.PLUGIN_DELETED : EVENT_TYPES.PLUGIN_DELETE_SKIPPED,
+        scopeType: EVENT_SCOPE_TYPES.PLUGIN,
         scopeId: pluginId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: deleted ? "completed" : "cancelled",
+        status: deleted ? TASK_STATUSES.COMPLETED : TASK_STATUSES.CANCELLED,
         title: deleted ? "插件删除" : "插件删除跳过",
         summary: deleted ? pluginId : "系统内置插件不可卸载。",
         payload: {pluginId, deleted}
@@ -187,13 +192,13 @@ export function recordExtensionCall(
         createdAt: new Date().toISOString(),
     });
     events.append({
-        eventType: "extension.called",
-        scopeType: "extension",
+        eventType: EVENT_TYPES.EXTENSION_CALLED,
+        scopeType: EVENT_SCOPE_TYPES.EXTENSION,
         scopeId: input.extensionId ?? null,
         sessionId: input.sessionId ?? null,
         turnId: null,
         taskId: input.taskId ?? null,
-        status: input.status ?? "completed",
+        status: input.status ?? TASK_STATUSES.COMPLETED,
         title: "扩展能力调用",
         summary: input.inputSummary ?? "",
         payload: {

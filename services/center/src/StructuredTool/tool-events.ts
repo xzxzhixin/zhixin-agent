@@ -1,6 +1,12 @@
 import type {
     UnifiedToolCapability,
 } from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPE_PREFIXES,
+    EVENT_TYPE_SUFFIXES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 
 import type {CenterEventStore} from "../events.js";
 import {
@@ -61,13 +67,13 @@ function appendUnifiedToolUnavailableEvent(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     events.append({
-        eventType: `tool.${capability.toolKind}.unavailable`,
-        scopeType: "tool",
+        eventType: `${EVENT_TYPE_PREFIXES.TOOL}${capability.toolKind}${EVENT_TYPE_SUFFIXES.UNAVAILABLE}`,
+        scopeType: EVENT_SCOPE_TYPES.TOOL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: `${capability.displayName}状态`,
         summary: `当前会话未解析到可执行${capability.displayName}，已记录为不可用状态。`,
         payload: withOptionalGraphCheckpoint({
@@ -79,4 +85,3 @@ function appendUnifiedToolUnavailableEvent(
         }, graphCheckpoint),
     });
 }
-

@@ -3,6 +3,10 @@ import {
 } from "@langchain/core/tools";
 import type {z} from "zod/v3";
 
+import {
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import {createAgentForTask} from "../agents/index.js";
 import type {CenterDatabase} from "../database.js";
 import {SessionRepository} from "../data-access/session-repository.js";
@@ -70,7 +74,7 @@ export interface DeepAgentsToolExecutionResult {
     /** outputText: 回填给模型的文本。 */
     outputText: string;
     /** status: 工具执行状态。 */
-    status: "completed" | "failed";
+    status: typeof TASK_STATUSES.COMPLETED | typeof TASK_STATUSES.FAILED;
 }
 
 /**

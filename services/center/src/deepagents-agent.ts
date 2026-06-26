@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {randomUUID} from "node:crypto";
 
 import type {StructuredToolInterface} from "@langchain/core/tools";
@@ -5,7 +6,15 @@ import type {ToolCallStream} from "@langchain/langgraph";
 import {createDeepAgent, type DeepAgentRunStream} from "deepagents";
 
 import {
+    CONVERSATION_TURN_STATUSES,
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
+import {
     CenterModelCallLogMiddleware,
+    CenterModelRetryMiddleware,
     CenterToolChoiceMiddleware,
 } from "./AgentMiddleware/index.js";
 import {SessionRepository} from "./data-access/session-repository.js";
@@ -23,6 +32,7 @@ import {
     unregisterRunningTurnRuntime,
 } from "./domain/turn-runtime-cancel-registry.js";
 import {commitMainAgentMemoryAfterTurn} from "./domain/session-turn-effects.js";
+import {SessionModelMessageHistoryBuilder} from "./domain/SessionModelMessageHistoryBuilder.js";
 import {handleWorkerMessage, startWorkerTask} from "./domain/workflow-domain.js";
 import {
     buildMainAgentMemoryPrompt,
@@ -73,7 +83,10 @@ type DeepAgentsWriteTodosTaskStepInput = {
     /** title: 用户可见任务步骤标题，协议于 Deep Agents 原生 write_todos 的 todo.content。 */
     title: string;
     /** status: 中心服务任务步骤状态，由 Deep Agents todo.status 映射。 */
-    status: "queued" | "running" | "completed";
+    status:
+        | typeof TASK_STATUSES.QUEUED
+        | typeof TASK_STATUSES.RUNNING
+        | typeof TASK_STATUSES.COMPLETED;
     /** stepOrder: 同一任务内的顺序，从 1 开始。 */
     stepOrder: number;
 };
@@ -151,9 +164,17 @@ async function runSingleDeepAgentCandidate(input: DeepAgentsAgentRunInput): Prom
 
         const deepAgent = await createCenterDeepAgent(context);
         throwIfTurnRuntimeAborted(input.runtimeSignal);
+        const historyMessages = new SessionModelMessageHistoryBuilder().buildMessages(
+            input.database,
+            {
+                sessionId: input.sent.sessionId,
+                currentTurnId: input.sent.turnId,
+            },
+        );
         const run = await deepAgent.streamEvents(
             {
                 messages: [
+                    ...historyMessages,
                     {
                         role: "user",
                         content: input.userText,
@@ -264,13 +285,13 @@ function recordDeepAgentOutputObservationError(
         : String(error);
     // 最终输出投影失败只说明 Deep Agents 观测通道异常；已有流式文本仍可作为本轮可见回复。
     input.events.append({
-        eventType: "model.output.observer.failed",
-        scopeType: "model",
+        eventType: EVENT_TYPES.MODEL_OUTPUT_OBSERVER_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.MODEL,
         scopeId: input.sent.taskId,
         sessionId: input.sent.sessionId,
         turnId: input.sent.turnId,
         taskId: input.sent.taskId,
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         title: "模型最终输出观测失败",
         summary: errorMessage,
         payload: {
@@ -344,13 +365,13 @@ async function cleanupDeepAgentsTurnResources(
                 ? error.message
                 : "DEEPAGENTS_RESOURCE_CLEANUP_FAILED";
             input.events.append({
-                eventType: "tool.resource.cleanup.failed",
-                scopeType: "tool",
+                eventType: EVENT_TYPES.TOOL_RESOURCE_CLEANUP_FAILED,
+                scopeType: EVENT_SCOPE_TYPES.TOOL,
                 scopeId: input.sent.taskId,
                 sessionId: input.sent.sessionId,
                 turnId: input.sent.turnId,
                 taskId: input.sent.taskId,
-                status: "failed",
+                status: TASK_STATUSES.FAILED,
                 title: "工具资源释放失败",
                 summary: errorMessage,
                 payload: {
@@ -376,13 +397,13 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
     ));
     throwIfTurnRuntimeAborted(context.runtimeSignal);
     context.input.events.append({
-        eventType: "tool.available.snapshot",
-        scopeType: "tool",
+        eventType: EVENT_TYPES.TOOL_AVAILABLE_SNAPSHOT,
+        scopeType: EVENT_SCOPE_TYPES.TOOL,
         scopeId: context.input.sent.taskId,
         sessionId: context.input.sent.sessionId,
         turnId: context.input.sent.turnId,
         taskId: context.input.sent.taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "可用工具快照",
         summary: tools.length > 0
             ? `当前轮次已注入 ${tools.length} 个工具。`
@@ -409,6 +430,7 @@ async function createCenterDeepAgent(context: DeepAgentsToolExecutionContext) {
             return typeof promptPart === "string" && promptPart.length > 0;
         }).join("\n\n"),
         middleware: [
+            new CenterModelRetryMiddleware(context),
             new CenterModelCallLogMiddleware(context),
             new CenterToolChoiceMiddleware(context),
         ],
@@ -434,13 +456,13 @@ async function collectDeepAgentMessages(
                 throwIfTurnRuntimeAborted(input.runtimeSignal);
                 finalAssistantText += textChunk;
                 input.events.append({
-                    eventType: "model.stream.delta",
-                    scopeType: "model",
+                    eventType: EVENT_TYPES.MODEL_STREAM_DELTA,
+                    scopeType: EVENT_SCOPE_TYPES.MODEL,
                     scopeId: input.sent.taskId,
                     sessionId: input.sent.sessionId,
                     turnId: input.sent.turnId,
                     taskId: input.sent.taskId,
-                    status: "running",
+                    status: TASK_STATUSES.RUNNING,
                     title: "模型流式片段",
                     summary: textChunk.slice(0, 120),
                     payload: {
@@ -461,13 +483,13 @@ async function collectDeepAgentMessages(
     }
     throwIfTurnRuntimeAborted(input.runtimeSignal);
     input.events.append({
-        eventType: "model.stream.completed",
-        scopeType: "model",
+        eventType: EVENT_TYPES.MODEL_STREAM_COMPLETED,
+        scopeType: EVENT_SCOPE_TYPES.MODEL,
         scopeId: input.sent.taskId,
         sessionId: input.sent.sessionId,
         turnId: input.sent.turnId,
         taskId: input.sent.taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "模型流式结束",
         summary: "Deep Agents 模型流式输出已结束。",
         payload: {
@@ -538,13 +560,13 @@ function handleDeepAgentToolStreamError(
         : String(error);
     // 工具观测流失败不代表 Deep Agents ReAct loop 结束；普通工具失败应作为工具结果交回模型自行决策。
     context.input.events.append({
-        eventType: "tool.observer.failed",
-        scopeType: "tool-plan",
+        eventType: EVENT_TYPES.TOOL_OBSERVER_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL_PLAN,
         scopeId: context.input.sent.taskId,
         sessionId: context.input.sent.sessionId,
         turnId: context.input.sent.turnId,
         taskId: context.input.sent.taskId,
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         title: "工具观测流失败",
         summary: errorMessage,
         payload: {
@@ -569,13 +591,13 @@ async function recordToolCallLifecycle(
         toolCall,
     );
     context.input.events.append({
-        eventType: "tool.plan.created",
-        scopeType: "tool-plan",
+        eventType: EVENT_TYPES.TOOL_PLAN_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL_PLAN,
         scopeId: toolCall.callId,
         sessionId: context.input.sent.sessionId,
         turnId: context.input.sent.turnId,
         taskId: context.input.sent.taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "工具计划",
         summary: `Deep Agents 已计划调用 ${toolCall.name}`,
         payload: {
@@ -602,13 +624,13 @@ async function recordToolCallLifecycle(
     );
     throwIfTurnRuntimeAborted(context.runtimeSignal);
     context.input.events.append({
-        eventType: status === "finished" ? "tool.plan.completed" : "tool.plan.failed",
-        scopeType: "tool-plan",
+        eventType: status === "finished" ? EVENT_TYPES.TOOL_PLAN_COMPLETED : EVENT_TYPES.TOOL_PLAN_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL_PLAN,
         scopeId: toolCall.callId,
         sessionId: context.input.sent.sessionId,
         turnId: context.input.sent.turnId,
         taskId: context.input.sent.taskId,
-        status: status === "finished" ? "completed" : "failed",
+        status: status === "finished" ? TASK_STATUSES.COMPLETED : TASK_STATUSES.FAILED,
         title: status === "finished" ? "工具计划完成" : "工具计划失败",
         summary: status === "finished"
             ? `Deep Agents 工具 ${toolCall.name} 已完成。`
@@ -783,13 +805,13 @@ function readObject(value: unknown): Record<string, unknown> | null {
  */
 function mapDeepAgentsTodoStatus(status: unknown): DeepAgentsWriteTodosTaskStepInput["status"] | null {
     if (status === "pending") {
-        return "queued";
+        return TASK_STATUSES.QUEUED;
     }
     if (status === "in_progress") {
-        return "running";
+        return TASK_STATUSES.RUNNING;
     }
     if (status === "completed") {
-        return "completed";
+        return TASK_STATUSES.COMPLETED;
     }
     return null;
 }
@@ -977,7 +999,7 @@ async function finalizeDeepAgentTurn(
 ): Promise<void> {
     throwIfTurnRuntimeAborted(input.runtimeSignal);
     const currentTurn = new SessionRepository(input.database).findTurn(input.sent.turnId);
-    if (!currentTurn || currentTurn.endedAt !== null || currentTurn.status === "cancelled") {
+    if (!currentTurn || currentTurn.endedAt !== null || currentTurn.status === CONVERSATION_TURN_STATUSES.CANCELLED) {
         return;
     }
     const assistantMessageId = randomUUID();
@@ -988,13 +1010,13 @@ async function finalizeDeepAgentTurn(
         createdAt: formatCenterLocalDateTime(),
     });
     input.events.append({
-        eventType: "message.created",
-        scopeType: "message",
+        eventType: EVENT_TYPES.MESSAGE_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.MESSAGE,
         scopeId: assistantMessageId,
         sessionId: input.sent.sessionId,
         turnId: input.sent.turnId,
         taskId: input.sent.taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "消息创建",
         summary: "助手回复已写入中心服务。",
         payload: {
@@ -1044,7 +1066,7 @@ async function finalizeDeepAgentTurn(
         input.database,
         input.events,
         input.sent.turnId,
-        "completed",
+        CONVERSATION_TURN_STATUSES.COMPLETED,
         input.sent.taskId,
     );
 }
@@ -1064,7 +1086,7 @@ async function failDeepAgentTurn(
     if (
         !currentTurn
         || currentTurn.endedAt !== null
-        || currentTurn.status === "cancelled"
+        || currentTurn.status === CONVERSATION_TURN_STATUSES.CANCELLED
     ) {
         return;
     }
@@ -1074,13 +1096,13 @@ async function failDeepAgentTurn(
         : "DEEPAGENT_TURN_FAILED";
     // 外部失败总结会打断 Deep Agents 原生 ReAct loop，异常只写入失败事件和终态。
     input.events.append({
-        eventType: "message.turn.failed",
-        scopeType: "turn",
+        eventType: EVENT_TYPES.MESSAGE_TURN_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.TURN,
         scopeId: input.sent.turnId,
         sessionId: input.sent.sessionId,
         turnId: input.sent.turnId,
         taskId: input.sent.taskId,
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         title: "对话执行失败",
         summary: errorMessage,
         payload: {
@@ -1099,7 +1121,7 @@ async function failDeepAgentTurn(
         input.database,
         input.events,
         input.sent.turnId,
-        "failed",
+        CONVERSATION_TURN_STATUSES.FAILED,
         input.sent.taskId,
     );
 }

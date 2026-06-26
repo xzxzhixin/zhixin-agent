@@ -1,5 +1,9 @@
 import {z} from "zod/v3";
 
+import {
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
 import {
     type CommandToolExecutionRequest,
@@ -70,7 +74,7 @@ export class CommandStructuredTool extends CenterStructuredToolBase<typeof COMMA
             request,
         );
         return {
-            outputText: result.status === "completed"
+            outputText: result.status === TASK_STATUSES.COMPLETED
                 ? result.outputSummary || "工具没有输出。"
                 : result.failureReason ?? "工具执行失败。",
             status: result.status,

@@ -1,3 +1,8 @@
+import {
+    FINAL_TASK_STATUSES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {SessionRepository} from "../data-access/session-repository.js";
@@ -32,9 +37,9 @@ export function submitGuidanceForActiveTask(
 } {
     const repository = new SessionRepository(database);
     const tasks = repository.listTasks(input.sessionId).filter((task) => {
-        return task.status === "running"
-            || task.status === "queued"
-            || task.status === "waiting_user";
+        return task.status === TASK_STATUSES.RUNNING
+            || task.status === TASK_STATUSES.QUEUED
+            || task.status === TASK_STATUSES.WAITING_USER;
     });
     const activeTask = tasks[tasks.length - 1];
     if (!activeTask) {
@@ -42,10 +47,9 @@ export function submitGuidanceForActiveTask(
     }
     const existingSteps = repository.listTaskSteps(input.sessionId).filter((step) => {
         return step.taskId === activeTask.taskId
-            && step.status !== "completed"
-            && step.status !== "failed"
-            && step.status !== "cancelled"
-            && step.status !== "superseded";
+            && !FINAL_TASK_STATUSES.some((status) => {
+                return status === step.status;
+            });
     });
     const maxPlanVersion = Math.max(
         1,
@@ -63,7 +67,7 @@ export function submitGuidanceForActiveTask(
             database,
             events,
             step.stepId,
-            "superseded",
+            TASK_STATUSES.SUPERSEDED,
             "用户中途补充或修改需求后，该步骤由新计划替换。",
             undefined,
             {
@@ -103,7 +107,7 @@ export function submitGuidanceForActiveTask(
         database,
         events,
         guidanceStep.stepId,
-        "running",
+        TASK_STATUSES.RUNNING,
         input.contentMarkdown,
     );
     return {

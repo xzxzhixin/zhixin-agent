@@ -83,14 +83,26 @@ export type EntryMode =
  * 默认值：queued。
  * 约束：状态变更必须写入事件日志。
  */
-export type TaskStatus =
-  | "queued"
-  | "running"
-  | "waiting_user"
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "superseded";
+export type {
+  AgentRuntimeStatus,
+  ConversationTurnStatus,
+  EventScopeType,
+  KnownEventType,
+  TaskStatus,
+} from "./event-protocol.js";
+
+export {
+  ACTIVE_TURN_STATE_STATUSES,
+  AGENT_RUNTIME_STATUSES,
+  CONVERSATION_TURN_STATUSES,
+  EVENT_SCOPE_TYPES,
+  EVENT_TYPE_PREFIXES,
+  EVENT_TYPE_SUFFIXES,
+  EVENT_TYPES,
+  FINAL_TASK_STATUSES,
+  FINAL_TURN_STATUSES,
+  TASK_STATUSES,
+} from "./event-protocol.js";
 
 /**
  * 智能体运行状态。
@@ -101,14 +113,6 @@ export type TaskStatus =
  * 默认值：idle。
  * 约束：状态来自中心服务，不由 UI 本地猜测。
  */
-export type AgentRuntimeStatus =
-  | "idle"
-  | "working"
-  | "queued"
-  | "waiting_user"
-  | "ended"
-  | "failed";
-
 /**
  * 执行模式。
  *
@@ -505,13 +509,6 @@ export interface ConversationMessage {
  * 默认值：running。
  * 约束：结束后持续时间固定，不再随客户端本地时钟变化。
  */
-export type ConversationTurnStatus =
-  | "running"
-  | "waiting_user"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
 /**
  * 对话轮次。
  *
@@ -670,6 +667,21 @@ export interface EventRecord {
   eventType: string;
 
   /**
+   * scopeType: 事件作用域类型。
+   */
+  scopeType: EventScopeType;
+
+  /**
+   * scopeId: 事件作用域 ID。
+   */
+  scopeId: string | null;
+
+  /**
+   * sessionId: 所属会话 ID；全局事件为 null。
+   */
+  sessionId: string | null;
+
+  /**
    * turnId: 所属轮次 ID。
    */
   turnId: string | null;
@@ -678,6 +690,26 @@ export interface EventRecord {
    * taskId: 所属任务 ID。
    */
   taskId: string | null;
+
+  /**
+   * stepId: 所属任务步骤 ID。
+   */
+  stepId: string | null;
+
+  /**
+   * agentId: 相关智能体 ID。
+   */
+  agentId: string | null;
+
+  /**
+   * projectId: 相关项目 ID。
+   */
+  projectId: string | null;
+
+  /**
+   * clientId: 相关客户端 ID。
+   */
+  clientId: string | null;
 
   /**
    * sequence: 同一轮次内递增序号。
@@ -695,6 +727,16 @@ export interface EventRecord {
   summary: string;
 
   /**
+   * status: 事件过程状态，来源于 events.status。
+   */
+  status: string;
+
+  /**
+   * title: 事件展示标题。
+   */
+  title: string;
+
+  /**
    * payload: 结构化事件载荷，不能包含敏感明文；payload.graph 可携带 TurnGraphCheckpoint，用于恢复对话内复杂任务编排。
    */
   payload: unknown;
@@ -703,6 +745,11 @@ export interface EventRecord {
    * traceId: 排查 ID。
    */
   traceId: string;
+
+  /**
+   * errorCode: 错误码；普通事件为 null。
+   */
+  errorCode: string | null;
 }
 
 /**

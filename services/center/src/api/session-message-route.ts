@@ -1,6 +1,12 @@
 import type {FastifyInstance} from "fastify";
 
 import {
+    CONVERSATION_TURN_STATUSES,
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+} from "@zhixin/shared";
+
+import {
     type CenterEventStore,
     createBroadcastingEventStore,
 } from "../events.js";
@@ -276,18 +282,18 @@ async function runCreatedTurnInBackground(
                 database,
                 realtimeEvents,
                 sent.turnId,
-                "failed",
+                CONVERSATION_TURN_STATUSES.FAILED,
                 sent.taskId,
             );
             realtimeEvents.append({
-                eventType: "message.turn.failed",
-                scopeType: "turn",
+                eventType: EVENT_TYPES.MESSAGE_TURN_FAILED,
+                scopeType: EVENT_SCOPE_TYPES.TURN,
                 scopeId: sent.turnId,
                 sessionId: session.sessionId,
                 turnId: sent.turnId,
                 taskId: sent.taskId,
                 projectId: session.projectId,
-                status: "failed",
+                status: CONVERSATION_TURN_STATUSES.FAILED,
                 title: "对话异步执行失败",
                 summary: message,
                 payload: {

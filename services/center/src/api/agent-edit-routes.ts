@@ -7,6 +7,11 @@ import type {
     PendingEditDiff,
     PendingEditRecord,
 } from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
@@ -137,15 +142,15 @@ export function registerAgentEditRoutes(context: AgentEditRoutesContext): void {
             },
         );
         events.append({
-            eventType: "agent.sub_conversation.message.created",
-            scopeType: "agent",
+            eventType: EVENT_TYPES.AGENT_SUB_CONVERSATION_MESSAGE_CREATED,
+            scopeType: EVENT_SCOPE_TYPES.AGENT,
             scopeId: message.agentId,
             sessionId: message.parentSessionId,
             turnId: null,
             taskId: null,
             agentId: message.agentId,
             projectId: null,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "智能体子对话消息",
             summary: message.contentMarkdown.slice(
                 0,
@@ -613,7 +618,7 @@ export function appendPendingEditEvent(
 ): void {
     events.append({
         eventType,
-        scopeType: "file",
+        scopeType: EVENT_SCOPE_TYPES.FILE,
         scopeId: edit.filePath,
         sessionId: edit.sessionId,
         turnId: null,
@@ -621,8 +626,8 @@ export function appendPendingEditEvent(
         agentId: edit.agentId,
         projectId: null,
         status: edit.status === "conflicted"
-            ? "failed"
-            : "completed",
+            ? TASK_STATUSES.FAILED
+            : TASK_STATUSES.COMPLETED,
         title,
         summary: edit.filePath,
         payload: {

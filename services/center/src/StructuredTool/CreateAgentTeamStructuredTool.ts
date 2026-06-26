@@ -1,5 +1,9 @@
 import {z} from "zod/v3";
 
+import {
+    EVENT_TYPES,
+} from "@zhixin/shared";
+
 import {createDataAccess} from "../data-access/index.js";
 import {
     type AgentTeamToolScope,
@@ -121,7 +125,7 @@ function executeCreateAgentTeamInStructuredTool(
     appendAgentTeamToolEvent(
         scope,
         {
-            eventType: "agent.team.created",
+            eventType: EVENT_TYPES.AGENT_TEAM_CREATED,
             title: "创建协作 team",
             summary: `已创建会话 team：${input.name}`,
             payload: {

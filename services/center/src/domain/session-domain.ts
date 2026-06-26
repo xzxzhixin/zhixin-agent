@@ -1,6 +1,7 @@
 import {randomUUID} from "node:crypto";
 
 import type {
+    ActiveTurnStateStatus,
     ClientType,
     ConversationMessage,
     ConversationSession,
@@ -8,6 +9,15 @@ import type {
     ProjectRecord,
     SessionType,
     TaskRecord,
+} from "@zhixin/shared";
+import {
+    ACTIVE_TURN_STATE_STATUSES,
+    CONVERSATION_TURN_STATUSES,
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPE_PREFIXES,
+    EVENT_TYPES,
+    FINAL_TASK_STATUSES,
+    TASK_STATUSES,
 } from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
@@ -43,7 +53,7 @@ export interface ActiveTurnState {
     /** taskId: 最新轮次关联任务 ID；没有任务时为 null。 */
     taskId: string | null;
     /** status: 最新轮次状态；无轮次时为 idle。 */
-    status: "idle" | "queued" | "running" | "waiting_user" | "completed" | "failed" | "cancelled";
+    status: ActiveTurnStateStatus;
     /** endedAt: 最新轮次结束时间；未结束或无轮次时为 null。 */
     endedAt: string | null;
     /** durationMs: 最新轮次耗时；未结束或无轮次时为 null。 */
@@ -174,7 +184,7 @@ export function getActiveTurnState(database: CenterDatabase, sessionId: string):
             sessionId,
             turnId: null,
             taskId: null,
-            status: "idle",
+            status: ACTIVE_TURN_STATE_STATUSES.IDLE,
             endedAt: null,
             durationMs: null,
             lastSequence: 0,
@@ -209,15 +219,15 @@ export function getActiveTurnState(database: CenterDatabase, sessionId: string):
  * @returns 轻量状态协议允许的状态值。
  */
 function normalizeTurnStateStatus(status: string): ActiveTurnState["status"] {
-    if (status === "queued"
-        || status === "running"
-        || status === "waiting_user"
-        || status === "completed"
-        || status === "failed"
-        || status === "cancelled") {
+    if (status === ACTIVE_TURN_STATE_STATUSES.QUEUED
+        || status === ACTIVE_TURN_STATE_STATUSES.RUNNING
+        || status === ACTIVE_TURN_STATE_STATUSES.WAITING_USER
+        || status === ACTIVE_TURN_STATE_STATUSES.COMPLETED
+        || status === ACTIVE_TURN_STATE_STATUSES.FAILED
+        || status === ACTIVE_TURN_STATE_STATUSES.CANCELLED) {
         return status;
     }
-    return "idle";
+    return ACTIVE_TURN_STATE_STATUSES.IDLE;
 }
 
 /**
@@ -372,9 +382,9 @@ export function createTaskStep(
     const source = options.source ?? "system";
     const dependsOn = options.dependsOn ?? [];
     const acceptance = options.acceptance ?? null;
-    const initialStatus = options.initialStatus ?? "running";
+    const initialStatus = options.initialStatus ?? TASK_STATUSES.RUNNING;
     const summary = options.summary ?? null;
-    const startedAt = initialStatus === "running"
+    const startedAt = initialStatus === TASK_STATUSES.RUNNING
         ? now
         : null;
     const endedAt = isFinalTaskStatus(initialStatus)
@@ -397,17 +407,17 @@ export function createTaskStep(
     });
 
     events.append({
-        eventType: initialStatus === "running"
-            ? "task.step.started"
-            : "task.step.created",
-        scopeType: "task_step",
+        eventType: initialStatus === TASK_STATUSES.RUNNING
+            ? `${EVENT_TYPE_PREFIXES.TASK_STEP}started`
+            : `${EVENT_TYPE_PREFIXES.TASK_STEP}created`,
+        scopeType: EVENT_SCOPE_TYPES.TASK_STEP,
         scopeId: stepId,
         sessionId: task.sessionId,
         turnId: task.turnId,
         taskId: task.taskId,
         stepId,
         status: initialStatus,
-        title: initialStatus === "running"
+        title: initialStatus === TASK_STATUSES.RUNNING
             ? "任务步骤开始"
             : "任务步骤创建",
         summary: summary ?? title,
@@ -457,14 +467,20 @@ function recordGraphNodeEvent(
     events: CenterEventStore,
     graphContext: TurnGraphContext,
     checkpoint: TurnGraphCheckpoint,
-    eventType: "graph.node.started" | "graph.node.completed" | "graph.node.failed",
-    status: "running" | "completed" | "failed",
+    eventType:
+        | typeof EVENT_TYPES.GRAPH_NODE_STARTED
+        | typeof EVENT_TYPES.GRAPH_NODE_COMPLETED
+        | typeof EVENT_TYPES.GRAPH_NODE_FAILED,
+    status:
+        | typeof TASK_STATUSES.RUNNING
+        | typeof TASK_STATUSES.COMPLETED
+        | typeof TASK_STATUSES.FAILED,
     title: string,
     summary: string,
 ): void {
     events.append({
         eventType,
-        scopeType: "task",
+        scopeType: EVENT_SCOPE_TYPES.TASK,
         scopeId: graphContext.taskId,
         sessionId: graphContext.threadId,
         turnId: graphContext.graphRunId,
@@ -507,8 +523,8 @@ export async function runGraphNodeWithEvents<T>(
         events,
         graphContext,
         checkpoint,
-        "graph.node.started",
-        "running",
+        EVENT_TYPES.GRAPH_NODE_STARTED,
+        TASK_STATUSES.RUNNING,
         title,
         startedSummary,
     );
@@ -519,8 +535,8 @@ export async function runGraphNodeWithEvents<T>(
                 events,
                 graphContext,
                 checkpoint,
-                "graph.node.failed",
-                "failed",
+                EVENT_TYPES.GRAPH_NODE_FAILED,
+                TASK_STATUSES.FAILED,
                 title,
                 result.errorMessage ?? "GRAPH_NODE_RETURNED_FAILED_PATCH",
             );
@@ -530,8 +546,8 @@ export async function runGraphNodeWithEvents<T>(
             events,
             graphContext,
             checkpoint,
-            "graph.node.completed",
-            "completed",
+            EVENT_TYPES.GRAPH_NODE_COMPLETED,
+            TASK_STATUSES.COMPLETED,
             title,
             completedSummary,
         );
@@ -542,8 +558,8 @@ export async function runGraphNodeWithEvents<T>(
             events,
             graphContext,
             checkpoint,
-            "graph.node.failed",
-            "failed",
+            EVENT_TYPES.GRAPH_NODE_FAILED,
+            TASK_STATUSES.FAILED,
             title,
             errorMessage,
         );
@@ -631,8 +647,8 @@ export function updateTaskStep(
     });
 
     events.append({
-        eventType: "task.step.updated",
-        scopeType: "task_step",
+        eventType: EVENT_TYPES.TASK_STEP_UPDATED,
+        scopeType: EVENT_SCOPE_TYPES.TASK_STEP,
         scopeId: stepId,
         sessionId: existing.sessionId,
         turnId: existing.turnId,
@@ -697,13 +713,13 @@ export function recordTaskPlanRevised(
     },
 ): void {
     events.append({
-        eventType: "task.plan.revised",
-        scopeType: "task",
+        eventType: EVENT_TYPES.TASK_PLAN_REVISED,
+        scopeType: EVENT_SCOPE_TYPES.TASK,
         scopeId: input.taskId,
         sessionId: input.sessionId,
         turnId: input.turnId,
         taskId: input.taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "任务计划重规划",
         summary: input.reason,
         payload: {
@@ -738,7 +754,11 @@ export function updateTurnStatus(
     database: CenterDatabase,
     events: CenterEventStore,
     turnId: string,
-    status: "waiting_user" | "completed" | "failed" | "cancelled",
+    status:
+        | typeof CONVERSATION_TURN_STATUSES.WAITING_USER
+        | typeof CONVERSATION_TURN_STATUSES.COMPLETED
+        | typeof CONVERSATION_TURN_STATUSES.FAILED
+        | typeof CONVERSATION_TURN_STATUSES.CANCELLED,
     preferredTaskId?: string,
 ): ConversationTurn | null {
     const turn = new SessionRepository(database).findTurn(turnId);
@@ -749,9 +769,9 @@ export function updateTurnStatus(
     if (
         turn.endedAt !== null
         && (
-            turn.status === "completed"
-            || turn.status === "failed"
-            || turn.status === "cancelled"
+            turn.status === CONVERSATION_TURN_STATUSES.COMPLETED
+            || turn.status === CONVERSATION_TURN_STATUSES.FAILED
+            || turn.status === CONVERSATION_TURN_STATUSES.CANCELLED
         )
     ) {
         return turn;
@@ -759,7 +779,7 @@ export function updateTurnStatus(
 
     // now: 终态轮次固定结束时间，等待用户状态仍不写结束时间。
     const now = formatCenterLocalDateTime();
-    const endedAt = status === "waiting_user" ? null : now;
+    const endedAt = status === CONVERSATION_TURN_STATUSES.WAITING_USER ? null : now;
     const durationMs = endedAt ? Math.max(0, new Date(endedAt).getTime() - new Date(turn.startedAt).getTime()) : null;
 
     new SessionRepository(database).updateTurnStatus({
@@ -778,8 +798,8 @@ export function updateTurnStatus(
     );
 
     const turnUpdatedEvent = events.append({
-        eventType: "turn.updated",
-        scopeType: "turn",
+        eventType: EVENT_TYPES.TURN_UPDATED,
+        scopeType: EVENT_SCOPE_TYPES.TURN,
         scopeId: turnId,
         sessionId: turn.sessionId,
         turnId,
@@ -795,8 +815,8 @@ export function updateTurnStatus(
         },
     });
     events.append({
-        eventType: "turn.state.changed",
-        scopeType: "turn",
+        eventType: EVENT_TYPES.TURN_STATE_CHANGED,
+        scopeType: EVENT_SCOPE_TYPES.TURN,
         scopeId: turnId,
         sessionId: turn.sessionId,
         turnId,
@@ -830,10 +850,7 @@ export function updateTurnStatus(
  * @returns 终态返回 true。
  */
 export function isFinalTaskStatus(status: TaskRecord["status"]): boolean {
-    return status === "completed"
-        || status === "failed"
-        || status === "cancelled"
-        || status === "superseded";
+    return FINAL_TASK_STATUSES.includes(status);
 }
 
 /**
@@ -842,9 +859,14 @@ export function isFinalTaskStatus(status: TaskRecord["status"]): boolean {
  * @param status 轮次状态。
  * @returns 任务状态。
  */
-export function mapTurnStatusToTaskStatus(status: "waiting_user" | "completed" | "failed" | "cancelled"): TaskRecord["status"] {
-    if (status === "waiting_user") {
-        return "waiting_user";
+export function mapTurnStatusToTaskStatus(status:
+    | typeof CONVERSATION_TURN_STATUSES.WAITING_USER
+    | typeof CONVERSATION_TURN_STATUSES.COMPLETED
+    | typeof CONVERSATION_TURN_STATUSES.FAILED
+    | typeof CONVERSATION_TURN_STATUSES.CANCELLED,
+): TaskRecord["status"] {
+    if (status === CONVERSATION_TURN_STATUSES.WAITING_USER) {
+        return TASK_STATUSES.WAITING_USER;
     }
 
     return status;
@@ -886,14 +908,14 @@ export function createMessageTurnAndTask(
     });
 
     events.append({
-        eventType: "turn.started",
-        scopeType: "turn",
+        eventType: EVENT_TYPES.TURN_STARTED,
+        scopeType: EVENT_SCOPE_TYPES.TURN,
         scopeId: turnId,
         sessionId: session.sessionId,
         turnId,
         taskId,
         projectId: session.projectId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "轮次开始",
         summary: "用户发送消息后创建新轮次。",
         payload: {
@@ -904,14 +926,14 @@ export function createMessageTurnAndTask(
     });
 
     events.append({
-        eventType: "message.created",
-        scopeType: "message",
+        eventType: EVENT_TYPES.MESSAGE_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.MESSAGE,
         scopeId: messageId,
         sessionId: session.sessionId,
         turnId,
         taskId,
         projectId: session.projectId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "消息创建",
         summary: "用户消息已写入中心服务。",
         payload: {
@@ -921,14 +943,14 @@ export function createMessageTurnAndTask(
     });
 
     events.append({
-        eventType: "task.updated",
-        scopeType: "task",
+        eventType: EVENT_TYPES.TASK_UPDATED,
+        scopeType: EVENT_SCOPE_TYPES.TASK,
         scopeId: taskId,
         sessionId: session.sessionId,
         turnId,
         taskId,
         projectId: session.projectId,
-        status: "queued",
+        status: TASK_STATUSES.QUEUED,
         title: "任务排队",
         summary: "消息发送后默认任务进入排队状态。",
         payload: {
@@ -970,14 +992,14 @@ export function appendSessionTouchedEvent(
     }
 
     events.append({
-        eventType: "session.updated",
-        scopeType: "session",
+        eventType: EVENT_TYPES.SESSION_UPDATED,
+        scopeType: EVENT_SCOPE_TYPES.SESSION,
         scopeId: session.sessionId,
         sessionId: session.sessionId,
         turnId,
         taskId,
         projectId: session.projectId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "会话更新时间",
         summary: "用户消息已写入，会话导航需要刷新。",
         payload: {
@@ -1038,13 +1060,13 @@ export function recordModelUsageAfterTurn(
 ): string | null {
     if (!modelResult.usage) {
         events.append({
-            eventType: "usage.record.skipped",
-            scopeType: "usage",
+            eventType: EVENT_TYPES.USAGE_RECORD_SKIPPED,
+            scopeType: EVENT_SCOPE_TYPES.USAGE,
             scopeId: sent.taskId,
             sessionId: sent.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "用量记录跳过",
             summary: "模型供应商未返回用量字段，原始用量不写入。",
             payload: withOptionalGraphCheckpoint({
@@ -1059,13 +1081,13 @@ export function recordModelUsageAfterTurn(
     const session = findSession(database, sent.sessionId);
     if (!session) {
         events.append({
-            eventType: "usage.record.failed",
-            scopeType: "usage",
+            eventType: EVENT_TYPES.USAGE_RECORD_FAILED,
+            scopeType: EVENT_SCOPE_TYPES.USAGE,
             scopeId: sent.taskId,
             sessionId: sent.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
-            status: "failed",
+            status: TASK_STATUSES.FAILED,
             title: "用量记录失败",
             summary: "用量写入时未找到当前会话，已保留模型回复。",
             payload: withOptionalGraphCheckpoint({
@@ -1090,7 +1112,7 @@ export function recordModelUsageAfterTurn(
         outputTokens: modelResult.usage.outputTokens,
         cacheHitTokens: modelResult.usage.cacheHitTokens,
         cacheMissTokens: modelResult.usage.cacheMissTokens,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         graphPayload: graphCheckpoint
             ? {
                 graph: graphCheckpoint,
@@ -1098,13 +1120,13 @@ export function recordModelUsageAfterTurn(
             : undefined,
     });
     events.append({
-        eventType: "usage.recorded.graph_checkpoint",
-        scopeType: "usage",
+        eventType: EVENT_TYPES.USAGE_RECORDED_GRAPH_CHECKPOINT,
+        scopeType: EVENT_SCOPE_TYPES.USAGE,
         scopeId: usage.usageId,
         sessionId: sent.sessionId,
         turnId: sent.turnId,
         taskId: sent.taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "用量图检查点",
         summary: "模型用量记录已绑定当前 Deep Agents 执行节点。",
         payload: withOptionalGraphCheckpoint({
@@ -1169,13 +1191,13 @@ export function updateSessionTitleAfterTurn(
     const session = turnSessionId ? findSession(database, turnSessionId) : null;
     if (!session) {
         events.append({
-            eventType: "session.title_summary.failed",
-            scopeType: "session",
+            eventType: EVENT_TYPES.SESSION_TITLE_SUMMARY_FAILED,
+            scopeType: EVENT_SCOPE_TYPES.SESSION,
             scopeId: turnSessionId,
             sessionId: turnSessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
-            status: "failed",
+            status: TASK_STATUSES.FAILED,
             title: "会话标题总结失败",
             summary: "标题总结时未找到会话，已保留原标题。",
             payload: {
@@ -1188,14 +1210,14 @@ export function updateSessionTitleAfterTurn(
     }
     if (!turn || turn.turnNumber !== 1) {
         events.append({
-            eventType: "session.title_summary.skipped",
-            scopeType: "session",
+            eventType: EVENT_TYPES.SESSION_TITLE_SUMMARY_SKIPPED,
+            scopeType: EVENT_SCOPE_TYPES.SESSION,
             scopeId: session.sessionId,
             sessionId: session.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             projectId: session.projectId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "会话标题总结跳过",
             summary: "会话标题只在第一次对话完成后自动总结，后续轮次保留原标题。",
             payload: {
@@ -1226,14 +1248,14 @@ export function updateSessionTitleAfterTurn(
         }
 
         events.append({
-            eventType: "session.updated",
-            scopeType: "session",
+            eventType: EVENT_TYPES.SESSION_UPDATED,
+            scopeType: EVENT_SCOPE_TYPES.SESSION,
             scopeId: session.sessionId,
             sessionId: session.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             projectId: session.projectId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "会话标题更新",
             summary: nextTitle,
             payload: {
@@ -1247,14 +1269,14 @@ export function updateSessionTitleAfterTurn(
     } catch (error) {
         const message = error instanceof Error ? error.message : "SESSION_TITLE_SUMMARY_UNKNOWN";
         events.append({
-            eventType: "session.title_summary.failed",
-            scopeType: "session",
+            eventType: EVENT_TYPES.SESSION_TITLE_SUMMARY_FAILED,
+            scopeType: EVENT_SCOPE_TYPES.SESSION,
             scopeId: session.sessionId,
             sessionId: session.sessionId,
             turnId: sent.turnId,
             taskId: sent.taskId,
             projectId: session.projectId,
-            status: "failed",
+            status: TASK_STATUSES.FAILED,
             title: "会话标题总结失败",
             summary: "标题总结失败，已保留原标题。",
             payload: {

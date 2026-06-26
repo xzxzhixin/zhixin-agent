@@ -1,3 +1,7 @@
+import {
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import {SessionRepository} from "../data-access/session-repository.js";
@@ -27,9 +31,9 @@ export function finalizeDanglingConversationTurns(
         return repository.listTurns(session.sessionId).filter((turn) => {
             return turn.endedAt === null
                 && (
-                    turn.status === "queued"
-                    || turn.status === "running"
-                    || turn.status === "waiting_user"
+                    turn.status === TASK_STATUSES.QUEUED
+                    || turn.status === TASK_STATUSES.RUNNING
+                    || turn.status === TASK_STATUSES.WAITING_USER
                 );
         });
     });

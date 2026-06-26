@@ -3,6 +3,12 @@ import {appendFileSync, existsSync, mkdirSync, renameSync, rmSync} from "node:fs
 import {arch, platform, release, type} from "node:os";
 import {dirname, join} from "node:path";
 
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
 import type {MemoryQueueState} from "../types.js";
@@ -83,13 +89,13 @@ export function ensureMainAgent(
         updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
-        eventType: "agent.bootstrap",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.AGENT_BOOTSTRAP,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: agentId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "主智能体初始化",
         summary: "内置主智能体致心已恢复。",
         payload: {
@@ -180,13 +186,13 @@ export function createAgent(
         updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
-        eventType: "agent.created",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.AGENT_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: agentId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "智能体创建",
         summary: `长期智能体 ${input.name} 已创建。`,
         payload: {
@@ -268,14 +274,14 @@ export function updateAgent(
         createdBy: "user",
     }));
     events.append({
-        eventType: "agent.updated",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.AGENT_UPDATED,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: input.agentId ?? null,
         sessionId: null,
         turnId: null,
         taskId: null,
         agentId: input.agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "智能体更新",
         summary: next.name,
         payload: {agentId: input.agentId}
@@ -324,14 +330,14 @@ export function disableAgent(
         impactSummary: "已确认记忆处理、调度入口移除和历史会话保留影响。",
     });
     events.append({
-        eventType: "agent.disabled",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.AGENT_DISABLED,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: agentId,
         sessionId: null,
         turnId: null,
         taskId: null,
         agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "智能体停用",
         summary: "长期智能体已停用，历史会话保留。",
         payload: {agentId, archiveMemory}
@@ -423,14 +429,14 @@ export function deleteAgent(
         impactSummary: "已确认删除长期智能体，后续任务调度入口移除，历史会话保留。",
     });
     events.append({
-        eventType: "agent.deleted",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.AGENT_DELETED,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: agentId,
         sessionId: null,
         turnId: null,
         taskId: null,
         agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "智能体删除",
         summary: `长期智能体 ${existing.name} 已删除。`,
         payload: {
@@ -617,14 +623,14 @@ export function writeAgentMemory(
         createdAt: nowText,
     });
     events.append({
-        eventType: "memory.write",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.MEMORY_WRITE,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: input.agentId,
         sessionId: input.sourceSessionId ?? null,
         turnId: input.sourceTurnId ?? null,
         taskId: null,
         agentId: input.agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "记忆写入",
         summary: input.summary,
         payload: {

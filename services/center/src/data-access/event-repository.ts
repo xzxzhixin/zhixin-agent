@@ -1,4 +1,4 @@
-import type {EventRecord} from "@zhixin/shared";
+import type {EventRecord, EventScopeType} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 
@@ -17,7 +17,7 @@ export interface EventInsertInput {
     /** eventType: 固定事件类型。 */
     eventType: string;
     /** scopeType: 事件作用域类型。 */
-    scopeType: string;
+    scopeType: EventScopeType;
     /** scopeId: 事件作用域 ID；无作用域时为 null。 */
     scopeId: string | null;
     /** sessionId: 所属会话 ID；全局事件为 null。 */
@@ -142,13 +142,23 @@ export class EventRepository {
         return {
             eventId: input.eventId,
             eventType: input.eventType,
+            scopeType: input.scopeType,
+            scopeId: input.scopeId,
+            sessionId: input.sessionId,
             turnId: input.turnId,
             taskId: input.taskId,
+            stepId: input.stepId,
+            agentId: input.agentId,
+            projectId: input.projectId,
+            clientId: input.clientId,
             sequence: input.sequence,
             occurredAt: input.occurredAt,
             summary: input.summary,
+            status: input.status,
+            title: input.title,
             payload: input.payload,
             traceId: input.traceId,
+            errorCode: input.errorCode,
         };
     }
 }

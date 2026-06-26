@@ -3,6 +3,11 @@ import {appendFileSync, mkdirSync} from "node:fs";
 import {dirname, join} from "node:path";
 
 import type {ClientType} from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 
 import type {CenterDatabase} from "../database.js";
 import type {CenterEventStore} from "../events.js";
@@ -254,13 +259,13 @@ export function commitAttachment(
         relativePath: archived.archivePath,
     });
     events.append({
-        eventType: "attachment.committed",
-        scopeType: "attachment",
+        eventType: EVENT_TYPES.ATTACHMENT_COMMITTED,
+        scopeType: EVENT_SCOPE_TYPES.ATTACHMENT,
         scopeId: attachmentId,
         sessionId: input.sessionId ?? null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "附件转正",
         summary: fileName,
         payload: {

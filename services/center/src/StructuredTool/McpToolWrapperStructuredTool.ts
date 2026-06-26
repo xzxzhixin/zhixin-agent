@@ -4,6 +4,12 @@ import type {
     ToolInputSchemaOutputType,
 } from "@langchain/core/tools";
 
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
+
 import {CenterStructuredToolBase} from "./CenterStructuredToolBase.js";
 import type {
     DeepAgentsToolExecutionContext,
@@ -70,7 +76,7 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
             );
             return {
                 outputText: normalizedResult.modelText,
-                status: "completed",
+                status: TASK_STATUSES.COMPLETED,
             };
         } catch (error) {
             const failureReason = error instanceof Error
@@ -82,7 +88,7 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
             );
             return {
                 outputText: failureReason,
-                status: "failed",
+                status: TASK_STATUSES.FAILED,
             };
         }
     }
@@ -99,13 +105,13 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
         toolCallId: string,
     ): void {
         this.context.input.events.append({
-            eventType: "tool.mcp.started",
-            scopeType: "tool",
+            eventType: EVENT_TYPES.TOOL_MCP_STARTED,
+            scopeType: EVENT_SCOPE_TYPES.TOOL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "running",
+            status: TASK_STATUSES.RUNNING,
             title: "MCP 调用开始",
             summary: `调用 MCP 工具 ${this.name}`,
             payload: {
@@ -130,13 +136,13 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
         toolCallId: string,
     ): void {
         this.context.input.events.append({
-            eventType: "tool.mcp.completed",
-            scopeType: "tool",
+            eventType: EVENT_TYPES.TOOL_MCP_COMPLETED,
+            scopeType: EVENT_SCOPE_TYPES.TOOL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "MCP 调用完成",
             summary: normalizedResult.uiSummary,
             payload: {
@@ -165,13 +171,13 @@ export class McpToolWrapperStructuredTool extends CenterStructuredToolBase<ToolI
         toolCallId: string,
     ): void {
         this.context.input.events.append({
-            eventType: "tool.mcp.failed",
-            scopeType: "tool",
+            eventType: EVENT_TYPES.TOOL_MCP_FAILED,
+            scopeType: EVENT_SCOPE_TYPES.TOOL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "failed",
+            status: TASK_STATUSES.FAILED,
             title: "MCP 调用失败",
             summary: failureReason,
             payload: {

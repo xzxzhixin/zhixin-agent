@@ -1,4 +1,9 @@
-import {type ClientType} from "@zhixin/shared";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+    type ClientType,
+} from "@zhixin/shared";
 import {createErrorResponse, createSuccessResponse} from "../helpers.js";
 import {evaluateApprovalPolicy} from "../domain/workflow-domain.js";
 import type {CenterApiRouteContext} from "./route-context.js";
@@ -36,13 +41,13 @@ export function registerApprovalRoutes(context: CenterApiRouteContext): void {
                 reason?: string;
             };
             return createSuccessResponse(events.append({
-                eventType: "approval.recorded",
-                scopeType: "approval",
+                eventType: EVENT_TYPES.APPROVAL_RECORDED,
+                scopeType: EVENT_SCOPE_TYPES.APPROVAL,
                 scopeId: body.taskId ?? null,
                 sessionId: null,
                 turnId: null,
                 taskId: body.taskId ?? null,
-                status: body.approved ? "completed" : "cancelled",
+                status: body.approved ? TASK_STATUSES.COMPLETED : TASK_STATUSES.CANCELLED,
                 title: "审批结果",
                 summary: body.reason ?? "",
                 payload: {

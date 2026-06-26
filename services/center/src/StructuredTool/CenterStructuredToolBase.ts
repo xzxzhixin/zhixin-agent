@@ -12,6 +12,11 @@ import type {
     DeepAgentsToolExecutionContext,
     DeepAgentsToolExecutionResult,
 } from "./deepagents-tool-runtime.js";
+import {
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 import {throwIfTurnRuntimeAborted} from "../domain/turn-runtime-cancel-registry.js";
 
 /**
@@ -72,13 +77,13 @@ export abstract class CenterStructuredToolBase<
         );
         const toolCallId = runtimeToolCallId || randomUUID();
         this.context.input.events.append({
-            eventType: "model.tool.requested",
-            scopeType: "tool",
+            eventType: EVENT_TYPES.MODEL_TOOL_REQUESTED,
+            scopeType: EVENT_SCOPE_TYPES.TOOL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "running",
+            status: TASK_STATUSES.RUNNING,
             title: "模型请求工具",
             summary: `模型请求调用 ${this.name}`,
             payload: {
@@ -96,13 +101,13 @@ export abstract class CenterStructuredToolBase<
         throwIfTurnRuntimeAborted(this.context.runtimeSignal);
 
         this.context.input.events.append({
-            eventType: "model.tool.result.appended",
-            scopeType: "model",
+            eventType: EVENT_TYPES.MODEL_TOOL_RESULT_APPENDED,
+            scopeType: EVENT_SCOPE_TYPES.MODEL,
             scopeId: this.context.input.sent.taskId,
             sessionId: this.context.input.sent.sessionId,
             turnId: this.context.input.sent.turnId,
             taskId: this.context.input.sent.taskId,
-            status: "completed",
+            status: TASK_STATUSES.COMPLETED,
             title: "工具结果回填模型",
             summary: `已回填工具结果：${this.name}`,
             payload: {

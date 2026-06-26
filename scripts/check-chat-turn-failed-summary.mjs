@@ -17,15 +17,24 @@ function read(path) {
 
 const helper = read(helperPath);
 const summaryFunctionMatch = helper.match(/function resolveProcessSummary[\s\S]*?\n}/);
+const logTextFunctionMatch = helper.match(/function resolveProcessLogText[\s\S]*?\n}/);
 
-if (!helper.includes("message.turn.failed")) {
-  throw new Error("对话过程卡片必须识别 message.turn.failed 事件。");
+if (!helper.includes("EVENT_TYPES.MESSAGE_TURN_FAILED")) {
+  throw new Error("对话过程卡片必须通过共享常量识别 message.turn.failed 事件。");
 }
 
 if (!summaryFunctionMatch) {
   throw new Error("缺少 resolveProcessSummary 过程卡片摘要函数。");
 }
 
+if (!logTextFunctionMatch) {
+  throw new Error("缺少 resolveProcessLogText 过程卡片正文函数。");
+}
+
 if (!summaryFunctionMatch[0].includes("event.summary")) {
   throw new Error("失败过程卡片必须读取事件顶层 summary，避免错误正文显示为空。");
+}
+
+if (!logTextFunctionMatch[0].includes('"errorMessage"')) {
+  throw new Error("失败过程卡片正文必须读取 payload.errorMessage，确保模型上游 502 等异常直接展示。");
 }

@@ -1,3 +1,9 @@
+import {
+    ACTIVE_TURN_STATE_STATUSES,
+    FINAL_TURN_STATUSES,
+    type ActiveTurnStateStatus,
+} from "@zhixin/shared";
+
 /**
  * SUSPECTED_STALE_FAST_INTERVAL_MS：疑似卡住窗口的快速轮询间隔。
  *
@@ -17,8 +23,11 @@ export const CONFIRMED_RUNNING_INTERVAL_MS = 1500;
 /** FAST_POLL_MAX_ATTEMPTS：单个疑似卡住窗口最多快速探测次数。 */
 const FAST_POLL_MAX_ATTEMPTS = 150;
 
-/** HARD_MAX_ATTEMPTS：极端保护预算，避免异常页面永久调度。 */
-const HARD_MAX_ATTEMPTS = 172800;
+/** PROTECTIVE_SLOW_ATTEMPTS：进入保护性慢轮询前的观察次数。 */
+const PROTECTIVE_SLOW_ATTEMPTS = 172800;
+
+/** PROTECTIVE_SLOW_INTERVAL_MS：保护性慢轮询间隔，避免观察器压力被误当作轮次终态。 */
+const PROTECTIVE_SLOW_INTERVAL_MS = 10000;
 
 /**
  * TurnStateSnapshot：中心服务轻量轮次状态响应。
@@ -34,7 +43,7 @@ export interface TurnStateSnapshot {
     /** taskId: 最新任务 ID；没有任务时为 null。 */
     taskId: string | null;
     /** status: 最新轮次状态。 */
-    status: "idle" | "queued" | "running" | "waiting_user" | "completed" | "failed" | "cancelled";
+    status: ActiveTurnStateStatus;
     /** endedAt: 轮次结束时间；未结束时为 null。 */
     endedAt: string | null;
     /** durationMs: 轮次耗时；未结束时为 null。 */
@@ -58,8 +67,8 @@ export interface TurnStateReconcilerOptions {
     getActiveSessionId: () => string | null;
     /** requestTurnState: 请求中心服务轻量轮次状态。 */
     requestTurnState: (sessionId: string) => Promise<TurnStateSnapshot>;
-    /** getLocalLastSequence: 读取当前会话本地已经合并的最大事件序号。 */
-    getLocalLastSequence: () => number;
+    /** getLocalLastSequence: 读取当前轮次本地已经合并的最大事件序号。 */
+    getLocalLastSequence: (turnId: string) => number;
     /** loadActiveSessionSnapshot: 终态或缺口确认时刷新完整会话快照。 */
     loadActiveSessionSnapshot: () => Promise<void>;
     /** updateRecoveryState: 同步旧恢复状态字段，供现有 UI 和诊断读取。 */
@@ -118,6 +127,9 @@ export class TurnStateReconciler {
 
     /** fastMode: 是否处于 20ms 疑似卡住快轮询窗口。 */
     private fastMode = true;
+
+    /** protectiveSlowMode: 是否进入保护性慢轮询；该状态不能代表 agent 轮次停止。 */
+    private protectiveSlowMode = false;
 
     /**
      * constructor：保存状态收敛器依赖。
@@ -191,6 +203,7 @@ export class TurnStateReconciler {
         this.lastActivityAt = null;
         this.lastSequence = 0;
         this.fastMode = true;
+        this.protectiveSlowMode = false;
         this.syncRecoveryState();
     }
 
@@ -278,18 +291,26 @@ export class TurnStateReconciler {
         if (!this.sessionId || !this.turnId) {
             return;
         }
-        if (this.attempts >= HARD_MAX_ATTEMPTS) {
-            this.options.logWarn("[frontend:turn-state-reconciler] stopped by hard budget", {
-                sessionId: this.sessionId,
-                turnId: this.turnId,
-                attempts: this.attempts,
-            });
-            this.stop();
-            return;
+        let nextIntervalMs = intervalMs;
+        if (this.attempts >= PROTECTIVE_SLOW_ATTEMPTS) {
+            if (!this.protectiveSlowMode) {
+                this.options.logWarn("[frontend:turn-state-reconciler] protective slow polling enabled", {
+                    sessionId: this.sessionId,
+                    turnId: this.turnId,
+                    attempts: this.attempts,
+                    slowIntervalMs: PROTECTIVE_SLOW_INTERVAL_MS,
+                });
+            }
+            this.protectiveSlowMode = true;
+            this.fastMode = false;
+            nextIntervalMs = PROTECTIVE_SLOW_INTERVAL_MS;
+        }
+        if (this.protectiveSlowMode) {
+            nextIntervalMs = PROTECTIVE_SLOW_INTERVAL_MS;
         }
         this.timer = window.setTimeout(() => {
             void this.reconcile();
-        }, intervalMs);
+        }, nextIntervalMs);
         this.syncRecoveryState();
     }
 
@@ -334,7 +355,7 @@ export class TurnStateReconciler {
                     sessionId,
                     turnId,
                     attempts: this.attempts,
-                    localLastSequence: this.options.getLocalLastSequence(),
+                    localLastSequence: this.options.getLocalLastSequence(turnId),
                     serverLastSequence: state.lastSequence,
                 });
                 this.applyActivity(
@@ -342,6 +363,7 @@ export class TurnStateReconciler {
                     state.lastSequence,
                 );
                 this.fastMode = false;
+                this.protectiveSlowMode = false;
                 this.idleAttempts = 0;
                 this.syncRecoveryState();
                 this.schedule(CONFIRMED_RUNNING_INTERVAL_MS);
@@ -379,6 +401,7 @@ export class TurnStateReconciler {
         if (activityChanged) {
             this.idleAttempts = 0;
             this.fastMode = false;
+            this.protectiveSlowMode = false;
             this.options.logInfo("[frontend:turn-state-reconciler] activity renewed", {
                 sessionId: state.sessionId,
                 turnId: state.turnId,
@@ -433,11 +456,10 @@ export class TurnStateReconciler {
      * @returns 轮次已完成、失败、取消、等待用户或转为空闲时返回 true。
      */
     private isTerminalState(state: TurnStateSnapshot): boolean {
-        return state.status === "completed"
-            || state.status === "failed"
-            || state.status === "cancelled"
-            || state.status === "waiting_user"
-            || state.status === "idle"
+        return FINAL_TURN_STATUSES.some((status) => {
+            return status === state.status;
+        })
+            || state.status === ACTIVE_TURN_STATE_STATUSES.IDLE
             || state.endedAt !== null;
     }
 
@@ -448,7 +470,7 @@ export class TurnStateReconciler {
      * @returns 中心服务最后事件序号大于本地已合并序号时返回 true。
      */
     private hasEventSequenceGap(state: TurnStateSnapshot): boolean {
-        const localLastSequence = this.options.getLocalLastSequence();
+        const localLastSequence = this.options.getLocalLastSequence(state.turnId ?? "");
         return state.lastSequence > localLastSequence;
     }
 

@@ -3,6 +3,13 @@ import {existsSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import type {AgentRuntimeStatus, EventRecord, ExecutionMode} from "@zhixin/shared";
+import {
+    AGENT_RUNTIME_STATUSES,
+    EVENT_SCOPE_TYPES,
+    EVENT_TYPE_PREFIXES,
+    EVENT_TYPES,
+    TASK_STATUSES,
+} from "@zhixin/shared";
 
 import {writeAgentMemory} from "./agent-domain.js";
 import type {CenterDatabase} from "../database.js";
@@ -10,7 +17,7 @@ import type {CenterEventStore} from "../events.js";
 import {createDataAccess} from "../data-access/index.js";
 import {findProject, findSession, createMessageTurnAndTask, isFinalTaskStatus} from "./session-domain.js";
 import {listAgents} from "./agent-domain.js";
-import type {MemoryQueueState, SubAgentRuntimeRecord} from "../types.js";
+import type {MemoryQueueState, RealtimeClientConnection, SubAgentRuntimeRecord} from "../types.js";
 import {writeJsonFile} from "../helpers.js";
 import type {ProviderModelGatewayResult} from "../model-provider/ModelProviderRuntimeTypes.js";
 import {formatCenterLocalDateTime} from "../time.js";
@@ -58,13 +65,13 @@ export function createTodo(database: CenterDatabase, events: CenterEventStore, t
         updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
-        eventType: "personal.todo.created",
-        scopeType: "personal",
+        eventType: EVENT_TYPES.PERSONAL_TODO_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.PERSONAL,
         scopeId: todoId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "待办创建",
         summary: title,
         payload: {todoId}
@@ -84,13 +91,13 @@ export function createCalendarEvent(database: CenterDatabase, events: CenterEven
         updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
-        eventType: "personal.calendar.created",
-        scopeType: "personal",
+        eventType: EVENT_TYPES.PERSONAL_CALENDAR_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.PERSONAL,
         scopeId: eventId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "日程创建",
         summary: title,
         payload: {eventId}
@@ -110,13 +117,13 @@ export function createKnowledgeItem(database: CenterDatabase, events: CenterEven
         updatedAt: formatCenterLocalDateTime(),
     });
     events.append({
-        eventType: "personal.knowledge.created",
-        scopeType: "personal",
+        eventType: EVENT_TYPES.PERSONAL_KNOWLEDGE_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.PERSONAL,
         scopeId: itemId,
         sessionId: null,
         turnId: null,
         taskId: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "知识条目创建",
         summary,
         payload: {itemId}
@@ -171,14 +178,14 @@ export function createSubAgentRuntime(
         createdAt,
     });
     events.append({
-        eventType: "subagent.created",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.SUBAGENT_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: subAgentId,
         sessionId: null,
         turnId: null,
         taskId,
         agentId: parentAgentId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "子智能体创建",
         summary: name,
         payload: {
@@ -226,16 +233,16 @@ export function recordAgentCollaborationEvent(
 } {
     // eventType: UI 按固定事件类型展示管线和群聊协作过程。
     const eventType = collaborationKind === "pipeline"
-        ? "agent.collaboration.pipeline"
-        : "agent.collaboration.group_chat";
+        ? EVENT_TYPES.AGENT_COLLABORATION_PIPELINE
+        : EVENT_TYPES.AGENT_COLLABORATION_GROUP_CHAT;
     events.append({
         eventType,
-        scopeType: "agent-collaboration",
+        scopeType: EVENT_SCOPE_TYPES.AGENT_COLLABORATION,
         scopeId: taskId,
         sessionId: null,
         turnId: null,
         taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title,
         summary,
         payload: {
@@ -284,8 +291,8 @@ export function setAgentRuntimeState(
     });
 
     const event = events.append({
-        eventType: "agent.state.changed",
-        scopeType: "agent",
+        eventType: EVENT_TYPES.AGENT_STATE_CHANGED,
+        scopeType: EVENT_SCOPE_TYPES.AGENT,
         scopeId: agentId,
         sessionId: null,
         turnId: null,
@@ -406,13 +413,13 @@ export function recordUsage(database: CenterDatabase, events: CenterEventStore, 
         createdAt: formatCenterLocalDateTime(),
     });
     events.append({
-        eventType: "usage.recorded",
-        scopeType: "usage",
+        eventType: EVENT_TYPES.USAGE_RECORDED,
+        scopeType: EVENT_SCOPE_TYPES.USAGE,
         scopeId: usageId,
         sessionId: input.sessionId ?? null,
         turnId: input.turnId ?? null,
         taskId: input.taskId ?? null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "用量记录",
         summary: input.model ?? "",
         payload: {
@@ -430,22 +437,22 @@ export function markWorkerTaskFailed(database: CenterDatabase, events: CenterEve
     const now = formatCenterLocalDateTime();
     createDataAccess(database).sessions.updateTaskStatus(
         taskId,
-        "failed",
+        TASK_STATUSES.FAILED,
         now,
     );
     events.append({
-        eventType: "task.failed",
-        scopeType: "task",
+        eventType: EVENT_TYPES.TASK_FAILED,
+        scopeType: EVENT_SCOPE_TYPES.TASK,
         scopeId: taskId || null,
         sessionId: null,
         turnId: null,
         taskId: taskId || null,
-        status: "failed",
+        status: TASK_STATUSES.FAILED,
         title: "Worker 任务失败",
         summary: reason,
         payload: {taskId, reason}
     });
-    return {taskId, status: "failed"};
+    return {taskId, status: TASK_STATUSES.FAILED};
 }
 
 export function startWorkerTask(database: CenterDatabase, events: CenterEventStore, taskId: string): {
@@ -456,34 +463,34 @@ export function startWorkerTask(database: CenterDatabase, events: CenterEventSto
     const now = formatCenterLocalDateTime();
     createDataAccess(database).sessions.updateTaskStatus(
         taskId,
-        "running",
+        TASK_STATUSES.RUNNING,
         now,
     );
     events.append({
-        eventType: "worker.started",
-        scopeType: "worker",
+        eventType: EVENT_TYPES.WORKER_STARTED,
+        scopeType: EVENT_SCOPE_TYPES.WORKER,
         scopeId: taskId,
         sessionId: null,
         turnId: null,
         taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "Worker 启动",
         summary: "中心服务已为任务启动 Worker 生命周期。",
         payload: {taskId, heartbeatAt: now}
     });
     events.append({
-        eventType: "task.updated",
-        scopeType: "task",
+        eventType: EVENT_TYPES.TASK_UPDATED,
+        scopeType: EVENT_SCOPE_TYPES.TASK,
         scopeId: taskId,
         sessionId: null,
         turnId: null,
         taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "任务运行中",
         summary: "Worker 已接管任务。",
-        payload: {taskId, status: "running"}
+        payload: {taskId, status: TASK_STATUSES.RUNNING}
     });
-    return {taskId, status: "running", heartbeatAt: now};
+    return {taskId, status: TASK_STATUSES.RUNNING, heartbeatAt: now};
 }
 
 export function cancelWorkerTask(database: CenterDatabase, events: CenterEventStore, taskId: string, reason: string): {
@@ -493,22 +500,22 @@ export function cancelWorkerTask(database: CenterDatabase, events: CenterEventSt
     const now = formatCenterLocalDateTime();
     createDataAccess(database).sessions.updateTaskStatus(
         taskId,
-        "cancelled",
+        TASK_STATUSES.CANCELLED,
         now,
     );
     events.append({
-        eventType: "worker.cancelled",
-        scopeType: "worker",
+        eventType: EVENT_TYPES.WORKER_CANCELLED,
+        scopeType: EVENT_SCOPE_TYPES.WORKER,
         scopeId: taskId,
         sessionId: null,
         turnId: null,
         taskId,
-        status: "cancelled",
+        status: TASK_STATUSES.CANCELLED,
         title: "Worker 取消",
         summary: reason,
         payload: {taskId, reason}
     });
-    return {taskId, status: "cancelled"};
+    return {taskId, status: TASK_STATUSES.CANCELLED};
 }
 
 export function buildWorkerContext(database: CenterDatabase, taskId: string): {
@@ -608,7 +615,7 @@ export function runTurnEngine(
         outputTokens: 1,
         cacheHitTokens: null,
         cacheMissTokens: null,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
     });
 
     handleWorkerMessage(database, events, "task.complete", sent.taskId, {
@@ -658,16 +665,16 @@ export function routeAgentForTurn(context: {
  * @returns 模型编排事件类型。
  */
 export function orchestrateModelCall(events: CenterEventStore, taskId: string, agentId: string, userText: string): string {
-    const eventType = "model.orchestrated";
+    const eventType = EVENT_TYPES.MODEL_ORCHESTRATED;
     events.append({
         eventType,
-        scopeType: "model",
+        scopeType: EVENT_SCOPE_TYPES.MODEL,
         scopeId: taskId,
         sessionId: null,
         turnId: null,
         taskId,
         agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "模型编排",
         summary: "已按内部模型协议准备模型调用。",
         payload: {
@@ -705,13 +712,13 @@ export function appendModelStreamEvent(
     graphCheckpoint?: TurnGraphCheckpoint,
 ): void {
     events.append({
-        eventType: "model.stream.delta",
-        scopeType: "model",
+        eventType: EVENT_TYPES.MODEL_STREAM_DELTA,
+        scopeType: EVENT_SCOPE_TYPES.MODEL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
-        status: "running",
+        status: TASK_STATUSES.RUNNING,
         title: "模型流式片段",
         summary: result.assistantText.slice(0, 120),
         payload: withOptionalGraphCheckpoint({
@@ -722,13 +729,13 @@ export function appendModelStreamEvent(
         }, graphCheckpoint),
     });
     events.append({
-        eventType: "model.stream.completed",
-        scopeType: "model",
+        eventType: EVENT_TYPES.MODEL_STREAM_COMPLETED,
+        scopeType: EVENT_SCOPE_TYPES.MODEL,
         scopeId: taskId,
         sessionId,
         turnId,
         taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "模型流式结束",
         summary: "模型流式输出已结束。",
         payload: withOptionalGraphCheckpoint({
@@ -750,14 +757,14 @@ export function appendModelStreamEvent(
 export function planToolCalls(events: CenterEventStore, taskId: string, agentId: string): string {
     const toolPlanId = `tool-plan-${randomUUID()}`;
     events.append({
-        eventType: "tool.plan.created",
-        scopeType: "tool-plan",
+        eventType: EVENT_TYPES.TOOL_PLAN_CREATED,
+        scopeType: EVENT_SCOPE_TYPES.TOOL_PLAN,
         scopeId: toolPlanId,
         sessionId: null,
         turnId: null,
         taskId,
         agentId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "工具计划",
         summary: "已生成需要审批策略评估的工具调用计划。",
         payload: {
@@ -798,7 +805,7 @@ export function handleWorkerMessage(
         if (task && !isFinalTaskStatus(task.status)) {
             createDataAccess(database).sessions.updateTaskStatus(
                 taskId,
-                "completed",
+                TASK_STATUSES.COMPLETED,
                 formatCenterLocalDateTime(),
             );
         }
@@ -810,20 +817,20 @@ export function handleWorkerMessage(
         if (task && !isFinalTaskStatus(task.status)) {
             createDataAccess(database).sessions.updateTaskStatus(
                 taskId,
-                "failed",
+                TASK_STATUSES.FAILED,
                 formatCenterLocalDateTime(),
             );
         }
     }
 
     events.append({
-        eventType: `worker.${type}`,
-        scopeType: "worker",
+        eventType: `${EVENT_TYPE_PREFIXES.WORKER}${type}`,
+        scopeType: EVENT_SCOPE_TYPES.WORKER,
         scopeId: taskId,
         sessionId: null,
         turnId: null,
         taskId,
-        status: "completed",
+        status: TASK_STATUSES.COMPLETED,
         title: "Worker 消息",
         summary: type,
         payload,
